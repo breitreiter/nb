@@ -1,0 +1,123 @@
+using System.Text.Json;
+using Microsoft.Extensions.AI;
+using ModelContextProtocol;
+using ModelContextProtocol.Client;
+using Spectre.Console;
+
+namespace nb;
+
+public interface IMcpManager
+{
+    Task InitializeAsync();
+    IReadOnlyList<AIFunction> GetTools();
+    void Dispose();
+}
+
+public class McpManager : IMcpManager
+{
+    private readonly List<IMcpClient> _mcpClients = new();
+    private readonly List<AIFunction> _mcpTools = new();
+
+    public async Task InitializeAsync()
+    {
+        try
+        {
+            var mcpConfig = LoadMcpConfiguration();
+            
+            // Use either McpServers or Servers property (support both formats)
+            var servers = mcpConfig.McpServers.Count > 0 ? mcpConfig.McpServers : mcpConfig.Servers;
+            
+            if (servers.Count == 0)
+            {
+                return; // No MCP servers configured
+            }
+
+            foreach (var (serverName, serverConfig) in servers)
+            {
+                try
+                {
+                    var transport = new StdioClientTransport(new StdioClientTransportOptions
+                    {
+                        Name = serverName,
+                        Command = serverConfig.Command,
+                        Arguments = serverConfig.Args ?? Array.Empty<string>(),
+                        EnvironmentVariables = serverConfig.Env ?? new Dictionary<string, string>()
+                    });
+
+                    var client = await McpClientFactory.CreateAsync(transport);
+                    _mcpClients.Add(client);
+
+                    // Get tools from this client
+                    var tools = await client.ListToolsAsync();
+                    _mcpTools.AddRange(tools);
+
+                    AnsiConsole.MarkupLine($"[green]Connected to MCP server: {serverName}[/]");
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]Warning: Failed to connect to MCP server '{serverName}': {ex.Message}[/]");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[yellow]Warning: Failed to load MCP configuration: {ex.Message}[/]");
+        }
+    }
+
+    public IReadOnlyList<AIFunction> GetTools()
+    {
+        return _mcpTools.AsReadOnly();
+    }
+
+    public void Dispose()
+    {
+        foreach (var client in _mcpClients)
+        {
+            try
+            {
+                if (client is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    private static McpConfig LoadMcpConfiguration()
+    {
+        var executablePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+        var executableDirectory = Path.GetDirectoryName(executablePath);
+        var mcpConfigPath = Path.Combine(executableDirectory, "mcp.json");
+
+        if (!File.Exists(mcpConfigPath))
+        {
+            return new McpConfig();
+        }
+
+        var json = File.ReadAllText(mcpConfigPath);
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
+        return JsonSerializer.Deserialize<McpConfig>(json, options) ?? new McpConfig();
+    }
+}
+
+public class McpServerConfig
+{
+    public string Command { get; set; } = string.Empty;
+    public string[]? Args { get; set; }
+    public Dictionary<string, string>? Env { get; set; }
+    public int Timeout { get; set; } = 60000;
+}
+
+public class McpConfig
+{
+    public Dictionary<string, McpServerConfig> McpServers { get; set; } = new();
+    public Dictionary<string, McpServerConfig> Servers { get; set; } = new();
+}
