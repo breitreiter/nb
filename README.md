@@ -6,7 +6,7 @@ A simple command-line chat interface for Azure OpenAI with MCP (Model Context Pr
 
 - **Interactive Mode** - Run conversations in a chat loop, or pass command-line arguments as a single prompt
 - **MCP Server Integration** - Connect to Model Context Protocol servers for extended tool functionality
-- **GPT-4o Mini Required** - Designed for Azure OpenAI's o4-mini deployment, may not work correctly with other models
+- **o4-mini Required** - Designed for Azure OpenAI's o4-mini deployment, may not work correctly with other models
 
 ## Prerequisites
 
@@ -17,7 +17,7 @@ A simple command-line chat interface for Azure OpenAI with MCP (Model Context Pr
 
 1. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/breitreiter/nb
    cd nb
    ```
 
