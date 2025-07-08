@@ -245,17 +245,6 @@ public class ConversationManager : IConversationManager
 
     private static void RenderMarkdown(string markdown)
     {
-        Rule rule = new("[blue]nb[/]")
-        {
-            Justification = Justify.Left,
-            Border = BoxBorder.Rounded,
-            Style = "blue"
-        };
-        AnsiConsole.Write(rule);
-
         AnsiConsole.WriteLine(markdown);
-
-        rule.Title = null;
-        AnsiConsole.Write(rule);
     }
 }

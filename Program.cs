@@ -68,9 +68,24 @@ public class Program
 
         while (true)
         {
-            var userInput = AnsiConsole.Ask<string>("[yellow]You:[/]");
+            // Show prompt and capture input manually
+            AnsiConsole.Markup("[yellow]You:[/] ");
+            var userInput = Console.ReadLine();
+            
+            // Clear the input line by moving cursor up and clearing
+            Console.SetCursorPosition(0, Console.CursorTop - 1);
+            Console.Write(new string(' ', Console.WindowWidth));
+            Console.SetCursorPosition(0, Console.CursorTop);
+            
+            // Display the user's prompt in a Spectre panel
+            var panel = new Panel(userInput ?? "")
+                .Header("[yellow]You[/]")
+                .Border(BoxBorder.Rounded)
+                .BorderStyle(new Style(Color.Yellow));
+            
+            AnsiConsole.Write(panel);
 
-            if (userInput.ToLower() == "exit")
+            if (userInput?.ToLower() == "exit")
                 break;
 
             if (!string.IsNullOrWhiteSpace(userInput))
