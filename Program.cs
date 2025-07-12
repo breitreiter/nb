@@ -64,7 +64,7 @@ public class Program
 
     private static async Task StartChatLoop()
     {
-        AnsiConsole.MarkupLine("[white]N[/]ota[white]B[/]ene 0.1α [grey]Type 'exit' to quit.[/]");
+        AnsiConsole.MarkupLine("[white]N[/]ota[white]B[/]ene 0.2α [grey]▪[/] [cadetblue_1]exit[/] [grey]to quit[/] [cadetblue_1]?[/] [grey]for help[/]");
 
         while (true)
         {
@@ -85,8 +85,38 @@ public class Program
             
             AnsiConsole.Write(panel);
 
-            if (userInput?.ToLower() == "exit")
+            var command = userInput?.ToLower();
+
+            if (command == "exit")
                 break;
+            else if (command == "pwd")
+            {
+                AnsiConsole.MarkupLine($"[green]Current directory:[/] {Directory.GetCurrentDirectory()}");
+                continue;
+            }
+            else if (command?.StartsWith("cd ") == true)
+            {
+                var path = userInput.Substring(3).Trim();
+                try
+                {
+                    Directory.SetCurrentDirectory(path);
+                    AnsiConsole.MarkupLine($"[green]Changed directory to:[/] {Directory.GetCurrentDirectory()}");
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine($"[red]Error changing directory:[/] {ex.Message}");
+                }
+                continue;
+            }
+            else if (command == "?")
+            {
+                AnsiConsole.MarkupLine("[yellow]Available commands:[/]");
+                AnsiConsole.MarkupLine("  [white]exit[/] - Quit the application");
+                AnsiConsole.MarkupLine("  [white]pwd[/] - Show current working directory");
+                AnsiConsole.MarkupLine("  [white]cd <path>[/] - Change directory");
+                AnsiConsole.MarkupLine("  [white]?[/] - Show this help");
+                continue;
+            }
 
             if (!string.IsNullOrWhiteSpace(userInput))
             {
