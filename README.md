@@ -1,17 +1,21 @@
 # NotaBene (nb)
 
-A simple command-line chat interface for Azure OpenAI with MCP (Model Context Protocol) server support.
+A command-line chat interface for Azure OpenAI with MCP (Model Context Protocol) server support and Retrieval-Augmented Generation (RAG) capabilities.
 
 ## Features
 
 - **Interactive Mode** - Run conversations in a chat loop, or pass command-line arguments as a single prompt
+- **Document Upload & RAG** - Upload PDF, TXT, and MD files for semantic search and context-aware responses
 - **MCP Server Integration** - Connect to Model Context Protocol servers for extended tool functionality
+- **Built-in Commands** - Directory navigation, file uploads, and help commands
 - **o4-mini Required** - Designed for Azure OpenAI's o4-mini deployment, may not work correctly with other models
 
 ## Prerequisites
 
 - .NET 8.0 or later
-- Azure OpenAI resource with o4-mini deployment
+- Azure OpenAI resource with:
+  - Chat model deployment (e.g., o4-mini)
+  - Text embedding model deployment (e.g., text-embedding-3-small)
 
 ## Setup
 
@@ -31,7 +35,13 @@ A simple command-line chat interface for Azure OpenAI with MCP (Model Context Pr
      "AzureOpenAI": {
        "Endpoint": "https://your-resource-name.openai.azure.com/",
        "ApiKey": "your-api-key-here",
-       "DeploymentName": "your-deployment-name"
+       "ChatDeploymentName": "o4-mini",
+       "EmbeddingDeploymentName": "text-embedding-3-small"
+     },
+     "SemanticMemory": {
+       "ChunkSize": 256,          // Words per document chunk (smaller = more precise search)
+       "ChunkOverlap": 64,        // Overlapping words between chunks (prevents context loss)
+       "SimilarityThreshold": 0.5 // Min similarity score for search results (0.3-0.8 typical range)
      }
    }
    ```
@@ -73,13 +83,32 @@ A simple command-line chat interface for Azure OpenAI with MCP (Model Context Pr
 ```bash
 dotnet run
 ```
-Start a conversation session. Type `exit` to quit.
+Start a conversation session with the following commands:
+- `exit` - Quit the application
+- `pwd` - Show current working directory
+- `cd <path>` - Change directory
+- `upload <filepath>` - Upload and process file for semantic search (PDF, TXT, MD)
+- `?` - Show help with all commands
 
 ### Direct Query
 ```bash
 dotnet run "What is the capital of France?"
 ```
 Send a single message and get a response.
+
+### Document Upload & RAG
+Upload documents to enhance conversations with relevant context:
+```bash
+upload /path/to/document.pdf
+upload ./notes.md
+upload research.txt
+```
+Once uploaded, the AI will automatically search through your documents when answering questions, providing context-aware responses based on your uploaded content.
+
+**Tuning RAG Performance:**
+- Lower `ChunkSize` (e.g., 128) for more precise search on focused content
+- Increase `ChunkOverlap` to preserve more context between chunks  
+- Adjust `SimilarityThreshold` - lower values (0.3-0.4) include more results, higher values (0.6-0.8) are more selective
 
 ## Configuration
 
@@ -88,7 +117,11 @@ Send a single message and get a response.
 |---------|-------------|---------|
 | `AzureOpenAI:Endpoint` | Your Azure OpenAI endpoint | Required |
 | `AzureOpenAI:ApiKey` | Your Azure OpenAI API key | Required |
-| `AzureOpenAI:DeploymentName` | Model deployment name | `o4-mini` |
+| `AzureOpenAI:ChatDeploymentName` | Chat model deployment name | `o4-mini` |
+| `AzureOpenAI:EmbeddingDeploymentName` | Embedding model deployment name | `text-embedding-3-small` |
+| `SemanticMemory:ChunkSize` | Words per document chunk | `256` |
+| `SemanticMemory:ChunkOverlap` | Overlapping words between chunks | `64` |
+| `SemanticMemory:SimilarityThreshold` | Minimum similarity score for search results | `0.5` |
 
 ### system.md
 Place a `system.md` file in the same directory as the executable to customize the AI's behavior. The entire file content will be used as the system prompt.
@@ -118,11 +151,15 @@ Make sure to include `system.md` and `mcp.json` alongside your executable if you
 
 - Built with .NET 8.0
 - Uses Azure OpenAI .NET SDK (v2.2.0-beta.4)
+- Semantic Kernel for RAG and text embeddings
 - Model Context Protocol (MCP) SDK for tool integration
+- iText7 for PDF text extraction
 - Powered by Spectre.Console for rich terminal UI
 - Automatic UTF-8 console setup for Windows
 - Conversation history maintained in memory
+- Document embeddings stored in memory (session-based)
 - Supports tool calling via MCP servers
+- Semantic search with cosine similarity matching
 
 ## License
 

@@ -11,6 +11,7 @@ public interface IConversationManager
 {
     Task SendMessageAsync(string userMessage);
     void InitializeWithSystemPrompt(string systemPrompt);
+    void SetSemanticMemoryService(ISemanticMemoryService semanticMemoryService);
 }
 
 public class ConversationManager : IConversationManager
@@ -19,6 +20,7 @@ public class ConversationManager : IConversationManager
     private readonly IMcpManager _mcpManager;
     private readonly List<OpenAIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
+    private ISemanticMemoryService? _semanticMemoryService;
 
     public ConversationManager(ChatClient client, IMcpManager mcpManager)
     {
@@ -31,12 +33,31 @@ public class ConversationManager : IConversationManager
         _conversationHistory.Add(new SystemChatMessage(systemPrompt));
     }
 
+    public void SetSemanticMemoryService(ISemanticMemoryService semanticMemoryService)
+    {
+        _semanticMemoryService = semanticMemoryService;
+    }
+
     public async Task SendMessageAsync(string userMessage)
     {
         if (_client == null) return;
 
+        // Search for relevant content in semantic memory
+        var relevantContent = string.Empty;
+        if (_semanticMemoryService != null)
+        {
+            relevantContent = await _semanticMemoryService.SearchRelevantContentAsync(userMessage);
+        }
+
+        // Enhance user message with relevant context if found
+        var enhancedMessage = userMessage;
+        if (!string.IsNullOrEmpty(relevantContent))
+        {
+            enhancedMessage = $"{userMessage}\n\n[Context from uploaded documents]:\n{relevantContent}";
+        }
+
         // Add user message to conversation history
-        _conversationHistory.Add(new UserChatMessage(userMessage));
+        _conversationHistory.Add(new UserChatMessage(enhancedMessage));
         
         await SendMessageInternalAsync();
     }

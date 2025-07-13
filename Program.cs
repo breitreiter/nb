@@ -14,6 +14,7 @@ public class Program
     private static IMcpManager _mcpManager = new McpManager();
     private static IConversationManager _conversationManager;
     private static IConfigurationService _configurationService = new ConfigurationService();
+    private static ISemanticMemoryService _semanticMemoryService;
 
     public static async Task Main(string[] args)
     {
@@ -21,9 +22,21 @@ public class Program
         InitializeOpenAIClient(config);
         await _mcpManager.InitializeAsync();
         
+        // Initialize semantic memory service
+        var endpoint = config["AzureOpenAI:Endpoint"];
+        var apiKey = config["AzureOpenAI:ApiKey"];
+        var chatDeployment = config["AzureOpenAI:ChatDeploymentName"] ?? "o4-mini";
+        var embeddingDeployment = config["AzureOpenAI:EmbeddingDeploymentName"] ?? "text-embedding-3-small";
+        var chunkSize = config.GetValue<int>("SemanticMemory:ChunkSize", 256);
+        var chunkOverlap = config.GetValue<int>("SemanticMemory:ChunkOverlap", 64);
+        var similarityThreshold = config.GetValue<double>("SemanticMemory:SimilarityThreshold", 0.7);
+        _semanticMemoryService = new SemanticMemoryService(endpoint, apiKey, embeddingDeployment, chunkSize, chunkOverlap, similarityThreshold);
+        await _semanticMemoryService.InitializeAsync();
+        
         // Initialize conversation manager with dependencies
         _conversationManager = new ConversationManager(_client, _mcpManager);
         _conversationManager.InitializeWithSystemPrompt(_configurationService.GetSystemPrompt());
+        _conversationManager.SetSemanticMemoryService(_semanticMemoryService);
 
         var initialPrompt = string.Join(" ", args);
 
@@ -42,7 +55,7 @@ public class Program
     {
         var endpoint = config["AzureOpenAI:Endpoint"];
         var apiKey = config["AzureOpenAI:ApiKey"];
-        var deployment = config["AzureOpenAI:DeploymentName"] ?? "o4-mini";
+        var deployment = config["AzureOpenAI:ChatDeploymentName"] ?? "o4-mini";
 
         if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(apiKey))
         {
@@ -108,12 +121,26 @@ public class Program
                 }
                 continue;
             }
+            else if (command?.StartsWith("upload ") == true)
+            {
+                var filePath = userInput.Substring(7).Trim();
+                if (string.IsNullOrEmpty(filePath))
+                {
+                    AnsiConsole.MarkupLine("[red]Please specify a file path: upload <filepath>[/]");
+                }
+                else
+                {
+                    await _semanticMemoryService.UploadFileAsync(filePath);
+                }
+                continue;
+            }
             else if (command == "?")
             {
                 AnsiConsole.MarkupLine("[yellow]Available commands:[/]");
                 AnsiConsole.MarkupLine("  [white]exit[/] - Quit the application");
                 AnsiConsole.MarkupLine("  [white]pwd[/] - Show current working directory");
                 AnsiConsole.MarkupLine("  [white]cd <path>[/] - Change directory");
+                AnsiConsole.MarkupLine("  [white]upload <filepath>[/] - Upload and process file for semantic search (PDF, TXT, MD)");
                 AnsiConsole.MarkupLine("  [white]?[/] - Show this help");
                 continue;
             }
