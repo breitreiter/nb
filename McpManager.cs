@@ -10,6 +10,7 @@ public interface IMcpManager
 {
     Task InitializeAsync();
     IReadOnlyList<AIFunction> GetTools();
+    IReadOnlyList<McpClientPrompt> GetPrompts();
     void Dispose();
 }
 
@@ -17,6 +18,7 @@ public class McpManager : IMcpManager
 {
     private readonly List<IMcpClient> _mcpClients = new();
     private readonly List<AIFunction> _mcpTools = new();
+    private readonly List<McpClientPrompt> _mcpPrompts = new();
 
     public async Task InitializeAsync()
     {
@@ -51,7 +53,18 @@ public class McpManager : IMcpManager
                     var tools = await client.ListToolsAsync();
                     _mcpTools.AddRange(tools);
 
-                    AnsiConsole.MarkupLine($"[green]Connected to MCP server: {serverName}[/]");
+                    // Get prompts from this client
+                    try
+                    {
+                        var prompts = await client.ListPromptsAsync();
+                        _mcpPrompts.AddRange(prompts);
+                        AnsiConsole.MarkupLine($"[green]Connected to MCP server: {serverName} ({tools.Count} tools, {prompts.Count} prompts)[/]");
+                    }
+                    catch (Exception promptEx)
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]Warning: {serverName} doesn't support prompts: {promptEx.Message}[/]");
+                        AnsiConsole.MarkupLine($"[green]Connected to MCP server: {serverName} ({tools.Count} tools, 0 prompts)[/]");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -68,6 +81,11 @@ public class McpManager : IMcpManager
     public IReadOnlyList<AIFunction> GetTools()
     {
         return _mcpTools.AsReadOnly();
+    }
+
+    public IReadOnlyList<McpClientPrompt> GetPrompts()
+    {
+        return _mcpPrompts.AsReadOnly();
     }
 
     public void Dispose()

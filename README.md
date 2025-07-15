@@ -85,9 +85,11 @@ dotnet run
 ```
 Start a conversation session with the following commands:
 - `exit` - Quit the application
-- `pwd` - Show current working directory
-- `cd <path>` - Change directory
-- `upload <filepath>` - Upload and process file for semantic search (PDF, TXT, MD)
+- `/pwd` - Show current working directory
+- `/cd <path>` - Change directory
+- `/upload <filepath>` - Upload and process file for semantic search (PDF, TXT, MD)
+- `/prompts` - List available MCP prompts from connected servers
+- `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands
 
 ### Direct Query
@@ -99,9 +101,9 @@ Send a single message and get a response.
 ### Document Upload & RAG
 Upload documents to enhance conversations with relevant context:
 ```bash
-upload /path/to/document.pdf
-upload ./notes.md
-upload research.txt
+/upload /path/to/document.pdf
+/upload ./notes.md
+/upload research.txt
 ```
 Once uploaded, the AI will automatically search through your documents when answering questions, providing context-aware responses based on your uploaded content.
 
@@ -109,6 +111,15 @@ Once uploaded, the AI will automatically search through your documents when answ
 - Lower `ChunkSize` (e.g., 128) for more precise search on focused content
 - Increase `ChunkOverlap` to preserve more context between chunks  
 - Adjust `SimilarityThreshold` - lower values (0.3-0.4) include more results, higher values (0.6-0.8) are more selective
+
+### MCP Prompt Integration
+Interact with prompts from connected MCP servers:
+```bash
+/prompts                    # List all available prompts
+/prompt weather-report      # Invoke a specific prompt
+/prompt code-review         # Prompts may request arguments interactively
+```
+MCP prompts provide pre-configured workflows and can accept arguments to customize their behavior. The application will prompt you for any required arguments before executing the prompt.
 
 ## Configuration
 
@@ -152,13 +163,13 @@ Make sure to include `system.md` and `mcp.json` alongside your executable if you
 - Built with .NET 8.0
 - Uses Azure OpenAI .NET SDK (v2.2.0-beta.4)
 - Semantic Kernel for RAG and text embeddings
-- Model Context Protocol (MCP) SDK for tool integration
+- Model Context Protocol (MCP) SDK for tool and prompt integration
 - iText7 for PDF text extraction
 - Powered by Spectre.Console for rich terminal UI
 - Automatic UTF-8 console setup for Windows
 - Conversation history maintained in memory
 - Document embeddings stored in memory (session-based)
-- Supports tool calling via MCP servers
+- Supports tool calling and prompt execution via MCP servers
 - Semantic search with cosine similarity matching
 
 ## License

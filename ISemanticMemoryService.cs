@@ -1,5 +1,6 @@
 namespace nb;
 
+// Interface to support future storage implementations (persistent vector stores, different backends)
 public interface ISemanticMemoryService
 {
     Task InitializeAsync();

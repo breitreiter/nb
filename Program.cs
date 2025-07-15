@@ -4,6 +4,7 @@ using Azure.AI.OpenAI.Chat;
 using OpenAI.Chat;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
+using ModelContextProtocol.Protocol;
 
 namespace nb;
 
@@ -102,14 +103,14 @@ public class Program
 
             if (command == "exit")
                 break;
-            else if (command == "pwd")
+            else if (command == "/pwd")
             {
                 AnsiConsole.MarkupLine($"[green]Current directory:[/] {Directory.GetCurrentDirectory()}");
                 continue;
             }
-            else if (command?.StartsWith("cd ") == true)
+            else if (command?.StartsWith("/cd ") == true)
             {
-                var path = userInput.Substring(3).Trim();
+                var path = userInput.Substring(4).Trim();
                 try
                 {
                     Directory.SetCurrentDirectory(path);
@@ -121,12 +122,12 @@ public class Program
                 }
                 continue;
             }
-            else if (command?.StartsWith("upload ") == true)
+            else if (command?.StartsWith("/upload ") == true)
             {
-                var filePath = userInput.Substring(7).Trim();
+                var filePath = userInput.Substring(8).Trim();
                 if (string.IsNullOrEmpty(filePath))
                 {
-                    AnsiConsole.MarkupLine("[red]Please specify a file path: upload <filepath>[/]");
+                    AnsiConsole.MarkupLine("[red]Please specify a file path: /upload <filepath>[/]");
                 }
                 else
                 {
@@ -134,13 +135,50 @@ public class Program
                 }
                 continue;
             }
+            else if (command == "/prompts")
+            {
+                var prompts = _mcpManager.GetPrompts();
+                if (!prompts.Any())
+                {
+                    AnsiConsole.MarkupLine("[yellow]No prompts available from connected MCP servers[/]");
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[yellow]Available MCP prompts ({prompts.Count}):[/]");
+                    foreach (var prompt in prompts)
+                    {
+                        var args = prompt.ProtocolPrompt.Arguments?.Count > 0 
+                            ? $" ({prompt.ProtocolPrompt.Arguments.Count} args)" 
+                            : "";
+                        AnsiConsole.MarkupLine($"  [white]{prompt.Name}[/]{args} - {prompt.Description ?? "No description"}");
+                    }
+                    AnsiConsole.MarkupLine("[dim]Use '/prompt <name>' to invoke a specific prompt[/]");
+                }
+                continue;
+            }
+            else if (command?.StartsWith("/prompt ") == true)
+            {
+                var promptName = userInput.Substring(8).Trim();
+                if (string.IsNullOrEmpty(promptName))
+                {
+                    AnsiConsole.MarkupLine("[red]Please specify a prompt name: /prompt <name>[/]");
+                    AnsiConsole.MarkupLine("[dim]Use '/prompts' to see available prompts[/]");
+                }
+                else
+                {
+                    await InvokePromptAsync(promptName);
+                }
+                continue;
+            }
             else if (command == "?")
             {
                 AnsiConsole.MarkupLine("[yellow]Available commands:[/]");
                 AnsiConsole.MarkupLine("  [white]exit[/] - Quit the application");
-                AnsiConsole.MarkupLine("  [white]pwd[/] - Show current working directory");
-                AnsiConsole.MarkupLine("  [white]cd <path>[/] - Change directory");
-                AnsiConsole.MarkupLine("  [white]upload <filepath>[/] - Upload and process file for semantic search (PDF, TXT, MD)");
+                AnsiConsole.MarkupLine("  [white]/pwd[/] - Show current working directory");
+                AnsiConsole.MarkupLine("  [white]/cd <path>[/] - Change directory");
+                AnsiConsole.MarkupLine("  [white]/upload <filepath>[/] - Upload and process file for semantic search (PDF, TXT, MD)");
+                AnsiConsole.MarkupLine("  [white]/prompts[/] - List available MCP prompts");
+                AnsiConsole.MarkupLine("  [white]/prompt <name>[/] - Invoke an MCP prompt");
                 AnsiConsole.MarkupLine("  [white]?[/] - Show this help");
                 continue;
             }
@@ -149,6 +187,73 @@ public class Program
             {
                 await _conversationManager.SendMessageAsync(userInput);
             }
+        }
+    }
+
+    private static async Task InvokePromptAsync(string promptName)
+    {
+        try
+        {
+            var prompts = _mcpManager.GetPrompts();
+            var prompt = prompts.FirstOrDefault(p => p.Name.Equals(promptName, StringComparison.OrdinalIgnoreCase));
+            
+            if (prompt == null)
+            {
+                AnsiConsole.MarkupLine($"[red]Prompt '{promptName}' not found[/]");
+                AnsiConsole.MarkupLine("[dim]Use '/prompts' to see available prompts[/]");
+                return;
+            }
+
+            // Collect arguments if the prompt requires them
+            var arguments = new Dictionary<string, object>();
+            if (prompt.ProtocolPrompt.Arguments?.Count > 0)
+            {
+                foreach (var arg in prompt.ProtocolPrompt.Arguments)
+                {
+                    var description = string.IsNullOrEmpty(arg.Description) ? "no description" : arg.Description;
+                    var value = AnsiConsole.Ask<string>($"[white]{arg.Name}[/] ({description}): ");
+                    arguments[arg.Name] = value;
+                }
+            }
+
+            // Invoke the prompt
+            AnsiConsole.MarkupLine($"[yellow]Invoking prompt '{promptName}'...[/]");
+            var result = await prompt.GetAsync(arguments);
+            
+            // Send the result to the conversation
+            if (result.Messages?.Count > 0)
+            {
+                AnsiConsole.MarkupLine($"[green]Prompt result received, sending to AI...[/]");
+
+                var textBlocks = new List<string>();
+
+                foreach (var message in result.Messages)
+                {
+                    if (message.Content is TextContentBlock textBlock)
+                    {
+                        textBlocks.Add(textBlock.Text);
+                    }
+                }
+
+                var combinedContent = string.Join("\n\n", textBlocks);
+                               
+                if (!string.IsNullOrEmpty(combinedContent))
+                {
+                    await _conversationManager.SendMessageAsync(combinedContent);
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine("[yellow]Prompt messages contained no text content[/]");
+                }
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]Prompt returned no messages[/]");
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Error invoking prompt: {ex.Message}[/]");
         }
     }
 }
