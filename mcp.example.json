@@ -1,7 +1,16 @@
 {
   "inputs": [],
   "servers": {
-    "test-server": {
+    "built-in-tester": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "mcp-servers/mcp-tester/mcp-tester.csproj"
+      ]
+    },
+    "external-server": {
       "type": "stdio", 
       "command": "npx",
       "args": [

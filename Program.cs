@@ -78,7 +78,7 @@ public class Program
 
     private static async Task StartChatLoop()
     {
-        AnsiConsole.MarkupLine("[white]N[/]ota[white]B[/]ene 0.2α [grey]▪[/] [cadetblue_1]exit[/] [grey]to quit[/] [cadetblue_1]?[/] [grey]for help[/]");
+        AnsiConsole.MarkupLine("[white]N[/]ota[white]B[/]ene 0.3α [grey]▪[/] [cadetblue_1]exit[/] [grey]to quit[/] [cadetblue_1]?[/] [grey]for help[/]");
 
         while (true)
         {

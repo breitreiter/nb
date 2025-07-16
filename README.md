@@ -121,6 +121,32 @@ Interact with prompts from connected MCP servers:
 ```
 MCP prompts provide pre-configured workflows and can accept arguments to customize their behavior. The application will prompt you for any required arguments before executing the prompt.
 
+### Built-in MCP Server
+The project includes a built-in MCP test server (`mcp-servers/mcp-tester/`) that provides:
+
+**Tools:**
+- `echo` - Echoes messages back to the client
+- `reverse-echo` - Returns messages in reverse
+- `current-time` - Returns the current date and time
+
+**Dynamic Prompts:**
+- Automatically generates prompts from markdown files in `mcp-servers/mcp-tester/Prompts/`
+- Supports parameterized prompts using `{parameter}` syntax
+- Includes sample prompts: `favecolor`, `codereview`, `meetingnotes`
+
+To use the built-in server, configure it in your `mcp.json`:
+```json
+{
+  "servers": {
+    "built-in-tester": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["run", "--project", "mcp-servers/mcp-tester/mcp-tester.csproj"]
+    }
+  }
+}
+```
+
 ## Configuration
 
 ### appsettings.json
@@ -147,7 +173,8 @@ Configure MCP servers to extend the AI with additional tools and capabilities. E
 | `servers.{name}.type` | Transport type (currently only stdio) | `"stdio"` |
 
 **Examples:**
-- **.NET MCP Server**: `"command": "dotnet", "args": ["run", "--project", "MyServer.csproj"]`
+- **Built-in MCP Server**: `"command": "dotnet", "args": ["run", "--project", "mcp-servers/mcp-tester/mcp-tester.csproj"]`
+- **Custom .NET MCP Server**: `"command": "dotnet", "args": ["run", "--project", "MyServer.csproj"]`
 - **Node.js MCP Server**: `"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]`
 
 ## Building for Distribution

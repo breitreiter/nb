@@ -54,17 +54,20 @@ public class McpManager : IMcpManager
                     _mcpTools.AddRange(tools);
 
                     // Get prompts from this client
+                    var promptCount = 0;
                     try
                     {
                         var prompts = await client.ListPromptsAsync();
                         _mcpPrompts.AddRange(prompts);
-                        AnsiConsole.MarkupLine($"[green]Connected to MCP server: {serverName} ({tools.Count} tools, {prompts.Count} prompts)[/]");
+                        promptCount = prompts.Count;
                     }
                     catch (Exception promptEx)
                     {
                         AnsiConsole.MarkupLine($"[yellow]Warning: {serverName} doesn't support prompts: {promptEx.Message}[/]");
-                        AnsiConsole.MarkupLine($"[green]Connected to MCP server: {serverName} ({tools.Count} tools, 0 prompts)[/]");
                     }
+
+                    // Show success message for any server that connects (tools and/or prompts)
+                    AnsiConsole.MarkupLine($"[green]Connected to MCP server: {serverName} ({tools.Count} tools, {promptCount} prompts)[/]");
                 }
                 catch (Exception ex)
                 {

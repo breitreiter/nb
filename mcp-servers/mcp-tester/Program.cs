@@ -1,0 +1,146 @@
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Server;
+using System.ComponentModel;
+using System.Reflection;
+using System.Text.RegularExpressions;
+
+public class Program
+{
+    record PromptInfo(Delegate Function, List<string> ParameterNames, string OriginalContent);
+    static Dictionary<string, PromptInfo> DynamicPromptMethods = new();
+
+    public static async Task Main(string[] args)
+    {
+        var builder = Host.CreateApplicationBuilder(args);
+        builder.Logging.AddConsole(consoleLogOptions =>
+        {
+            // Configure all logs to go to stderr
+            consoleLogOptions.LogToStandardErrorThreshold = LogLevel.Trace;
+        });
+
+        // Generate dynamic methods on Prompts class
+        GeneratePromptMethods();
+
+        builder.Services
+            .AddMcpServer()
+            .WithStdioServerTransport()
+            .WithToolsFromAssembly()
+            .WithPrompts(CreatePrompts());
+
+        await builder.Build().RunAsync();
+    }
+
+    static void GeneratePromptMethods()
+    {
+        var promptsDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, "Prompts");
+        if (!Directory.Exists(promptsDir)) return;
+
+        var mdFiles = Directory.GetFiles(promptsDir, "*.md");
+
+        foreach (var filePath in mdFiles)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(filePath);
+            var content = File.ReadAllText(filePath);
+            
+            // Extract all placeholders using regex
+            var placeholderRegex = new Regex(@"\{([^}]+)\}", RegexOptions.Compiled);
+            var matches = placeholderRegex.Matches(content);
+            
+            // Get unique parameter names from placeholders
+            var parameterNames = matches.Cast<Match>()
+                .Select(m => m.Groups[1].Value)
+                .Distinct()
+                .ToList();
+            
+            // Create a method name from the filename (e.g., "fave_color" -> "favecolor")
+            var methodName = fileName.Replace("_", "").Replace("-", "").ToLower();
+            
+            // Create dynamic method with proper signature
+            var methodDelegate = CreateDynamicMethod(parameterNames, content);
+            
+            // Store the prompt info
+            DynamicPromptMethods[methodName] = new PromptInfo(methodDelegate, parameterNames, content);
+        }
+    }
+
+    static IEnumerable<McpServerPrompt> CreatePrompts()
+    {
+        // Create prompts from dynamic methods
+        foreach (var kvp in DynamicPromptMethods)
+        {
+            var methodName = kvp.Key;
+            var promptInfo = kvp.Value;
+            
+            // If there are no parameters, just return the content as-is
+            if (promptInfo.ParameterNames.Count == 0)
+            {
+                var simpleDelegate = new Func<string>(() => promptInfo.OriginalContent);
+                yield return McpServerPrompt.Create(
+                    simpleDelegate,
+                    new McpServerPromptCreateOptions 
+                    { 
+                        Name = methodName,
+                        Description = $"Prompt from {methodName}.md file."
+                    }
+                );
+            }
+            else
+            {
+                // Use the dynamically created delegate with proper signature
+                yield return McpServerPrompt.Create(
+                    promptInfo.Function,
+                    new McpServerPromptCreateOptions 
+                    { 
+                        Name = methodName,
+                        Description = $"Prompt from {methodName}.md file. Parameters: {string.Join(", ", promptInfo.ParameterNames)}"
+                    }
+                );
+            }
+        }
+    }
+
+    // Static template methods for different parameter counts
+    static string ProcessTemplate0(string template) => template;
+    
+    static string ProcessTemplate1(string template, string p0, string param0Name)
+    {
+        return template.Replace($"{{{param0Name}}}", p0);
+    }
+    
+    static string ProcessTemplate2(string template, string p0, string p1, string param0Name, string param1Name)
+    {
+        return template.Replace($"{{{param0Name}}}", p0).Replace($"{{{param1Name}}}", p1);
+    }
+    
+    static string ProcessTemplate3(string template, string p0, string p1, string p2, string param0Name, string param1Name, string param2Name)
+    {
+        return template.Replace($"{{{param0Name}}}", p0).Replace($"{{{param1Name}}}", p1).Replace($"{{{param2Name}}}", p2);
+    }
+
+    static Delegate CreateDynamicMethod(List<string> parameterNames, string content)
+    {
+        return parameterNames.Count switch
+        {
+            0 => new Func<string>(() => ProcessTemplate0(content)),
+            1 => new Func<string, string>(p0 => ProcessTemplate1(content, p0, parameterNames[0])),
+            2 => new Func<string, string, string>((p0, p1) => ProcessTemplate2(content, p0, p1, parameterNames[0], parameterNames[1])),
+            3 => new Func<string, string, string, string>((p0, p1, p2) => ProcessTemplate3(content, p0, p1, p2, parameterNames[0], parameterNames[1], parameterNames[2])),
+            _ => throw new NotSupportedException($"Too many parameters: {parameterNames.Count}. Maximum supported is 3.")
+        };
+    }
+}
+
+[McpServerToolType]
+public static class TestTools
+{
+    [McpServerTool, Description("Echoes the message back to the client.")]
+    public static string Echo(string message) => $"Hello from nb's built-in MCP server: {message}";
+
+    [McpServerTool, Description("Echoes in reverse the message sent by the client.")]
+    public static string ReverseEcho(string message) => new string(message.Reverse().ToArray());
+
+    [McpServerTool, Description("Returns the current date and time.")]
+    public static string CurrentTime() => DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+}

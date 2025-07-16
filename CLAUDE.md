@@ -37,6 +37,7 @@ dotnet run
 - `ConfigurationService.cs` - Configuration management
 - `SemanticMemoryService.cs` - Handles file uploads and semantic search
 - `ISemanticMemoryService.cs` - Interface for semantic memory operations
+- `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
 ## Custom Commands
 The application supports these built-in commands (intercepted before LLM):
@@ -66,6 +67,14 @@ The application supports these built-in commands (intercepted before LLM):
 - **Error Handling** - Graceful fallback when servers don't support prompts (some MCP servers are tools-only)
 - **Configuration** - MCP servers configured in `mcp.json` with command, args, and environment variables
 - **Transport** - Uses stdio transport (`StdioClientTransport`) for process-based MCP servers
+
+## Built-in MCP Server
+- **Location** - `mcp-servers/mcp-tester/` - Self-contained C# MCP server
+- **Dynamic Prompts** - Automatically generates prompts from `.md` files in `Prompts/` directory
+- **Parameter Support** - Supports up to 3 parameters using `{parameter}` syntax in markdown files
+- **Tools** - Includes basic test tools (echo, reverse-echo, current-time)
+- **Integration** - Added to solution file, builds alongside main project
+- **Usage** - Configure in `mcp.json` with dotnet run command pointing to the project
 
 ## Coding Conventions
 - Follow existing C# conventions in the codebase
