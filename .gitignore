@@ -6,6 +6,7 @@ mcp.json
 bin/
 obj/
 .vs/
+.claude/
 *.user
 *.suo
 *.userosscache

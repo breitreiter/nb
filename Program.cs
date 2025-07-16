@@ -208,10 +208,15 @@ public class Program
             var arguments = new Dictionary<string, object>();
             if (prompt.ProtocolPrompt.Arguments?.Count > 0)
             {
-                foreach (var arg in prompt.ProtocolPrompt.Arguments)
+                // Extract parameter names from prompt description if available
+                var parameterNames = ExtractParameterNames(prompt.Description);
+                
+                for (int i = 0; i < prompt.ProtocolPrompt.Arguments.Count; i++)
                 {
-                    var description = string.IsNullOrEmpty(arg.Description) ? "no description" : arg.Description;
-                    var value = AnsiConsole.Ask<string>($"[white]{arg.Name}[/] ({description}): ");
+                    var arg = prompt.ProtocolPrompt.Arguments[i];
+                    var paramName = i < parameterNames.Count ? parameterNames[i] : arg.Name;
+                    var description = string.IsNullOrEmpty(arg.Description) ? paramName : arg.Description;
+                    var value = AnsiConsole.Ask<string>($"[white]{paramName}[/] ({description}): ");
                     arguments[arg.Name] = value;
                 }
             }
@@ -255,5 +260,22 @@ public class Program
         {
             AnsiConsole.MarkupLine($"[red]Error invoking prompt: {ex.Message}[/]");
         }
+    }
+
+    private static List<string> ExtractParameterNames(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+            return new List<string>();
+
+        // Look for "Parameters: param1, param2, param3" pattern
+        var match = System.Text.RegularExpressions.Regex.Match(description, @"Parameters:\s*(.+)");
+        if (!match.Success)
+            return new List<string>();
+
+        return match.Groups[1].Value
+            .Split(',')
+            .Select(p => p.Trim())
+            .Where(p => !string.IsNullOrEmpty(p))
+            .ToList();
     }
 }
