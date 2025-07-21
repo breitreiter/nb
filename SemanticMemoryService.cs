@@ -9,7 +9,7 @@ using Spectre.Console;
 
 namespace nb;
 
-public class SemanticMemoryService : ISemanticMemoryService
+public class SemanticMemoryService
 {
     private Kernel? _kernel;
     private ITextEmbeddingGenerationService? _embeddingService;

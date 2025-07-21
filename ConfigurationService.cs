@@ -3,14 +3,7 @@ using Spectre.Console;
 
 namespace nb;
 
-public interface IConfigurationService
-{
-    IConfiguration GetConfiguration();
-    string GetSystemPrompt();
-    void SetupConsoleEncoding();
-}
-
-public class ConfigurationService : IConfigurationService
+public class ConfigurationService
 {
     private readonly IConfiguration _configuration;
     private readonly string _systemPrompt;

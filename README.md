@@ -87,7 +87,8 @@ Start a conversation session with the following commands:
 - `exit` - Quit the application
 - `/pwd` - Show current working directory
 - `/cd <path>` - Change directory
-- `/upload <filepath>` - Upload and process file for semantic search (PDF, TXT, MD)
+- `/index <filepath>` - Upload and process file for semantic search (PDF or text)
+- `/insert <filepath>` - Insert entire file content into conversation context (PDF or text)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands
@@ -101,11 +102,20 @@ Send a single message and get a response.
 ### Document Upload & RAG
 Upload documents to enhance conversations with relevant context:
 ```bash
-/upload /path/to/document.pdf
-/upload ./notes.md
-/upload research.txt
+/index /path/to/document.pdf
+/index ./notes.md
+/index research.txt
 ```
 Once uploaded, the AI will automatically search through your documents when answering questions, providing context-aware responses based on your uploaded content.
+
+### Direct File Content Insertion
+Insert entire file contents directly into the conversation:
+```bash
+/insert /path/to/document.pdf
+/insert ./notes.md  
+/insert data.txt
+```
+This adds the complete file content to your message context, useful for detailed analysis of specific documents.
 
 **Tuning RAG Performance:**
 - Lower `ChunkSize` (e.g., 128) for more precise search on focused content

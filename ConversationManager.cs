@@ -7,22 +7,15 @@ using OpenAIChatMessage = OpenAI.Chat.ChatMessage;
 
 namespace nb;
 
-public interface IConversationManager
-{
-    Task SendMessageAsync(string userMessage);
-    void InitializeWithSystemPrompt(string systemPrompt);
-    void SetSemanticMemoryService(ISemanticMemoryService semanticMemoryService);
-}
-
-public class ConversationManager : IConversationManager
+public class ConversationManager
 {
     private readonly ChatClient _client;
-    private readonly IMcpManager _mcpManager;
+    private readonly McpManager _mcpManager;
     private readonly List<OpenAIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
-    private ISemanticMemoryService? _semanticMemoryService;
+    private SemanticMemoryService? _semanticMemoryService;
 
-    public ConversationManager(ChatClient client, IMcpManager mcpManager)
+    public ConversationManager(ChatClient client, McpManager mcpManager)
     {
         _client = client;
         _mcpManager = mcpManager;
@@ -33,7 +26,7 @@ public class ConversationManager : IConversationManager
         _conversationHistory.Add(new SystemChatMessage(systemPrompt));
     }
 
-    public void SetSemanticMemoryService(ISemanticMemoryService semanticMemoryService)
+    public void SetSemanticMemoryService(SemanticMemoryService semanticMemoryService)
     {
         _semanticMemoryService = semanticMemoryService;
     }

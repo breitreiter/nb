@@ -36,7 +36,6 @@ dotnet run
 - `McpManager.cs` - Manages MCP client connections
 - `ConfigurationService.cs` - Configuration management
 - `SemanticMemoryService.cs` - Handles file uploads and semantic search
-- `ISemanticMemoryService.cs` - Interface for semantic memory operations
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
 ## Custom Commands
@@ -44,7 +43,8 @@ The application supports these built-in commands (intercepted before LLM):
 - `exit` - Quit the application
 - `/pwd` - Show current working directory
 - `/cd <path>` - Change directory
-- `/upload <filepath>` - Upload and process file for semantic search (supports PDF, TXT, MD)
+- `/index <filepath>` - Upload and process file for semantic search (supports PDF, TXT, MD)
+- `/insert <filepath>` - Insert entire file content into conversation context (supports PDF, TXT, MD)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands

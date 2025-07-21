@@ -12,10 +12,13 @@ namespace nb;
 public class Program
 {
     private static ChatClient _client;
-    private static IMcpManager _mcpManager = new McpManager();
-    private static IConversationManager _conversationManager;
-    private static IConfigurationService _configurationService = new ConfigurationService();
-    private static ISemanticMemoryService _semanticMemoryService;
+    private static McpManager _mcpManager = new McpManager();
+    private static ConversationManager _conversationManager;
+    private static ConfigurationService _configurationService = new ConfigurationService();
+    private static SemanticMemoryService _semanticMemoryService;
+    private static CommandProcessor _commandProcessor;
+    private static FileContentExtractor _fileExtractor;
+    private static PromptProcessor _promptProcessor;
 
     public static async Task Main(string[] args)
     {
@@ -38,6 +41,11 @@ public class Program
         _conversationManager = new ConversationManager(_client, _mcpManager);
         _conversationManager.InitializeWithSystemPrompt(_configurationService.GetSystemPrompt());
         _conversationManager.SetSemanticMemoryService(_semanticMemoryService);
+
+        // Initialize refactored services
+        _fileExtractor = new FileContentExtractor();
+        _promptProcessor = new PromptProcessor(_mcpManager);
+        _commandProcessor = new CommandProcessor(_semanticMemoryService, _fileExtractor, _promptProcessor);
 
         var initialPrompt = string.Join(" ", args);
 
@@ -99,183 +107,24 @@ public class Program
             
             AnsiConsole.Write(panel);
 
-            var command = userInput?.ToLower();
+            if (string.IsNullOrWhiteSpace(userInput))
+                continue;
 
-            if (command == "exit")
-                break;
-            else if (command == "/pwd")
-            {
-                AnsiConsole.MarkupLine($"[green]Current directory:[/] {Directory.GetCurrentDirectory()}");
-                continue;
-            }
-            else if (command?.StartsWith("/cd ") == true)
-            {
-                var path = userInput.Substring(4).Trim();
-                try
-                {
-                    Directory.SetCurrentDirectory(path);
-                    AnsiConsole.MarkupLine($"[green]Changed directory to:[/] {Directory.GetCurrentDirectory()}");
-                }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine($"[red]Error changing directory:[/] {ex.Message}");
-                }
-                continue;
-            }
-            else if (command?.StartsWith("/upload ") == true)
-            {
-                var filePath = userInput.Substring(8).Trim();
-                if (string.IsNullOrEmpty(filePath))
-                {
-                    AnsiConsole.MarkupLine("[red]Please specify a file path: /upload <filepath>[/]");
-                }
-                else
-                {
-                    await _semanticMemoryService.UploadFileAsync(filePath);
-                }
-                continue;
-            }
-            else if (command == "/prompts")
-            {
-                var prompts = _mcpManager.GetPrompts();
-                if (!prompts.Any())
-                {
-                    AnsiConsole.MarkupLine("[yellow]No prompts available from connected MCP servers[/]");
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine($"[yellow]Available MCP prompts ({prompts.Count}):[/]");
-                    foreach (var prompt in prompts)
-                    {
-                        var args = prompt.ProtocolPrompt.Arguments?.Count > 0 
-                            ? $" ({prompt.ProtocolPrompt.Arguments.Count} args)" 
-                            : "";
-                        AnsiConsole.MarkupLine($"  [white]{prompt.Name}[/]{args} - {prompt.Description ?? "No description"}");
-                    }
-                    AnsiConsole.MarkupLine("[dim]Use '/prompt <name>' to invoke a specific prompt[/]");
-                }
-                continue;
-            }
-            else if (command?.StartsWith("/prompt ") == true)
-            {
-                var promptName = userInput.Substring(8).Trim();
-                if (string.IsNullOrEmpty(promptName))
-                {
-                    AnsiConsole.MarkupLine("[red]Please specify a prompt name: /prompt <name>[/]");
-                    AnsiConsole.MarkupLine("[dim]Use '/prompts' to see available prompts[/]");
-                }
-                else
-                {
-                    await InvokePromptAsync(promptName);
-                }
-                continue;
-            }
-            else if (command == "?")
-            {
-                AnsiConsole.MarkupLine("[yellow]Available commands:[/]");
-                AnsiConsole.MarkupLine("  [white]exit[/] - Quit the application");
-                AnsiConsole.MarkupLine("  [white]/pwd[/] - Show current working directory");
-                AnsiConsole.MarkupLine("  [white]/cd <path>[/] - Change directory");
-                AnsiConsole.MarkupLine("  [white]/upload <filepath>[/] - Upload and process file for semantic search (PDF, TXT, MD)");
-                AnsiConsole.MarkupLine("  [white]/prompts[/] - List available MCP prompts");
-                AnsiConsole.MarkupLine("  [white]/prompt <name>[/] - Invoke an MCP prompt");
-                AnsiConsole.MarkupLine("  [white]?[/] - Show this help");
-                continue;
-            }
+            // Process command through the command processor
+            var result = await _commandProcessor.ProcessCommandAsync(userInput);
 
-            if (!string.IsNullOrWhiteSpace(userInput))
+            switch (result.Action)
             {
-                await _conversationManager.SendMessageAsync(userInput);
-            }
-        }
-    }
-
-    private static async Task InvokePromptAsync(string promptName)
-    {
-        try
-        {
-            var prompts = _mcpManager.GetPrompts();
-            var prompt = prompts.FirstOrDefault(p => p.Name.Equals(promptName, StringComparison.OrdinalIgnoreCase));
-            
-            if (prompt == null)
-            {
-                AnsiConsole.MarkupLine($"[red]Prompt '{promptName}' not found[/]");
-                AnsiConsole.MarkupLine("[dim]Use '/prompts' to see available prompts[/]");
-                return;
-            }
-
-            // Collect arguments if the prompt requires them
-            var arguments = new Dictionary<string, object>();
-            if (prompt.ProtocolPrompt.Arguments?.Count > 0)
-            {
-                // Extract parameter names from prompt description if available
-                var parameterNames = ExtractParameterNames(prompt.Description);
+                case CommandAction.Exit:
+                    return;
                 
-                for (int i = 0; i < prompt.ProtocolPrompt.Arguments.Count; i++)
-                {
-                    var arg = prompt.ProtocolPrompt.Arguments[i];
-                    var paramName = i < parameterNames.Count ? parameterNames[i] : arg.Name;
-                    var description = string.IsNullOrEmpty(arg.Description) ? paramName : arg.Description;
-                    var value = AnsiConsole.Ask<string>($"[white]{paramName}[/] ({description}): ");
-                    arguments[arg.Name] = value;
-                }
-            }
-
-            // Invoke the prompt
-            AnsiConsole.MarkupLine($"[yellow]Invoking prompt '{promptName}'...[/]");
-            var result = await prompt.GetAsync(arguments);
-            
-            // Send the result to the conversation
-            if (result.Messages?.Count > 0)
-            {
-                AnsiConsole.MarkupLine($"[green]Prompt result received, sending to AI...[/]");
-
-                var textBlocks = new List<string>();
-
-                foreach (var message in result.Messages)
-                {
-                    if (message.Content is TextContentBlock textBlock)
-                    {
-                        textBlocks.Add(textBlock.Text);
-                    }
-                }
-
-                var combinedContent = string.Join("\n\n", textBlocks);
-                               
-                if (!string.IsNullOrEmpty(combinedContent))
-                {
-                    await _conversationManager.SendMessageAsync(combinedContent);
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine("[yellow]Prompt messages contained no text content[/]");
-                }
-            }
-            else
-            {
-                AnsiConsole.MarkupLine("[yellow]Prompt returned no messages[/]");
+                case CommandAction.Continue:
+                    continue;
+                
+                case CommandAction.SendToLlm:
+                    await _conversationManager.SendMessageAsync(result.ModifiedInput ?? userInput);
+                    break;
             }
         }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[red]Error invoking prompt: {ex.Message}[/]");
-        }
-    }
-
-    private static List<string> ExtractParameterNames(string? description)
-    {
-        if (string.IsNullOrEmpty(description))
-            return new List<string>();
-
-        // Look for "Parameters: param1, param2, param3" pattern
-        var match = System.Text.RegularExpressions.Regex.Match(description, @"Parameters:\s*(.+)");
-        if (!match.Success)
-            return new List<string>();
-
-        return match.Groups[1].Value
-            .Split(',')
-            .Select(p => p.Trim())
-            .Where(p => !string.IsNullOrEmpty(p))
-            .ToList();
     }
 }

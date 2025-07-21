@@ -6,15 +6,7 @@ using Spectre.Console;
 
 namespace nb;
 
-public interface IMcpManager
-{
-    Task InitializeAsync();
-    IReadOnlyList<AIFunction> GetTools();
-    IReadOnlyList<McpClientPrompt> GetPrompts();
-    void Dispose();
-}
-
-public class McpManager : IMcpManager
+public class McpManager : IDisposable
 {
     private readonly List<IMcpClient> _mcpClients = new();
     private readonly List<AIFunction> _mcpTools = new();
