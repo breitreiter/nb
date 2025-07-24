@@ -9,11 +9,15 @@ namespace nb;
 
 public class ConversationManager
 {
+    private const int MAX_TOOL_CALLS_PER_MESSAGE = 3;
+    
     private readonly ChatClient _client;
     private readonly McpManager _mcpManager;
     private readonly List<OpenAIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
     private SemanticMemoryService? _semanticMemoryService;
+    private SemanticSearchTool? _semanticSearchTool;
+    private int _toolCallCount = 0;
 
     public ConversationManager(ChatClient client, McpManager mcpManager)
     {
@@ -29,28 +33,18 @@ public class ConversationManager
     public void SetSemanticMemoryService(SemanticMemoryService semanticMemoryService)
     {
         _semanticMemoryService = semanticMemoryService;
+        _semanticSearchTool = new SemanticSearchTool(semanticMemoryService);
     }
 
     public async Task SendMessageAsync(string userMessage)
     {
         if (_client == null) return;
 
-        // Search for relevant content in semantic memory
-        var relevantContent = string.Empty;
-        if (_semanticMemoryService != null)
-        {
-            relevantContent = await _semanticMemoryService.SearchRelevantContentAsync(userMessage);
-        }
+        // Reset tool call counter for new message
+        _toolCallCount = 0;
 
-        // Enhance user message with relevant context if found
-        var enhancedMessage = userMessage;
-        if (!string.IsNullOrEmpty(relevantContent))
-        {
-            enhancedMessage = $"{userMessage}\n\n[Context from uploaded documents]:\n{relevantContent}";
-        }
-
-        // Add user message to conversation history
-        _conversationHistory.Add(new UserChatMessage(enhancedMessage));
+        // Add user message to conversation history (no automatic RAG injection)
+        _conversationHistory.Add(new UserChatMessage(userMessage));
         
         await SendMessageInternalAsync();
     }
@@ -79,6 +73,12 @@ public class ConversationManager
                 }
             }
 
+            // Add semantic search tool if available
+            if (_semanticSearchTool != null)
+            {
+                requestOptions.Tools.Add(_semanticSearchTool.GetChatTool());
+            }
+
             // The SetNewMaxCompletionTokensPropertyEnabled() method is an [Experimental] opt-in to use
             // the new max_completion_tokens JSON property instead of the legacy max_tokens property.
             // This extension method will be removed and unnecessary in a future service API version;
@@ -100,6 +100,13 @@ public class ConversationManager
             // Handle tool calls if present
             if (response.Value.ToolCalls.Count > 0)
             {
+                // Check if we've exceeded max tool calls
+                if (_toolCallCount >= MAX_TOOL_CALLS_PER_MESSAGE)
+                {
+                    _conversationHistory.Add(new AssistantChatMessage("I've reached the maximum number of tool calls for this message. Let me provide a response with the information I have."));
+                    return;
+                }
+
                 // Add assistant message with tool calls to history
                 _conversationHistory.Add(new AssistantChatMessage(response.Value.ToolCalls));
 
@@ -110,36 +117,52 @@ public class ConversationManager
                     {
                         try
                         {
-                            // Find the MCP tool
-                            var mcpTool = mcpTools.FirstOrDefault(t => t.Name == chatToolCall.FunctionName);
-                            if (mcpTool != null)
+                            string toolResult = string.Empty;
+                            
+                            // Handle semantic search tool
+                            if (chatToolCall.FunctionName == "search_documents" && _semanticSearchTool != null)
                             {
-                                // Convert BinaryData to AIFunctionArguments
                                 var argumentsJson = chatToolCall.FunctionArguments.ToString();
-                                var arguments = new AIFunctionArguments();
+                                using var doc = JsonDocument.Parse(argumentsJson);
                                 
-                                if (!string.IsNullOrEmpty(argumentsJson) && argumentsJson != "{}")
-                                {
-                                    using var doc = JsonDocument.Parse(argumentsJson);
-                                    foreach (var property in doc.RootElement.EnumerateObject())
-                                    {
-                                        arguments[property.Name] = property.Value.ToString();
-                                    }
-                                }
+                                var query = doc.RootElement.GetProperty("query").GetString() ?? "";
+                                var maxResults = doc.RootElement.TryGetProperty("maxResults", out var maxResultsElement) 
+                                    ? maxResultsElement.GetInt32() 
+                                    : 3;
                                 
-                                var toolResult = await mcpTool.InvokeAsync(arguments);
-                                _conversationHistory.Add(new ToolChatMessage(chatToolCall.Id, toolResult.ToString()));
+                                toolResult = await _semanticSearchTool.ExecuteAsync(query, maxResults);
+                                _conversationHistory.Add(new ToolChatMessage(chatToolCall.Id, toolResult));
                                 
-                                // Stop spinner temporarily to show tool execution feedback
-                                _stopSpinner = true;
-                                await spinnerTask;
-                                
-                                AnsiConsole.MarkupLine($"[dim grey]• calling {chatToolCall.FunctionName}[/]");
-                                
-                                // Restart spinner for next tool or final response
-                                spinnerTask = Task.Run(() => ShowSpinner());
-                                _stopSpinner = false;
+                                AnsiConsole.MarkupLine($"[dim grey]• searching documents for: {query}[/]");
                             }
+                            // Handle MCP tools
+                            else
+                            {
+                                var mcpTool = mcpTools.FirstOrDefault(t => t.Name == chatToolCall.FunctionName);
+                                if (mcpTool != null)
+                                {
+                                    // Convert BinaryData to AIFunctionArguments
+                                    var argumentsJson = chatToolCall.FunctionArguments.ToString();
+                                    var arguments = new AIFunctionArguments();
+                                    
+                                    if (!string.IsNullOrEmpty(argumentsJson) && argumentsJson != "{}")
+                                    {
+                                        using var doc = JsonDocument.Parse(argumentsJson);
+                                        foreach (var property in doc.RootElement.EnumerateObject())
+                                        {
+                                            arguments[property.Name] = property.Value.ToString();
+                                        }
+                                    }
+                                    
+                                    var result = await mcpTool.InvokeAsync(arguments);
+                                    _conversationHistory.Add(new ToolChatMessage(chatToolCall.Id, result.ToString()));
+                                    
+                                    AnsiConsole.MarkupLine($"[dim grey]• calling {chatToolCall.FunctionName}[/]");
+                                }
+                            }
+                            
+                            // Increment tool call counter
+                            _toolCallCount++;
                         }
                         catch (Exception ex)
                         {

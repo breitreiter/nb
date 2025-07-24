@@ -50,13 +50,14 @@ The application supports these built-in commands (intercepted before LLM):
 - `?` - Show help with all commands
 
 ## Development Notes
-- Commands are intercepted in `Program.cs:138-184` in the `StartChatLoop()` method
-- New commands should follow the existing pattern using `continue;` to skip LLM processing
+- Commands are intercepted in `CommandProcessor.cs` and processed via enum-based actions
+- New commands should follow the existing pattern using `CommandResult` return types
 - Configuration is loaded from `appsettings.json`
 - MCP clients are initialized on startup and disposed on exit
 - Semantic memory uses SQLite vector store (`semantic_memory.db`) for local storage
-- RAG context is automatically added to user messages when relevant content is found
+- **RAG Implementation**: Uses agentic tool-based approach - model decides when to search via `search_documents` tool
 - File processing supports configurable chunking (default: 256-word chunks with 64-word overlap)
+- Tool calling safety: Max 3 tool calls per message to prevent infinite loops
 
 ## MCP Implementation Details
 - **McpManager.cs** - Manages MCP client lifecycle and exposes tools/prompts via interfaces
@@ -85,6 +86,12 @@ The application supports these built-in commands (intercepted before LLM):
 - When adding significant new features, or new configuration requirements, ask if you should update the readme.md
 - Ask before adding an interface, unless there is an immediate, obvious reason to do so. Don't create new interfaces for "future flexibility."
 - Avoid building DI scaffolding unless you're working with a library or package that expects you to use DI.
+
+## Architecture Notes
+- **Model Isolation**: LLM interactions are isolated to `ConversationManager.cs` for easy provider swapping
+- **Tool-based RAG**: Semantic search available via `search_documents` tool - model decides when to search
+- **Refactored Structure**: Commands (`CommandProcessor`), file operations (`FileContentExtractor`), prompts (`PromptProcessor`) separated for maintainability
+- **Safety Mechanisms**: Max tool calls per message, parameter validation, graceful error handling
 
 ## Important Workflow Reminders
 - When changing the structure of appsettings.json make sure to update appsettings.example.json

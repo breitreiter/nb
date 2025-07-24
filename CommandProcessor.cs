@@ -50,8 +50,7 @@ public class CommandProcessor
 
         if (command.StartsWith("/index "))
         {
-            await HandleIndexCommand(userInput);
-            return CommandResult.Continue();
+            return await HandleIndexCommand(userInput);
         }
 
         if (command.StartsWith("/insert "))
@@ -102,17 +101,24 @@ public class CommandProcessor
         }
     }
 
-    private async Task HandleIndexCommand(string userInput)
+    private async Task<CommandResult> HandleIndexCommand(string userInput)
     {
         var filePath = userInput.Substring(7).Trim();
         if (string.IsNullOrEmpty(filePath))
         {
             AnsiConsole.MarkupLine("[red]Please specify a file path: /index <filepath>[/]");
+            return CommandResult.Continue();
         }
-        else
+
+        var success = await _semanticMemoryService.UploadFileAsync(filePath);
+        if (success)
         {
-            await _semanticMemoryService.UploadFileAsync(filePath);
+            var fileName = Path.GetFileName(filePath);
+            var systemMessage = $"SYSTEM: The document '{fileName}' has been successfully indexed and is now available for semantic search. You can search through this document's content using the search_documents tool when relevant to answer user questions.";
+            return CommandResult.SendToLlm(systemMessage);
         }
+
+        return CommandResult.Continue();
     }
 
     private async Task<CommandResult> HandleInsertCommand(string userInput)
