@@ -36,6 +36,12 @@ public class ConversationManager
         _semanticSearchTool = new SemanticSearchTool(semanticMemoryService);
     }
 
+    public void AddToConversationHistory(string userMessage)
+    {
+        _conversationHistory.Add(new UserChatMessage(userMessage));
+        _conversationHistory.Add(new AssistantChatMessage("I've received the document content and it's now available in our conversation context."));
+    }
+
     public async Task SendMessageAsync(string userMessage)
     {
         if (_client == null) return;

@@ -2,7 +2,7 @@ using Spectre.Console;
 
 namespace nb;
 
-public enum CommandAction { Exit, Continue, SendToLlm }
+public enum CommandAction { Exit, Continue, SendToLlm, AddToHistory }
 
 public class CommandResult
 {
@@ -12,6 +12,7 @@ public class CommandResult
     public static CommandResult Exit() => new() { Action = CommandAction.Exit };
     public static CommandResult Continue() => new() { Action = CommandAction.Continue };
     public static CommandResult SendToLlm(string input) => new() { Action = CommandAction.SendToLlm, ModifiedInput = input };
+    public static CommandResult AddToHistory(string input) => new() { Action = CommandAction.AddToHistory, ModifiedInput = input };
 }
 
 public class CommandProcessor
@@ -110,6 +111,11 @@ public class CommandProcessor
             return CommandResult.Continue();
         }
 
+        if (filePath.StartsWith('\"') && filePath.EndsWith('\"'))
+        {
+            filePath = filePath[1..^1]; // Remove surrounding quotes
+        }
+
         var success = await _semanticMemoryService.UploadFileAsync(filePath);
         if (success)
         {
@@ -130,13 +136,18 @@ public class CommandProcessor
             return CommandResult.Continue();
         }
 
+        if (filePath.StartsWith('\"') && filePath.EndsWith('\"'))
+        {
+            filePath = filePath[1..^1]; // Remove surrounding quotes
+        }
+
         var fileContent = await _fileExtractor.ExtractFileContentAsync(filePath);
         if (!string.IsNullOrEmpty(fileContent))
         {
             var fileName = Path.GetFileName(filePath);
             AnsiConsole.MarkupLine($"[green]File content from {fileName} added to conversation context[/]");
             var modifiedInput = $"Here is the content from file '{fileName}':\n\n{fileContent}";
-            return CommandResult.SendToLlm(modifiedInput);
+            return CommandResult.AddToHistory(modifiedInput);
         }
 
         return CommandResult.Continue();

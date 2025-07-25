@@ -124,6 +124,10 @@ public class Program
                 case CommandAction.SendToLlm:
                     await _conversationManager.SendMessageAsync(result.ModifiedInput ?? userInput);
                     break;
+                
+                case CommandAction.AddToHistory:
+                    _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
+                    break;
             }
         }
     }
