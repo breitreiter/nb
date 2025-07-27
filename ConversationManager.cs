@@ -196,7 +196,7 @@ public class ConversationManager
         {
             // Stop spinner on error
             _stopSpinner = true;
-            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {ex.Message}[/]");
         }
         finally
         {

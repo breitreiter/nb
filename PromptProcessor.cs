@@ -17,15 +17,15 @@ public class PromptProcessor
         var prompts = _mcpManager.GetPrompts();
         if (!prompts.Any())
         {
-            AnsiConsole.MarkupLine("[yellow]No prompts available from connected MCP servers[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]No prompts available from connected MCP servers[/]");
         }
         else
         {
-            AnsiConsole.MarkupLine("[green]Available prompts:[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Available prompts:[/]");
             foreach (var prompt in prompts)
             {
                 var description = !string.IsNullOrEmpty(prompt.Description) ? $" - {prompt.Description}" : "";
-                AnsiConsole.MarkupLine($"  [white]{prompt.Name}[/]{description}");
+                AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]{prompt.Name}[/]{description}");
             }
         }
     }
@@ -37,7 +37,7 @@ public class PromptProcessor
             var prompt = _mcpManager.GetPrompts().FirstOrDefault(p => p.Name == promptName);
             if (prompt == null)
             {
-                AnsiConsole.MarkupLine($"[red]Prompt '{promptName}' not found[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Prompt '{promptName}' not found[/]");
                 return null;
             }
 
@@ -47,7 +47,7 @@ public class PromptProcessor
             // Collect arguments interactively
             foreach (var param in parameters)
             {
-                var value = AnsiConsole.Ask<string>($"Enter value for [green]{param}[/]:");
+                var value = AnsiConsole.Ask<string>($"Enter value for [{UIColors.SpectreSuccess}]{param}[/]:");
                 args[param] = value;
             }
 
@@ -68,18 +68,18 @@ public class PromptProcessor
 
             if (!string.IsNullOrEmpty(textContent))
             {
-                AnsiConsole.MarkupLine("[green]Prompt result will be sent to the AI[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Prompt result will be sent to the AI[/]");
                 return textContent.Trim();
             }
             else
             {
-                AnsiConsole.MarkupLine("[yellow]Prompt returned no text content[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Prompt returned no text content[/]");
                 return null;
             }
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error invoking prompt: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error invoking prompt: {ex.Message}[/]");
             return null;
         }
     }

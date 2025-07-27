@@ -55,21 +55,21 @@ public class McpManager : IDisposable
                     }
                     catch (Exception promptEx)
                     {
-                        AnsiConsole.MarkupLine($"[yellow]Warning: {serverName} doesn't support prompts: {promptEx.Message}[/]");
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: {serverName} doesn't support prompts: {promptEx.Message}[/]");
                     }
 
                     // Show success message for any server that connects (tools and/or prompts)
-                    AnsiConsole.MarkupLine($"[green]Connected to MCP server: {serverName} ({tools.Count} tools, {promptCount} prompts)[/]");
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Connected to MCP server: {serverName} ({tools.Count} tools, {promptCount} prompts)[/]");
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[yellow]Warning: Failed to connect to MCP server '{serverName}': {ex.Message}[/]");
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to connect to MCP server '{serverName}': {ex.Message}[/]");
                 }
             }
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[yellow]Warning: Failed to load MCP configuration: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to load MCP configuration: {ex.Message}[/]");
         }
     }
 

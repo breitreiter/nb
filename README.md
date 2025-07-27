@@ -89,6 +89,7 @@ Start a conversation session with the following commands:
 - `/cd <path>` - Change directory
 - `/index <filepath>` - Upload and process file for semantic search (PDF or text)
 - `/insert <filepath>` - Insert entire file content into conversation context (PDF or text)
+- `/run <filepath>` - Execute commands from a file (one command per line)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands
@@ -116,6 +117,24 @@ Insert entire file contents directly into the conversation:
 /insert data.txt
 ```
 This adds the complete file content to your message context, useful for detailed analysis of specific documents.
+
+### Multi-Turn Workflow Automation
+Execute scripted multi-turn conversations using the `/run` command:
+```bash
+/run ./my-workflow.md
+```
+Create text files with one command or prompt per line. The AI processes each line sequentially, maintaining full conversation context between lines. Perfect for prototyping complex LLM workflows, research scripts, or automated analysis tasks.
+
+**Example workflow file:**
+```
+# Research workflow
+Select three programming languages that are trending in 2024
+For each language, explain its primary use case
+Compare their performance characteristics
+Recommend which one would be best for a web API project
+```
+
+Lines starting with `#` are treated as comments and skipped. The AI responds to each line before processing the next, building context throughout the workflow.
 
 **Tuning RAG Performance:**
 - Lower `ChunkSize` (e.g., 128) for more precise search on focused content

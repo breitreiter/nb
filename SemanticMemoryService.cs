@@ -44,11 +44,11 @@ public class SemanticMemoryService
             _kernel = kernelBuilder.Build();
             _embeddingService = _kernel.GetRequiredService<ITextEmbeddingGenerationService>();
             
-            AnsiConsole.MarkupLine("[green]Semantic memory initialized successfully[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Semantic memory initialized successfully[/]");
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Failed to initialize semantic memory: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to initialize semantic memory: {ex.Message}[/]");
             throw;
         }
     }
@@ -57,7 +57,7 @@ public class SemanticMemoryService
     {
         if (_embeddingService == null)
         {
-            AnsiConsole.MarkupLine("[red]Semantic memory not initialized[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Semantic memory not initialized[/]");
             return false;
         }
 
@@ -65,16 +65,16 @@ public class SemanticMemoryService
         {
             if (!File.Exists(filePath))
             {
-                AnsiConsole.MarkupLine($"[red]File not found: {filePath}[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]File not found: {filePath}[/]");
                 return false;
             }
 
-            AnsiConsole.MarkupLine($"[yellow]Processing file: {Path.GetFileName(filePath)}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Processing file: {Path.GetFileName(filePath)}[/]");
 
             string content = await ExtractTextFromFileAsync(filePath);
             if (string.IsNullOrWhiteSpace(content))
             {
-                AnsiConsole.MarkupLine("[red]No text content extracted from file[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No text content extracted from file[/]");
                 return false;
             }
 
@@ -99,12 +99,12 @@ public class SemanticMemoryService
                 _documents.Add(documentChunk);
             }
 
-            AnsiConsole.MarkupLine($"[green]Successfully uploaded {fileName} ({chunks.Count} chunks)[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Successfully uploaded {fileName} ({chunks.Count} chunks)[/]");
             return true;
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error uploading file: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error uploading file: {ex.Message}[/]");
             return false;
         }
     }
@@ -141,7 +141,7 @@ public class SemanticMemoryService
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error searching memory: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error searching memory: {ex.Message}[/]");
             return string.Empty;
         }
     }

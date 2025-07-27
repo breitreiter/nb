@@ -45,7 +45,7 @@ public class Program
         // Initialize refactored services
         _fileExtractor = new FileContentExtractor();
         _promptProcessor = new PromptProcessor(_mcpManager);
-        _commandProcessor = new CommandProcessor(_semanticMemoryService, _fileExtractor, _promptProcessor);
+        _commandProcessor = new CommandProcessor(_semanticMemoryService, _fileExtractor, _promptProcessor, _conversationManager);
 
         var initialPrompt = string.Join(" ", args);
 
@@ -68,7 +68,7 @@ public class Program
 
         if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(apiKey))
         {
-            AnsiConsole.MarkupLine("[red]Error: Azure OpenAI endpoint and API key must be configured in appsettings.json[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: Azure OpenAI endpoint and API key must be configured in appsettings.json[/]");
             Environment.Exit(1);
         }
 
@@ -90,22 +90,17 @@ public class Program
 
         while (true)
         {
-            // Show prompt and capture input manually
-            AnsiConsole.Markup("[yellow]You:[/] ");
+            // Add visual separator before user input
+            string divider = string.Concat(Enumerable.Repeat("🞌", Console.WindowWidth));
+            Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
+
+            AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]You:[/] ");
+            Console.Write(UIColors.NativeUserInput);
             var userInput = Console.ReadLine();
+            Console.Write(UIColors.NativeReset);
             
-            // Clear the input line by moving cursor up and clearing
-            Console.SetCursorPosition(0, Console.CursorTop - 1);
-            Console.Write(new string(' ', Console.WindowWidth));
-            Console.SetCursorPosition(0, Console.CursorTop);
-            
-            // Display the user's prompt in a Spectre panel
-            var panel = new Panel(userInput ?? "")
-                .Header("[yellow]You[/]")
-                .Border(BoxBorder.Rounded)
-                .BorderStyle(new Style(Color.Yellow));
-            
-            AnsiConsole.Write(panel);
+            // Add visual separator after user input
+            Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
 
             if (string.IsNullOrWhiteSpace(userInput))
                 continue;
@@ -119,10 +114,11 @@ public class Program
                     return;
                 
                 case CommandAction.Continue:
-                    continue;
-                
-                case CommandAction.SendToLlm:
-                    await _conversationManager.SendMessageAsync(result.ModifiedInput ?? userInput);
+                    // Check if this was a non-command that should go to LLM
+                    if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "?" && userInput.Trim() != "exit")
+                    {
+                        await _conversationManager.SendMessageAsync(userInput);
+                    }
                     break;
                 
                 case CommandAction.AddToHistory:

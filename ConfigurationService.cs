@@ -58,13 +58,13 @@ public class ConfigurationService
             }
             else
             {
-                AnsiConsole.MarkupLine("[yellow]Warning: system.md file not found. Using default system prompt.[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: system.md file not found. Using default system prompt.[/]");
                 return "You are a helpful AI assistant.";
             }
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error loading system prompt: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading system prompt: {ex.Message}[/]");
             return "You are a helpful AI assistant.";
         }
     }

@@ -13,7 +13,7 @@ public class FileContentExtractor
         {
             if (!File.Exists(filePath))
             {
-                AnsiConsole.MarkupLine($"[red]File not found: {filePath}[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]File not found: {filePath}[/]");
                 return string.Empty;
             }
 
@@ -38,7 +38,7 @@ public class FileContentExtractor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error reading file: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error reading file: {ex.Message}[/]");
             return string.Empty;
         }
     }
@@ -63,7 +63,7 @@ public class FileContentExtractor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]Error extracting PDF text: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error extracting PDF text: {ex.Message}[/]");
             return string.Empty;
         }
     }
