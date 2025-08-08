@@ -1,14 +1,13 @@
 # Project Context for Claude
 
 ## Project Overview
-NotaBene (nb) - A C# console application that provides a chat interface with Azure OpenAI integration and MCP (Model Context Protocol) support.
+NotaBene (nb) - A C# console application that provides both interactive and single-shot chat modes with Azure OpenAI integration, MCP (Model Context Protocol) support, and persistent conversation history.
 
 ## Key Technologies
 - **Language**: C# (.NET)
 - **UI Framework**: Spectre.Console for terminal UI
 - **AI Integration**: Azure OpenAI
-- **Architecture**: MCP-enabled chat application with Semantic Kernel RAG
-- **Memory Store**: SQLite vector database for semantic search
+- **Architecture**: MCP-enabled chat application with dual execution modes (interactive/single-shot) and persistent conversation history
 
 ## Important Documentation Links
 - [Azure OpenAI .NET SDK](https://github.com/openai/openai-dotnet)
@@ -16,7 +15,6 @@ NotaBene (nb) - A C# console application that provides a chat interface with Azu
 - [Spectre.Console Documentation](https://spectreconsole.net/)
 - [MCP Specification](https://modelcontextprotocol.io/)
 - [.NET MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk)
-- [Semantic Kernel Documentation](https://learn.microsoft.com/en-us/semantic-kernel/)
 - [iText7 PDF Library](https://itextpdf.com/en/products/itext-7)
 
 ## Build & Test Commands
@@ -30,20 +28,32 @@ dotnet run
 # Add any test commands here when available
 ```
 
+## Execution Modes
+The application supports two execution modes:
+
+1. **Interactive Mode** (no command line arguments)
+   - Starts continuous chat loop with directory context banner
+   - Loads conversation history from `.nb_conversation_history.json` in current directory
+   - Saves conversation history on exit
+   - Supports all commands and features
+
+2. **Single-Shot Mode** (with command line arguments)  
+   - Executes single command/prompt and exits immediately
+   - Maintains conversation history between single-shot executions
+   - Perfect for scripting and batch operations
+   - Each directory maintains separate conversation context
+
 ## Project Structure
-- `Program.cs` - Main entry point and chat loop
-- `ConversationManager.cs` - Handles LLM interactions with RAG integration
+- `Program.cs` - Main entry point, handles dual execution modes and history persistence
+- `ConversationManager.cs` - Handles LLM interactions, MCP tool integration, and conversation history serialization
 - `McpManager.cs` - Manages MCP client connections
 - `ConfigurationService.cs` - Configuration management
-- `SemanticMemoryService.cs` - Handles file uploads and semantic search
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
 ## Custom Commands
 The application supports these built-in commands (intercepted before LLM):
 - `exit` - Quit the application
-- `/pwd` - Show current working directory
-- `/cd <path>` - Change directory
-- `/index <filepath>` - Upload and process file for semantic search (supports PDF, TXT, MD)
+- `/clear` - Clear conversation history (preserves system prompt)
 - `/insert <filepath>` - Insert entire file content into conversation context (supports PDF, TXT, MD)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
@@ -54,10 +64,9 @@ The application supports these built-in commands (intercepted before LLM):
 - New commands should follow the existing pattern using `CommandResult` return types
 - Configuration is loaded from `appsettings.json`
 - MCP clients are initialized on startup and disposed on exit
-- Semantic memory uses SQLite vector store (`semantic_memory.db`) for local storage
-- **RAG Implementation**: Uses agentic tool-based approach - model decides when to search via `search_documents` tool
-- File processing supports configurable chunking (default: 256-word chunks with 64-word overlap)
 - Tool calling safety: Max 3 tool calls per message to prevent infinite loops
+- **Directory-Based History**: Automatically persisted to `.nb_conversation_history.json` in current working directory
+- **Project Context**: Each directory maintains its own conversation history, perfect for project-specific AI assistance
 
 ## MCP Implementation Details
 - **McpManager.cs** - Manages MCP client lifecycle and exposes tools/prompts via interfaces
@@ -89,7 +98,6 @@ The application supports these built-in commands (intercepted before LLM):
 
 ## Architecture Notes
 - **Model Isolation**: LLM interactions are isolated to `ConversationManager.cs` for easy provider swapping
-- **Tool-based RAG**: Semantic search available via `search_documents` tool - model decides when to search
 - **Refactored Structure**: Commands (`CommandProcessor`), file operations (`FileContentExtractor`), prompts (`PromptProcessor`) separated for maintainability
 - **Safety Mechanisms**: Max tool calls per message, parameter validation, graceful error handling
 

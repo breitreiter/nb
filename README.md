@@ -1,63 +1,47 @@
 # NotaBene (nb)
 
-A command-line chat interface for Azure OpenAI with MCP (Model Context Protocol) server support and Retrieval-Augmented Generation (RAG) capabilities.
+A command-line chat interface for Azure OpenAI with MCP (Model Context Protocol) server support and direct file content integration.
 
 ## Features
 
-- **Interactive Mode** - Run conversations in a chat loop, or pass command-line arguments as a single prompt
-- **Document Upload & RAG** - Upload PDF, TXT, and MD files for semantic search and context-aware responses
-- **MCP Server Integration** - Connect to Model Context Protocol servers for extended tool functionality
-- **Built-in Commands** - Directory navigation, file uploads, and help commands
-- **o4-mini Required** - Designed for Azure OpenAI's o4-mini deployment, may not work correctly with other models
+- Interactive and single-shot execution modes
+- Direct file content insertion (PDF, TXT, MD)
+- MCP server integration for extended tooling
+- Directory-based conversation history
+- Designed for Azure OpenAI o4-mini
 
 ## Prerequisites
 
 - .NET 8.0 or later
 - Azure OpenAI resource with:
-  - Chat model deployment (e.g., o4-mini)
-  - Text embedding model deployment (e.g., text-embedding-3-small)
+  - Chat model deployment (You may need to tweak the context window size in ConversationManager.cs if you're not using o4-mini)
 
 ## Setup
 
-1. **Clone the repository**
+1. Clone and configure:
    ```bash
    git clone https://github.com/breitreiter/nb
    cd nb
-   ```
-
-2. **Configure Azure OpenAI**
-   ```bash
    cp appsettings.example.json appsettings.json
    ```
-   Edit `appsettings.json` with your Azure OpenAI credentials:
+
+2. Edit `appsettings.json` with your Azure OpenAI credentials:
    ```json
    {
      "AzureOpenAI": {
        "Endpoint": "https://your-resource-name.openai.azure.com/",
        "ApiKey": "your-api-key-here",
-       "ChatDeploymentName": "o4-mini",
-       "EmbeddingDeploymentName": "text-embedding-3-small"
-     },
-     "SemanticMemory": {
-       "ChunkSize": 256,          // Words per document chunk (smaller = more precise search)
-       "ChunkOverlap": 64,        // Overlapping words between chunks (prevents context loss)
-       "SimilarityThreshold": 0.5 // Min similarity score for search results (0.3-0.8 typical range)
+       "ChatDeploymentName": "o4-mini"
      }
    }
    ```
 
-3. **Create system prompt (optional)**
-   Create a `system.md` file with your desired system prompt:
+3. Optionally create `system.md` for a custom system prompt:
    ```markdown
    You are a helpful AI assistant specialized in software development.
-   Always provide clear, concise answers with code examples when relevant.
    ```
 
-4. **Configure MCP servers (optional)**
-   ```bash
-   cp mcp.example.json mcp.json
-   ```
-   Edit `mcp.json` to add your MCP servers:
+4. Optionally configure MCP servers by copying `mcp.example.json` to `mcp.json` and editing:
    ```json
    {
      "inputs": [],
@@ -71,7 +55,7 @@ A command-line chat interface for Azure OpenAI with MCP (Model Context Protocol)
    }
    ```
 
-5. **Build and run**
+5. Build and run:
    ```bash
    dotnet build
    dotnet run
@@ -80,88 +64,71 @@ A command-line chat interface for Azure OpenAI with MCP (Model Context Protocol)
 ## Usage
 
 ### Interactive Mode
+Launch with no parameters to start an interactive chat session:
 ```bash
-dotnet run
+nb
 ```
-Start a conversation session with the following commands:
+In interactive mode, you can use these commands:
 - `exit` - Quit the application
-- `/pwd` - Show current working directory
-- `/cd <path>` - Change directory
-- `/index <filepath>` - Upload and process file for semantic search (PDF or text)
+- `/clear` - Clear conversation history (preserves system prompt)
 - `/insert <filepath>` - Insert entire file content into conversation context (PDF or text)
-- `/run <filepath>` - Execute commands from a file (one command per line)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands
 
-### Direct Query
+### Single-Shot Mode
+Launch with parameters to execute a single command and exit immediately:
 ```bash
-dotnet run "What is the capital of France?"
-```
-Send a single message and get a response.
+# Send a chat message and exit
+nb "What is the capital of France?"
 
-### Document Upload & RAG
-Upload documents to enhance conversations with relevant context:
+# Execute a command and exit
+nb "/clear"
+nb "/insert document.pdf"
+nb "/prompts"
+nb "/prompt weather-report"
+```
+
+### Directory-Based Conversation History
+Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context:
+
 ```bash
-/index /path/to/document.pdf
-/index ./notes.md
-/index research.txt
-```
-Once uploaded, the AI will automatically search through your documents when answering questions, providing context-aware responses based on your uploaded content.
+# In your project directory - build up context
+cd /path/to/my-project
+nb "/insert README.md"
+nb "/insert src/main.py"
+nb "Analyze this codebase structure"
 
-### Direct File Content Insertion
+# Each directory maintains its own conversation
+cd /path/to/different-project
+nb  # Fresh conversation for this project
+
+# Switch back to continue previous conversation
+cd /path/to/my-project  
+nb  # Loads previous conversation context
+```
+
+Single-shot mode maintains conversation continuity between invocations.
+
+### File Content Insertion
 Insert entire file contents directly into the conversation:
 ```bash
-/insert /path/to/document.pdf
-/insert ./notes.md  
-/insert data.txt
+nb "/insert /path/to/document.pdf"
+nb "/insert ./notes.md"  
+nb "/insert data.txt"
 ```
-This adds the complete file content to your message context, useful for detailed analysis of specific documents.
-
-### Multi-Turn Workflow Automation
-Execute scripted multi-turn conversations using the `/run` command:
-```bash
-/run ./my-workflow.md
-```
-Create text files with one command or prompt per line. The AI processes each line sequentially, maintaining full conversation context between lines. Perfect for prototyping complex LLM workflows, research scripts, or automated analysis tasks.
-
-**Example workflow file:**
-```
-# Research workflow
-Select three programming languages that are trending in 2024
-For each language, explain its primary use case
-Compare their performance characteristics
-Recommend which one would be best for a web API project
-```
-
-Lines starting with `#` are treated as comments and skipped. The AI responds to each line before processing the next, building context throughout the workflow.
-
-**Tuning RAG Performance:**
-- Lower `ChunkSize` (e.g., 128) for more precise search on focused content
-- Increase `ChunkOverlap` to preserve more context between chunks  
-- Adjust `SimilarityThreshold` - lower values (0.3-0.4) include more results, higher values (0.6-0.8) are more selective
+This adds the complete file content to your message context.
 
 ### MCP Prompt Integration
-Interact with prompts from connected MCP servers:
+List and invoke prompts from connected MCP servers:
 ```bash
-/prompts                    # List all available prompts
+/prompts                    # List available prompts
 /prompt weather-report      # Invoke a specific prompt
-/prompt code-review         # Prompts may request arguments interactively
 ```
-MCP prompts provide pre-configured workflows and can accept arguments to customize their behavior. The application will prompt you for any required arguments before executing the prompt.
+Prompts may request arguments interactively before execution.
 
 ### Built-in MCP Server
-The project includes a built-in MCP test server (`mcp-servers/mcp-tester/`) that provides:
-
-**Tools:**
-- `echo` - Echoes messages back to the client
-- `reverse-echo` - Returns messages in reverse
-- `current-time` - Returns the current date and time
-
-**Dynamic Prompts:**
-- Automatically generates prompts from markdown files in `mcp-servers/mcp-tester/Prompts/`
-- Supports parameterized prompts using `{parameter}` syntax
-- Includes sample prompts: `favecolor`, `codereview`, `meetingnotes`
+The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools and dynamically generated prompts from markdown files.
 
 To use the built-in server, configure it in your `mcp.json`:
 ```json
@@ -184,10 +151,6 @@ To use the built-in server, configure it in your `mcp.json`:
 | `AzureOpenAI:Endpoint` | Your Azure OpenAI endpoint | Required |
 | `AzureOpenAI:ApiKey` | Your Azure OpenAI API key | Required |
 | `AzureOpenAI:ChatDeploymentName` | Chat model deployment name | `o4-mini` |
-| `AzureOpenAI:EmbeddingDeploymentName` | Embedding model deployment name | `text-embedding-3-small` |
-| `SemanticMemory:ChunkSize` | Words per document chunk | `256` |
-| `SemanticMemory:ChunkOverlap` | Overlapping words between chunks | `64` |
-| `SemanticMemory:SimilarityThreshold` | Minimum similarity score for search results | `0.5` |
 
 ### system.md
 Place a `system.md` file in the same directory as the executable to customize the AI's behavior. The entire file content will be used as the system prompt.
@@ -201,10 +164,9 @@ Configure MCP servers to extend the AI with additional tools and capabilities. E
 | `servers.{name}.args` | Arguments for the command | `["run", "--project", "path/to/server.csproj"]` |
 | `servers.{name}.type` | Transport type (currently only stdio) | `"stdio"` |
 
-**Examples:**
-- **Built-in MCP Server**: `"command": "dotnet", "args": ["run", "--project", "mcp-servers/mcp-tester/mcp-tester.csproj"]`
-- **Custom .NET MCP Server**: `"command": "dotnet", "args": ["run", "--project", "MyServer.csproj"]`
-- **Node.js MCP Server**: `"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]`
+Examples:
+- Built-in server: `"command": "dotnet", "args": ["run", "--project", "mcp-servers/mcp-tester/mcp-tester.csproj"]`
+- Node.js server: `"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]`
 
 ## Building for Distribution
 
@@ -212,22 +174,17 @@ Configure MCP servers to extend the AI with additional tools and capabilities. E
 dotnet publish -c Release -r win-x64 --self-contained
 ```
 
-Make sure to include `system.md` and `mcp.json` alongside your executable if you want custom system prompts and MCP server configurations.
+Include `system.md` and `mcp.json` with your executable for custom configurations.
 
 ## Technical Details
 
-- Built with .NET 8.0
-- Uses Azure OpenAI .NET SDK (v2.2.0-beta.4)
-- Semantic Kernel for RAG and text embeddings
-- Model Context Protocol (MCP) SDK for tool and prompt integration
-- iText7 for PDF text extraction
-- Powered by Spectre.Console for rich terminal UI
-- Automatic UTF-8 console setup for Windows
-- Conversation history maintained in memory
-- Document embeddings stored in memory (session-based)
-- Supports tool calling and prompt execution via MCP servers
-- Semantic search with cosine similarity matching
+- .NET 8.0
+- Azure OpenAI .NET SDK v2.2.0-beta.4
+- Model Context Protocol (MCP) SDK
+- iText7 for PDF extraction
+- Spectre.Console for terminal UI
+- Directory-based conversation persistence
 
 ## License
 
-MIT License - feel free to use and modify as needed.
+MIT License

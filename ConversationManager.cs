@@ -15,8 +15,6 @@ public class ConversationManager
     private readonly McpManager _mcpManager;
     private readonly List<OpenAIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
-    private SemanticMemoryService? _semanticMemoryService;
-    private SemanticSearchTool? _semanticSearchTool;
     private int _toolCallCount = 0;
 
     public ConversationManager(ChatClient client, McpManager mcpManager)
@@ -30,11 +28,6 @@ public class ConversationManager
         _conversationHistory.Add(new SystemChatMessage(systemPrompt));
     }
 
-    public void SetSemanticMemoryService(SemanticMemoryService semanticMemoryService)
-    {
-        _semanticMemoryService = semanticMemoryService;
-        _semanticSearchTool = new SemanticSearchTool(semanticMemoryService);
-    }
 
     public void AddToConversationHistory(string userMessage)
     {
@@ -79,11 +72,6 @@ public class ConversationManager
                 }
             }
 
-            // Add semantic search tool if available
-            if (_semanticSearchTool != null)
-            {
-                requestOptions.Tools.Add(_semanticSearchTool.GetChatTool());
-            }
 
             // The SetNewMaxCompletionTokensPropertyEnabled() method is an [Experimental] opt-in to use
             // the new max_completion_tokens JSON property instead of the legacy max_tokens property.
@@ -125,24 +113,7 @@ public class ConversationManager
                         {
                             string toolResult = string.Empty;
                             
-                            // Handle semantic search tool
-                            if (chatToolCall.FunctionName == "search_documents" && _semanticSearchTool != null)
-                            {
-                                var argumentsJson = chatToolCall.FunctionArguments.ToString();
-                                using var doc = JsonDocument.Parse(argumentsJson);
-                                
-                                var query = doc.RootElement.GetProperty("query").GetString() ?? "";
-                                var maxResults = doc.RootElement.TryGetProperty("maxResults", out var maxResultsElement) 
-                                    ? maxResultsElement.GetInt32() 
-                                    : 3;
-                                
-                                toolResult = await _semanticSearchTool.ExecuteAsync(query, maxResults);
-                                _conversationHistory.Add(new ToolChatMessage(chatToolCall.Id, toolResult));
-                                
-                                AnsiConsole.MarkupLine($"[dim grey]• searching documents for: {query}[/]");
-                            }
                             // Handle MCP tools
-                            else
                             {
                                 var mcpTool = mcpTools.FirstOrDefault(t => t.Name == chatToolCall.FunctionName);
                                 if (mcpTool != null)
@@ -270,24 +241,126 @@ public class ConversationManager
 
     private void ShowSpinner()
     {
+        // Skip spinner if stdout is redirected (e.g., piped to file)
+        if (Console.IsOutputRedirected)
+            return;
+            
         var spinnerChars = new char[] { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' };
         int index = 0;
         
-        Console.CursorVisible = false;
-        
-        while (!_stopSpinner)
+        try
         {
-            Console.Write($"\r{spinnerChars[index]} Thinking...");
-            index = (index + 1) % spinnerChars.Length;
-            Thread.Sleep(100);
+            Console.CursorVisible = false;
+            
+            while (!_stopSpinner)
+            {
+                Console.Write($"\r{spinnerChars[index]} Thinking...");
+                index = (index + 1) % spinnerChars.Length;
+                Thread.Sleep(100);
+            }
+            
+            Console.Write("\r                    \r"); // Clear the spinner line
+            Console.CursorVisible = true;
         }
-        
-        Console.Write("\r                    \r"); // Clear the spinner line
-        Console.CursorVisible = true;
+        catch
+        {
+            // Ignore console errors when output is redirected
+        }
     }
 
     private static void RenderMarkdown(string markdown)
     {
         AnsiConsole.WriteLine(markdown);
+    }
+
+    public async Task SaveConversationHistoryAsync(string filePath = ".nb_conversation_history.json")
+    {
+        try
+        {
+            // Convert conversation history to a serializable format
+            var serializableHistory = _conversationHistory.Select(msg => new
+            {
+                Type = msg.GetType().Name,
+                Content = ExtractMessageContent(msg)
+            }).ToArray();
+
+            var json = JsonSerializer.Serialize(serializableHistory, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(filePath, json);
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Could not save conversation history: {ex.Message}[/]");
+        }
+    }
+
+    public async Task LoadConversationHistoryAsync(string filePath = ".nb_conversation_history.json")
+    {
+        try
+        {
+            if (!File.Exists(filePath))
+                return; // No history to load
+
+            var json = await File.ReadAllTextAsync(filePath);
+            var historyData = JsonSerializer.Deserialize<JsonElement[]>(json);
+
+            // Clear existing history except system message (keep the first message if it's SystemChatMessage)
+            var systemMessage = _conversationHistory.FirstOrDefault(msg => msg is SystemChatMessage);
+            _conversationHistory.Clear();
+            
+            if (systemMessage != null)
+            {
+                _conversationHistory.Add(systemMessage);
+            }
+
+            // Reconstruct conversation history
+            foreach (var item in historyData)
+            {
+                var type = item.GetProperty("Type").GetString();
+                var content = item.GetProperty("Content").GetString();
+
+                if (string.IsNullOrEmpty(content) || type == "SystemChatMessage")
+                    continue; // Skip empty content or system messages (already handled)
+
+                switch (type)
+                {
+                    case "UserChatMessage":
+                        _conversationHistory.Add(new UserChatMessage(content));
+                        break;
+                    case "AssistantChatMessage":
+                        _conversationHistory.Add(new AssistantChatMessage(content));
+                        break;
+                    // Note: We skip ToolChatMessage as they're complex and transient
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Could not load conversation history: {ex.Message}[/]");
+        }
+    }
+
+    private static string ExtractMessageContent(OpenAIChatMessage message)
+    {
+        return message switch
+        {
+            SystemChatMessage systemMsg => systemMsg.Content.FirstOrDefault()?.Text ?? "",
+            UserChatMessage userMsg => userMsg.Content.FirstOrDefault()?.Text ?? "",
+            AssistantChatMessage assistantMsg => assistantMsg.Content.FirstOrDefault()?.Text ?? "",
+            _ => ""
+        };
+    }
+
+    public void ClearConversationHistory()
+    {
+        // Keep only the system message (first message if it's a SystemChatMessage)
+        var systemMessage = _conversationHistory.FirstOrDefault(msg => msg is SystemChatMessage);
+        _conversationHistory.Clear();
+        
+        if (systemMessage != null)
+        {
+            _conversationHistory.Add(systemMessage);
+        }
+        
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Conversation history cleared[/]");
     }
 }

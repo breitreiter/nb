@@ -15,7 +15,6 @@ public class Program
     private static McpManager _mcpManager = new McpManager();
     private static ConversationManager _conversationManager;
     private static ConfigurationService _configurationService = new ConfigurationService();
-    private static SemanticMemoryService _semanticMemoryService;
     private static CommandProcessor _commandProcessor;
     private static FileContentExtractor _fileExtractor;
     private static PromptProcessor _promptProcessor;
@@ -24,37 +23,38 @@ public class Program
     {
         var config = _configurationService.GetConfiguration();
         InitializeOpenAIClient(config);
-        await _mcpManager.InitializeAsync();
         
-        // Initialize semantic memory service
-        var endpoint = config["AzureOpenAI:Endpoint"];
-        var apiKey = config["AzureOpenAI:ApiKey"];
-        var chatDeployment = config["AzureOpenAI:ChatDeploymentName"] ?? "o4-mini";
-        var embeddingDeployment = config["AzureOpenAI:EmbeddingDeploymentName"] ?? "text-embedding-3-small";
-        var chunkSize = config.GetValue<int>("SemanticMemory:ChunkSize", 256);
-        var chunkOverlap = config.GetValue<int>("SemanticMemory:ChunkOverlap", 64);
-        var similarityThreshold = config.GetValue<double>("SemanticMemory:SimilarityThreshold", 0.7);
-        _semanticMemoryService = new SemanticMemoryService(endpoint, apiKey, embeddingDeployment, chunkSize, chunkOverlap, similarityThreshold);
-        await _semanticMemoryService.InitializeAsync();
+        // Determine execution mode first to control MCP banner display
+        var isInteractiveMode = args.Length == 0;
+        await _mcpManager.InitializeAsync(showBanners: isInteractiveMode);
         
         // Initialize conversation manager with dependencies
         _conversationManager = new ConversationManager(_client, _mcpManager);
         _conversationManager.InitializeWithSystemPrompt(_configurationService.GetSystemPrompt());
-        _conversationManager.SetSemanticMemoryService(_semanticMemoryService);
+        
+        // Load conversation history from previous sessions
+        await _conversationManager.LoadConversationHistoryAsync();
 
         // Initialize refactored services
         _fileExtractor = new FileContentExtractor();
         _promptProcessor = new PromptProcessor(_mcpManager);
-        _commandProcessor = new CommandProcessor(_semanticMemoryService, _fileExtractor, _promptProcessor, _conversationManager);
+        _commandProcessor = new CommandProcessor(_fileExtractor, _promptProcessor, _conversationManager);
 
-        var initialPrompt = string.Join(" ", args);
-
-        if (!string.IsNullOrEmpty(initialPrompt))
+        // Execute based on mode
+        if (args.Length > 0)
         {
-            await _conversationManager.SendMessageAsync(initialPrompt);
+            // Single-shot mode: execute command and exit
+            var userInput = string.Join(" ", args);
+            await ExecuteSingleCommand(userInput);
         }
-
-        await StartChatLoop();
+        else
+        {
+            // Interactive mode: start chat loop
+            await StartChatLoop();
+        }
+        
+        // Save conversation history before exit
+        await _conversationManager.SaveConversationHistoryAsync();
         
         // Cleanup MCP clients
         _mcpManager.Dispose();
@@ -87,6 +87,20 @@ public class Program
     private static async Task StartChatLoop()
     {
         AnsiConsole.MarkupLine("[white]N[/]ota[white]B[/]ene 0.3α [grey]▪[/] [cadetblue_1]exit[/] [grey]to quit[/] [cadetblue_1]?[/] [grey]for help[/]");
+        
+        // Show directory context banner
+        var currentDir = Directory.GetCurrentDirectory();
+        var dirName = Path.GetFileName(currentDir);
+        var historyExists = File.Exists(".nb_conversation_history.json");
+        
+        if (historyExists)
+        {
+            AnsiConsole.MarkupLine($"[dim grey]Loaded conversation history for directory:[/] [yellow]{dirName}[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[dim grey]Starting fresh conversation for directory:[/] [yellow]{dirName}[/]");
+        }
 
         while (true)
         {
@@ -125,6 +139,32 @@ public class Program
                     _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
                     break;
             }
+        }
+    }
+
+    private static async Task ExecuteSingleCommand(string userInput)
+    {
+        // Process command through the command processor (same logic as interactive mode)
+        var result = await _commandProcessor.ProcessCommandAsync(userInput);
+
+        switch (result.Action)
+        {
+            case CommandAction.Exit:
+                // Exit command processed, just return
+                return;
+            
+            case CommandAction.Continue:
+                // Check if this was a non-command that should go to LLM
+                if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "?" && userInput.Trim() != "exit")
+                {
+                    await _conversationManager.SendMessageAsync(userInput);
+                }
+                break;
+            
+            case CommandAction.AddToHistory:
+                // Maintain conversation history just like interactive mode
+                _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
+                break;
         }
     }
 }

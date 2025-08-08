@@ -12,7 +12,7 @@ public class McpManager : IDisposable
     private readonly List<AIFunction> _mcpTools = new();
     private readonly List<McpClientPrompt> _mcpPrompts = new();
 
-    public async Task InitializeAsync()
+    public async Task InitializeAsync(bool showBanners = true)
     {
         try
         {
@@ -55,21 +55,33 @@ public class McpManager : IDisposable
                     }
                     catch (Exception promptEx)
                     {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: {serverName} doesn't support prompts: {promptEx.Message}[/]");
+                        if (showBanners)
+                        {
+                            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: {serverName} doesn't support prompts: {promptEx.Message}[/]");
+                        }
                     }
 
                     // Show success message for any server that connects (tools and/or prompts)
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Connected to MCP server: {serverName} ({tools.Count} tools, {promptCount} prompts)[/]");
+                    if (showBanners)
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Connected to MCP server: {serverName} ({tools.Count} tools, {promptCount} prompts)[/]");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to connect to MCP server '{serverName}': {ex.Message}[/]");
+                    if (showBanners)
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to connect to MCP server '{serverName}': {ex.Message}[/]");
+                    }
                 }
             }
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to load MCP configuration: {ex.Message}[/]");
+            if (showBanners)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to load MCP configuration: {ex.Message}[/]");
+            }
         }
     }
 
