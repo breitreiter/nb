@@ -1,0 +1,39 @@
+fake_tools:
+  - name: "search_database"
+    description: "Search the company database for employee information"
+    parameters:
+      - name: "query"
+        type: "string"
+        description: "Search query"
+        required: true
+      - name: "department"
+        type: "string"
+        description: "Department to filter by"
+        required: false
+    response: "Found 3 employees matching your query in the Engineering department."
+    
+  - name: "send_email"
+    description: "Send an email to specified recipients"
+    parameters:
+      - name: "to"
+        type: "string"
+        description: "Recipient email address"
+        required: true
+      - name: "subject"
+        type: "string"
+        description: "Email subject"
+        required: true
+      - name: "body"
+        type: "string"
+        description: "Email body content"
+        required: true
+    response: "Email sent successfully to the specified recipient."
+
+  - name: "get_weather"
+    description: "Get current weather information for a location"
+    parameters:
+      - name: "location"
+        type: "string"
+        description: "City or location name"
+        required: true
+    response: "Current weather in the requested location: 72°F, sunny with light clouds."

@@ -53,12 +53,9 @@ public class McpManager : IDisposable
                         _mcpPrompts.AddRange(prompts);
                         promptCount = prompts.Count;
                     }
-                    catch (Exception promptEx)
+                    catch (Exception)
                     {
-                        if (showBanners)
-                        {
-                            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: {serverName} doesn't support prompts: {promptEx.Message}[/]");
-                        }
+                        // Most MCP servers don't support prompts, so we silently ignore this
                     }
 
                     // Show success message for any server that connects (tools and/or prompts)

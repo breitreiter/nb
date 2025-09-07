@@ -13,6 +13,7 @@ public class Program
 {
     private static ChatClient _client;
     private static McpManager _mcpManager = new McpManager();
+    private static FakeToolManager _fakeToolManager = new FakeToolManager();
     private static ConversationManager _conversationManager;
     private static ConfigurationService _configurationService = new ConfigurationService();
     private static CommandProcessor _commandProcessor;
@@ -24,12 +25,39 @@ public class Program
         var config = _configurationService.GetConfiguration();
         InitializeOpenAIClient(config);
         
-        // Determine execution mode first to control MCP banner display
+        // Determine execution mode first to control banner display
         var isInteractiveMode = args.Length == 0;
         await _mcpManager.InitializeAsync(showBanners: isInteractiveMode);
         
+        // Load fake tools (notifications will be shown after integration)
+        var fakeToolResult = await _fakeToolManager.LoadFakeToolsAsync();
+        
+        // Perform integration to determine overrides
+        if (fakeToolResult.Success && fakeToolResult.ToolsLoaded > 0)
+        {
+            var mcpTools = _mcpManager.GetTools();
+            _fakeToolManager.IntegrateWithMcpTools(mcpTools);
+            
+            if (isInteractiveMode)
+            {
+                var overriddenTools = _fakeToolManager.GetOverriddenTools();
+                var overrideCount = overriddenTools.Count;
+                var newCount = fakeToolResult.ToolsLoaded - overrideCount;
+                
+                if (overrideCount > 0)
+                {
+                    foreach (var toolName in overriddenTools)
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool '{toolName}' overrides MCP tool[/]");
+                    }
+                }
+                
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Loaded {fakeToolResult.ToolsLoaded} fake tools ({overrideCount} override{(overrideCount == 1 ? "" : "s")}, {newCount} new)[/]");
+            }
+        }
+        
         // Initialize conversation manager with dependencies
-        _conversationManager = new ConversationManager(_client, _mcpManager);
+        _conversationManager = new ConversationManager(_client, _mcpManager, _fakeToolManager);
         _conversationManager.InitializeWithSystemPrompt(_configurationService.GetSystemPrompt());
         
         // Load conversation history from previous sessions

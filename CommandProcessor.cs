@@ -92,10 +92,29 @@ public class CommandProcessor
             filePath = filePath[1..^1]; // Remove surrounding quotes
         }
 
+        var fileName = Path.GetFileName(filePath);
+        
+        // Handle images separately
+        if (_fileExtractor.IsImageFile(filePath))
+        {
+            try
+            {
+                var (description, imageData) = await _fileExtractor.ExtractImageAsync(filePath);
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Image from {fileName} added to conversation context[/]");
+                _conversationManager.AddImageToConversationHistory(description, imageData, GetImageMimeType(filePath));
+                return CommandResult.Continue();
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to load image: {ex.Message}[/]");
+                return CommandResult.Continue();
+            }
+        }
+        
+        // Handle text/PDF files
         var fileContent = await _fileExtractor.ExtractFileContentAsync(filePath);
         if (!string.IsNullOrEmpty(fileContent))
         {
-            var fileName = Path.GetFileName(filePath);
             AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]File content from {fileName} added to conversation context[/]");
             var modifiedInput = $"Here is the content from file '{fileName}':\n\n{fileContent}";
             return CommandResult.AddToHistory(modifiedInput);
@@ -128,9 +147,20 @@ public class CommandProcessor
         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Available commands:[/]");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]exit[/] - Quit the application");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/clear[/] - Clear conversation history");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/insert <filepath>[/] - Insert entire file content into conversation context (PDF or text)");
+        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/insert <filepath>[/] - Insert file content into conversation context (PDF, text, or images: JPG, PNG)");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/prompts[/] - List available MCP prompts");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/prompt <name>[/] - Invoke an MCP prompt");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]?[/] - Show this help");
+    }
+    
+    private string GetImageMimeType(string filePath)
+    {
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        return extension switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            _ => "application/octet-stream"
+        };
     }
 }

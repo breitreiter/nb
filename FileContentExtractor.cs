@@ -7,6 +7,13 @@ namespace nb;
 
 public class FileContentExtractor
 {
+    private static readonly HashSet<string> SupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png"
+    };
+    
+    private const int MaxImageSizeBytes = 20 * 1024 * 1024; // 20MB limit for Azure OpenAI
+    
     public async Task<string> ExtractFileContentAsync(string filePath)
     {
         try
@@ -18,6 +25,12 @@ public class FileContentExtractor
             }
 
             var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            
+            // Handle images - not supported in this method
+            if (SupportedImageExtensions.Contains(extension))
+            {
+                throw new NotSupportedException("Image files should be processed using ExtractImageAsync method");
+            }
             
             // Handle PDFs
             if (extension == ".pdf")
@@ -40,6 +53,41 @@ public class FileContentExtractor
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error reading file: {ex.Message}[/]");
             return string.Empty;
+        }
+    }
+    
+    public async Task<(string Description, byte[] ImageData)> ExtractImageAsync(string filePath)
+    {
+        try
+        {
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException($"File not found: {filePath}");
+            }
+
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            if (!SupportedImageExtensions.Contains(extension))
+            {
+                throw new NotSupportedException($"Unsupported image format: {extension}");
+            }
+
+            var fileInfo = new FileInfo(filePath);
+            
+            // Check file size limit
+            if (fileInfo.Length > MaxImageSizeBytes)
+            {
+                throw new NotSupportedException($"Image file size ({fileInfo.Length:N0} bytes) exceeds the {MaxImageSizeBytes / (1024 * 1024)}MB limit for Azure OpenAI vision models.");
+            }
+            
+            var imageData = await File.ReadAllBytesAsync(filePath);
+            var description = $"[Image file loaded: {Path.GetFileName(filePath)} ({fileInfo.Length:N0} bytes)]";
+            
+            return (description, imageData);
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading image: {ex.Message}[/]");
+            throw;
         }
     }
 
@@ -127,5 +175,12 @@ public class FileContentExtractor
         }
 
         return sanitized.ToString();
+    }
+    
+    
+    public bool IsImageFile(string filePath)
+    {
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        return SupportedImageExtensions.Contains(extension);
     }
 }

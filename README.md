@@ -5,16 +5,15 @@ A command-line chat interface for Azure OpenAI with MCP (Model Context Protocol)
 ## Features
 
 - Interactive and single-shot execution modes
-- Direct file content insertion (PDF, TXT, MD)
-- MCP server integration for extended tooling
+- File insertion (PDF, TXT, MD, JPG, PNG)
+- MCP server integration (stdio only)
 - Directory-based conversation history
 - Designed for Azure OpenAI o4-mini
 
 ## Prerequisites
 
 - .NET 8.0 or later
-- Azure OpenAI resource with:
-  - Chat model deployment (You may need to tweak the context window size in ConversationManager.cs if you're not using o4-mini)
+- Azure OpenAI resource with Chat model deployment (You may need to tweak the context window size in ConversationManager.cs if you're not using o4-mini)
 
 ## Setup
 
@@ -71,7 +70,7 @@ nb
 In interactive mode, you can use these commands:
 - `exit` - Quit the application
 - `/clear` - Clear conversation history (preserves system prompt)
-- `/insert <filepath>` - Insert entire file content into conversation context (PDF or text)
+- `/insert <filepath>` - Insert file content into conversation context (PDF, text, JPG, PNG)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands
@@ -80,46 +79,17 @@ In interactive mode, you can use these commands:
 Launch with parameters to execute a single command and exit immediately:
 ```bash
 # Send a chat message and exit
-nb "What is the capital of France?"
+nb What is the capital of France?
 
 # Execute a command and exit
-nb "/clear"
-nb "/insert document.pdf"
-nb "/prompts"
-nb "/prompt weather-report"
+nb /clear
+nb /insert document.pdf
+nb Summarize this document
 ```
 
-### Directory-Based Conversation History
-Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context:
+Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context, single-shot mode maintains conversation continuity between invocations.
 
-```bash
-# In your project directory - build up context
-cd /path/to/my-project
-nb "/insert README.md"
-nb "/insert src/main.py"
-nb "Analyze this codebase structure"
-
-# Each directory maintains its own conversation
-cd /path/to/different-project
-nb  # Fresh conversation for this project
-
-# Switch back to continue previous conversation
-cd /path/to/my-project  
-nb  # Loads previous conversation context
-```
-
-Single-shot mode maintains conversation continuity between invocations.
-
-### File Content Insertion
-Insert entire file contents directly into the conversation:
-```bash
-nb "/insert /path/to/document.pdf"
-nb "/insert ./notes.md"  
-nb "/insert data.txt"
-```
-This adds the complete file content to your message context.
-
-### MCP Prompt Integration
+### MCP Prompts
 List and invoke prompts from connected MCP servers:
 ```bash
 /prompts                    # List available prompts
@@ -142,6 +112,11 @@ To use the built-in server, configure it in your `mcp.json`:
   }
 }
 ```
+
+### Fake Tools
+nb will read fake-tools.yaml and treat those definitions as normal tools. When the model requests a fake tool, nb will return the static response configured in the yaml file. Fake tool definitions will override MCP definitions.
+
+Use fake tools to validate/tune tool descriptions, structure, and responses.
 
 ## Configuration
 

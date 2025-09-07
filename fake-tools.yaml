@@ -1,0 +1,4 @@
+# Define fake tools for testing tool schema alignment
+# Copy from fake-tools.example.yaml to get started
+
+fake_tools: []

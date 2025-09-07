@@ -13,6 +13,7 @@ public static class UIColors
     public const string SpectreMuted = "grey";
     public const string SpectreAccent = "cadetblue_1";
     public const string SpectreUserPrompt = "greenyellow";
+    public const string SpectreFakeTool = "mediumpurple2";
 
 
     /* Native Console markup colors

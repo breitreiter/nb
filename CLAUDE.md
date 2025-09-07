@@ -54,7 +54,7 @@ The application supports two execution modes:
 The application supports these built-in commands (intercepted before LLM):
 - `exit` - Quit the application
 - `/clear` - Clear conversation history (preserves system prompt)
-- `/insert <filepath>` - Insert entire file content into conversation context (supports PDF, TXT, MD)
+- `/insert <filepath>` - Insert file content into conversation context (supports PDF, TXT, MD, images: JPG, PNG)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands
@@ -67,6 +67,7 @@ The application supports these built-in commands (intercepted before LLM):
 - Tool calling safety: Max 3 tool calls per message to prevent infinite loops
 - **Directory-Based History**: Automatically persisted to `.nb_conversation_history.json` in current working directory
 - **Project Context**: Each directory maintains its own conversation history, perfect for project-specific AI assistance
+- **Multimodal Support**: Image insertion (JPG, PNG) with binary data handling for o4-mini vision capabilities
 
 ## MCP Implementation Details
 - **McpManager.cs** - Manages MCP client lifecycle and exposes tools/prompts via interfaces

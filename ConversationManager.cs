@@ -13,14 +13,16 @@ public class ConversationManager
     
     private readonly ChatClient _client;
     private readonly McpManager _mcpManager;
+    private readonly FakeToolManager _fakeToolManager;
     private readonly List<OpenAIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
     private int _toolCallCount = 0;
 
-    public ConversationManager(ChatClient client, McpManager mcpManager)
+    public ConversationManager(ChatClient client, McpManager mcpManager, FakeToolManager fakeToolManager)
     {
         _client = client;
         _mcpManager = mcpManager;
+        _fakeToolManager = fakeToolManager;
     }
 
     public void InitializeWithSystemPrompt(string systemPrompt)
@@ -33,6 +35,15 @@ public class ConversationManager
     {
         _conversationHistory.Add(new UserChatMessage(userMessage));
         _conversationHistory.Add(new AssistantChatMessage("I've received the document content and it's now available in our conversation context."));
+    }
+    
+    public void AddImageToConversationHistory(string description, byte[] imageData, string mimeType)
+    {
+        var textPart = ChatMessageContentPart.CreateTextPart(description);
+        var imagePart = ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageData), mimeType);
+        
+        _conversationHistory.Add(new UserChatMessage(textPart, imagePart));
+        _conversationHistory.Add(new AssistantChatMessage("I've received the image and it's now available in our conversation context. I can analyze and discuss its contents."));
     }
 
     public async Task SendMessageAsync(string userMessage)
@@ -61,11 +72,12 @@ public class ConversationManager
                 MaxOutputTokenCount = 10000,
             };
 
-            // Add MCP tools if available
+            // Add MCP tools and fake tools (fake tools override MCP tools with same name)
             var mcpTools = _mcpManager.GetTools();
-            if (mcpTools.Count > 0)
+            var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
+            if (allTools.Count > 0)
             {
-                foreach (var tool in mcpTools)
+                foreach (var tool in allTools)
                 {
                     var chatTool = ConvertAIFunctionToChatTool(tool);
                     requestOptions.Tools.Add(chatTool);
@@ -113,8 +125,23 @@ public class ConversationManager
                         {
                             string toolResult = string.Empty;
                             
-                            // Handle MCP tools
+                            // Check if this is a fake tool first
+                            var fakeTool = _fakeToolManager.GetFakeTool(chatToolCall.FunctionName);
+                            if (fakeTool != null)
                             {
+                                // Handle fake tool
+                                var argumentsJson = chatToolCall.FunctionArguments.ToString();
+                                
+                                // Show fake tool invocation notification
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {chatToolCall.FunctionName}[/]");
+                                AnsiConsole.MarkupLine($"[dim grey]   Parameters: {argumentsJson}[/]");
+                                AnsiConsole.MarkupLine($"[dim grey]   → {fakeTool.Response}[/]");
+                                
+                                _conversationHistory.Add(new ToolChatMessage(chatToolCall.Id, fakeTool.Response));
+                            }
+                            else
+                            {
+                                // Handle MCP tools
                                 var mcpTool = mcpTools.FirstOrDefault(t => t.Name == chatToolCall.FunctionName);
                                 if (mcpTool != null)
                                 {
