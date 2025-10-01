@@ -3,7 +3,7 @@ using Azure.AI.OpenAI.Chat;
 using Microsoft.Extensions.AI;
 using OpenAI.Chat;
 using Spectre.Console;
-using OpenAIChatMessage = OpenAI.Chat.ChatMessage;
+using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace nb;
 
@@ -11,14 +11,14 @@ public class ConversationManager
 {
     private const int MAX_TOOL_CALLS_PER_MESSAGE = 3;
     
-    private readonly ChatClient _client;
+    private readonly IChatClient _client;
     private readonly McpManager _mcpManager;
     private readonly FakeToolManager _fakeToolManager;
-    private readonly List<OpenAIChatMessage> _conversationHistory = new();
+    private readonly List<AIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
     private int _toolCallCount = 0;
 
-    public ConversationManager(ChatClient client, McpManager mcpManager, FakeToolManager fakeToolManager)
+    public ConversationManager(IChatClient client, McpManager mcpManager, FakeToolManager fakeToolManager)
     {
         _client = client;
         _mcpManager = mcpManager;
@@ -27,23 +27,24 @@ public class ConversationManager
 
     public void InitializeWithSystemPrompt(string systemPrompt)
     {
-        _conversationHistory.Add(new SystemChatMessage(systemPrompt));
+        _conversationHistory.Add(new AIChatMessage(ChatRole.System, systemPrompt));
     }
 
 
     public void AddToConversationHistory(string userMessage)
     {
-        _conversationHistory.Add(new UserChatMessage(userMessage));
-        _conversationHistory.Add(new AssistantChatMessage("I've received the document content and it's now available in our conversation context."));
+        _conversationHistory.Add(new AIChatMessage(ChatRole.User, userMessage));
+        _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, "I've received the document content and it's now available in our conversation context."));
     }
     
     public void AddImageToConversationHistory(string description, byte[] imageData, string mimeType)
     {
-        var textPart = ChatMessageContentPart.CreateTextPart(description);
-        var imagePart = ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageData), mimeType);
+        var textContent = new TextContent(description);
+        var imageContent = new DataContent(imageData, mimeType);
+        var contentList = new List<AIContent> { textContent, imageContent };
         
-        _conversationHistory.Add(new UserChatMessage(textPart, imagePart));
-        _conversationHistory.Add(new AssistantChatMessage("I've received the image and it's now available in our conversation context. I can analyze and discuss its contents."));
+        _conversationHistory.Add(new AIChatMessage(ChatRole.User, contentList));
+        _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, "I've received the image and it's now available in our conversation context. I can analyze and discuss its contents."));
     }
 
     public async Task SendMessageAsync(string userMessage)
@@ -54,7 +55,7 @@ public class ConversationManager
         _toolCallCount = 0;
 
         // Add user message to conversation history (no automatic RAG injection)
-        _conversationHistory.Add(new UserChatMessage(userMessage));
+        _conversationHistory.Add(new AIChatMessage(ChatRole.User, userMessage));
         
         await SendMessageInternalAsync();
     }
@@ -67,9 +68,9 @@ public class ConversationManager
         {
             // Support for this recently-launched model with MaxOutputTokenCount parameter requires
             // Azure.AI.OpenAI 2.2.0-beta.4 and SetNewMaxCompletionTokensPropertyEnabled
-            var requestOptions = new ChatCompletionOptions()
+            var requestOptions = new ChatOptions()
             {
-                MaxOutputTokenCount = 10000,
+                MaxOutputTokens = 10000,
             };
 
             // Add MCP tools and fake tools (fake tools override MCP tools with same name)
@@ -77,25 +78,19 @@ public class ConversationManager
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
             if (allTools.Count > 0)
             {
+                requestOptions.Tools = new List<AITool>();
                 foreach (var tool in allTools)
                 {
-                    var chatTool = ConvertAIFunctionToChatTool(tool);
-                    requestOptions.Tools.Add(chatTool);
+                    requestOptions.Tools.Add(tool);
                 }
             }
 
 
-            // The SetNewMaxCompletionTokensPropertyEnabled() method is an [Experimental] opt-in to use
-            // the new max_completion_tokens JSON property instead of the legacy max_tokens property.
-            // This extension method will be removed and unnecessary in a future service API version;
-            // please disable the [Experimental] warning to acknowledge.
-#pragma warning disable AOAI001
-            requestOptions.SetNewMaxCompletionTokensPropertyEnabled(true);
-#pragma warning restore AOAI001
+            // Microsoft.Extensions.AI handles token limits cleanly without experimental methods
 
             // Start spinner and make async API call
             var spinnerTask = Task.Run(() => ShowSpinner());
-            var apiTask = _client.CompleteChatAsync(_conversationHistory, requestOptions);
+            var apiTask = _client.GetResponseAsync(_conversationHistory, requestOptions);
             
             var response = await apiTask;
             
@@ -103,65 +98,59 @@ public class ConversationManager
             _stopSpinner = true;
             await spinnerTask;
             
-            // Handle tool calls if present
-            if (response.Value.ToolCalls.Count > 0)
+            // Handle tool calls if present - check if any message has tool calls
+            var hasToolCalls = response.Messages.Any(m => m.Contents.Any(c => c is FunctionCallContent));
+            if (hasToolCalls)
             {
                 // Check if we've exceeded max tool calls
                 if (_toolCallCount >= MAX_TOOL_CALLS_PER_MESSAGE)
                 {
-                    _conversationHistory.Add(new AssistantChatMessage("I've reached the maximum number of tool calls for this message. Let me provide a response with the information I have."));
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, "I've reached the maximum number of tool calls for this message. Let me provide a response with the information I have."));
                     return;
                 }
 
                 // Add assistant message with tool calls to history
-                _conversationHistory.Add(new AssistantChatMessage(response.Value.ToolCalls));
+                _conversationHistory.AddRange(response.Messages);
 
                 // Execute tool calls
-                foreach (var toolCall in response.Value.ToolCalls)
+                foreach (var message in response.Messages)
                 {
-                    if (toolCall is ChatToolCall chatToolCall)
+                    foreach (var functionCall in message.Contents.OfType<FunctionCallContent>())
                     {
                         try
                         {
-                            string toolResult = string.Empty;
-                            
                             // Check if this is a fake tool first
-                            var fakeTool = _fakeToolManager.GetFakeTool(chatToolCall.FunctionName);
+                            var fakeTool = _fakeToolManager.GetFakeTool(functionCall.Name);
                             if (fakeTool != null)
                             {
                                 // Handle fake tool
-                                var argumentsJson = chatToolCall.FunctionArguments.ToString();
+                                var argumentsJson = JsonSerializer.Serialize(functionCall.Arguments);
                                 
                                 // Show fake tool invocation notification
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {chatToolCall.FunctionName}[/]");
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
                                 AnsiConsole.MarkupLine($"[dim grey]   Parameters: {argumentsJson}[/]");
                                 AnsiConsole.MarkupLine($"[dim grey]   → {fakeTool.Response}[/]");
                                 
-                                _conversationHistory.Add(new ToolChatMessage(chatToolCall.Id, fakeTool.Response));
+                                var fakeToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, fakeTool.Response) };
+                                _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, fakeToolContent));
                             }
                             else
                             {
                                 // Handle MCP tools
-                                var mcpTool = mcpTools.FirstOrDefault(t => t.Name == chatToolCall.FunctionName);
+                                var mcpTool = mcpTools.FirstOrDefault(t => t.Name == functionCall.Name);
                                 if (mcpTool != null)
                                 {
-                                    // Convert BinaryData to AIFunctionArguments
-                                    var argumentsJson = chatToolCall.FunctionArguments.ToString();
                                     var arguments = new AIFunctionArguments();
-                                    
-                                    if (!string.IsNullOrEmpty(argumentsJson) && argumentsJson != "{}")
+                                    foreach (var kvp in functionCall.Arguments)
                                     {
-                                        using var doc = JsonDocument.Parse(argumentsJson);
-                                        foreach (var property in doc.RootElement.EnumerateObject())
-                                        {
-                                            arguments[property.Name] = property.Value.ToString();
-                                        }
+                                        arguments[kvp.Key] = kvp.Value?.ToString();
                                     }
                                     
                                     var result = await mcpTool.InvokeAsync(arguments);
-                                    _conversationHistory.Add(new ToolChatMessage(chatToolCall.Id, result.ToString()));
+                                    var mcpToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, result.ToString()) };
+                                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, mcpToolContent));
                                     
-                                    AnsiConsole.MarkupLine($"[dim grey]• calling {chatToolCall.FunctionName}[/]");
+                                    AnsiConsole.MarkupLine($"[dim grey]• calling {functionCall.Name}[/]");
                                 }
                             }
                             
@@ -170,7 +159,8 @@ public class ConversationManager
                         }
                         catch (Exception ex)
                         {
-                            _conversationHistory.Add(new ToolChatMessage(chatToolCall.Id, $"Error: {ex.Message}"));
+                            var errorContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, $"Error: {ex.Message}") };
+                            _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, errorContent));
                         }
                     }
                 }
@@ -180,12 +170,12 @@ public class ConversationManager
             }
             else
             {
-                var assistantMessage = response.Value.Content.Count > 0 ? response.Value.Content[0].Text : string.Empty;
+                var assistantMessage = response.Text ?? string.Empty;
 
                 if (!string.IsNullOrEmpty(assistantMessage))
                 {
                     // Add assistant response to conversation history
-                    _conversationHistory.Add(new AssistantChatMessage(assistantMessage));
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, assistantMessage));
                     RenderMarkdown(assistantMessage);
                 }
             }
@@ -203,68 +193,6 @@ public class ConversationManager
         }
     }
 
-    private static ChatTool ConvertAIFunctionToChatTool(AIFunction aiFunction)
-    {
-        // Extract parameters from the underlying method
-        var methodParams = aiFunction.UnderlyingMethod?.GetParameters() ?? Array.Empty<System.Reflection.ParameterInfo>();
-        
-        var properties = new Dictionary<string, object>();
-        var required = new List<string>();
-        
-        foreach (var param in methodParams)
-        {
-            properties[param.Name!] = new
-            {
-                type = GetJsonSchemaType(param.ParameterType),
-                description = param.Name
-            };
-            
-            // Add to required if not nullable and no default value
-            if (!param.HasDefaultValue && !IsNullable(param.ParameterType))
-            {
-                required.Add(param.Name!);
-            }
-        }
-        
-        var parametersSchema = new
-        {
-            type = "object",
-            properties = properties,
-            required = required.ToArray()
-        };
-        
-        var parameters = System.BinaryData.FromString(JsonSerializer.Serialize(parametersSchema));
-        
-        return ChatTool.CreateFunctionTool(
-            functionName: aiFunction.Name,
-            functionDescription: aiFunction.Description ?? "MCP function",
-            functionParameters: parameters
-        );
-    }
-
-    private static string GetJsonSchemaType(Type type)
-    {
-        // Handle nullable types
-        if (IsNullable(type))
-        {
-            type = Nullable.GetUnderlyingType(type) ?? type;
-        }
-        
-        return type switch
-        {
-            Type t when t == typeof(string) => "string",
-            Type t when t == typeof(int) || t == typeof(long) || t == typeof(short) => "integer",
-            Type t when t == typeof(float) || t == typeof(double) || t == typeof(decimal) => "number",
-            Type t when t == typeof(bool) => "boolean",
-            Type t when t.IsArray || (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>)) => "array",
-            _ => "object"
-        };
-    }
-
-    private static bool IsNullable(Type type)
-    {
-        return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
-    }
 
     private void ShowSpinner()
     {
@@ -330,8 +258,8 @@ public class ConversationManager
             var json = await File.ReadAllTextAsync(filePath);
             var historyData = JsonSerializer.Deserialize<JsonElement[]>(json);
 
-            // Clear existing history except system message (keep the first message if it's SystemChatMessage)
-            var systemMessage = _conversationHistory.FirstOrDefault(msg => msg is SystemChatMessage);
+            // Clear existing history except system message (keep the first message if it's System role)
+            var systemMessage = _conversationHistory.FirstOrDefault(msg => msg.Role == ChatRole.System);
             _conversationHistory.Clear();
             
             if (systemMessage != null)
@@ -351,10 +279,10 @@ public class ConversationManager
                 switch (type)
                 {
                     case "UserChatMessage":
-                        _conversationHistory.Add(new UserChatMessage(content));
+                        _conversationHistory.Add(new AIChatMessage(ChatRole.User, content));
                         break;
                     case "AssistantChatMessage":
-                        _conversationHistory.Add(new AssistantChatMessage(content));
+                        _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, content));
                         break;
                     // Note: We skip ToolChatMessage as they're complex and transient
                 }
@@ -366,21 +294,17 @@ public class ConversationManager
         }
     }
 
-    private static string ExtractMessageContent(OpenAIChatMessage message)
+    private static string ExtractMessageContent(AIChatMessage message)
     {
-        return message switch
-        {
-            SystemChatMessage systemMsg => systemMsg.Content.FirstOrDefault()?.Text ?? "",
-            UserChatMessage userMsg => userMsg.Content.FirstOrDefault()?.Text ?? "",
-            AssistantChatMessage assistantMsg => assistantMsg.Content.FirstOrDefault()?.Text ?? "",
-            _ => ""
-        };
+        // Extract text content from Microsoft.Extensions.AI ChatMessage
+        var textContent = message.Contents?.OfType<TextContent>().FirstOrDefault();
+        return textContent?.Text ?? "";
     }
 
     public void ClearConversationHistory()
     {
-        // Keep only the system message (first message if it's a SystemChatMessage)
-        var systemMessage = _conversationHistory.FirstOrDefault(msg => msg is SystemChatMessage);
+        // Keep only the system message (first message if it's System role)
+        var systemMessage = _conversationHistory.FirstOrDefault(msg => msg.Role == ChatRole.System);
         _conversationHistory.Clear();
         
         if (systemMessage != null)

@@ -1,19 +1,20 @@
 # NotaBene (nb)
 
-A command-line chat interface for Azure OpenAI with MCP (Model Context Protocol) server support and direct file content integration.
+A command-line chat interface with pluggable AI provider support, MCP (Model Context Protocol) server integration, and direct file content integration.
 
 ## Features
 
-- Interactive and single-shot execution modes
-- File insertion (PDF, TXT, MD, JPG, PNG)
-- MCP server integration (stdio only)
-- Directory-based conversation history
-- Designed for Azure OpenAI o4-mini
+- **Pluggable AI Providers**: Support for multiple AI services through provider plugins
+- **Interactive and single-shot execution modes**
+- **File insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support
+- **MCP server integration** (stdio only) for tools and prompts
+- **Directory-based conversation history** - each directory maintains its own context
+- **Built-in Azure OpenAI support** with easy extensibility for other providers
 
 ## Prerequisites
 
 - .NET 8.0 or later
-- Azure OpenAI resource with Chat model deployment (You may need to tweak the context window size in ConversationManager.cs if you're not using o4-mini)
+- AI service (Azure OpenAI, OpenAI, or other Microsoft.Extensions.AI compatible provider)
 
 ## Setup
 
@@ -24,13 +25,16 @@ A command-line chat interface for Azure OpenAI with MCP (Model Context Protocol)
    cp appsettings.example.json appsettings.json
    ```
 
-2. Edit `appsettings.json` with your Azure OpenAI credentials:
+2. Edit `appsettings.json` with your AI provider configuration:
    ```json
    {
-     "AzureOpenAI": {
-       "Endpoint": "https://your-resource-name.openai.azure.com/",
-       "ApiKey": "your-api-key-here",
-       "ChatDeploymentName": "o4-mini"
+     "ChatProvider": {
+       "Type": "AzureOpenAI",
+       "AzureOpenAI": {
+         "Endpoint": "https://your-resource-name.openai.azure.com/",
+         "ApiKey": "your-api-key-here",
+         "ChatDeploymentName": "o4-mini"
+       }
      }
    }
    ```
@@ -123,9 +127,10 @@ Use fake tools to validate/tune tool descriptions, structure, and responses.
 ### appsettings.json
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `AzureOpenAI:Endpoint` | Your Azure OpenAI endpoint | Required |
-| `AzureOpenAI:ApiKey` | Your Azure OpenAI API key | Required |
-| `AzureOpenAI:ChatDeploymentName` | Chat model deployment name | `o4-mini` |
+| `ChatProvider:Type` | AI provider to use | `AzureOpenAI` |
+| `ChatProvider:AzureOpenAI:Endpoint` | Your Azure OpenAI endpoint | Required |
+| `ChatProvider:AzureOpenAI:ApiKey` | Your Azure OpenAI API key | Required |
+| `ChatProvider:AzureOpenAI:ChatDeploymentName` | Chat model deployment name | `o4-mini` |
 
 ### system.md
 Place a `system.md` file in the same directory as the executable to customize the AI's behavior. The entire file content will be used as the system prompt.
@@ -151,14 +156,36 @@ dotnet publish -c Release -r win-x64 --self-contained
 
 Include `system.md` and `mcp.json` with your executable for custom configurations.
 
+## AI Provider Extensibility
+
+nb uses a pluggable provider architecture built on Microsoft.Extensions.AI. You can extend support to additional AI services by:
+
+1. **Using existing providers**: Drop compatible provider DLLs into the `providers/` directory
+2. **Building custom providers**: Implement the `IChatClientProvider` interface in a separate assembly
+
+### Provider Directory Structure
+```
+providers/
+├── openai/
+│   └── MyOpenAIProvider.dll
+├── anthropic/
+│   └── MyAnthropicProvider.dll
+└── local/
+    └── MyLocalProvider.dll
+```
+
+Each provider is isolated in its own directory to avoid dependency conflicts.
+
 ## Technical Details
 
 - .NET 8.0
-- Azure OpenAI .NET SDK v2.2.0-beta.4
+- Microsoft.Extensions.AI for provider abstraction
+- Azure.AI.OpenAI for built-in Azure OpenAI support
 - Model Context Protocol (MCP) SDK
 - iText7 for PDF extraction
 - Spectre.Console for terminal UI
 - Directory-based conversation persistence
+- Plugin architecture for AI provider extensibility
 
 ## License
 

@@ -2,6 +2,7 @@
 using Azure.AI.OpenAI;
 using Azure.AI.OpenAI.Chat;
 using OpenAI.Chat;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using ModelContextProtocol.Protocol;
@@ -11,11 +12,12 @@ namespace nb;
 
 public class Program
 {
-    private static ChatClient _client;
+    private static IChatClient _client;
     private static McpManager _mcpManager = new McpManager();
     private static FakeToolManager _fakeToolManager = new FakeToolManager();
     private static ConversationManager _conversationManager;
     private static ConfigurationService _configurationService = new ConfigurationService();
+    private static ProviderManager _providerManager = new ProviderManager();
     private static CommandProcessor _commandProcessor;
     private static FileContentExtractor _fileExtractor;
     private static PromptProcessor _promptProcessor;
@@ -23,7 +25,15 @@ public class Program
     public static async Task Main(string[] args)
     {
         var config = _configurationService.GetConfiguration();
-        InitializeOpenAIClient(config);
+        
+        // Initialize chat client using provider system
+        _client = _providerManager.TryCreateChatClient(config);
+        if (_client == null)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to initialize chat client. Please check your configuration.[/]");
+            _providerManager.ShowProviderStatus(config);
+            Environment.Exit(1);
+        }
         
         // Determine execution mode first to control banner display
         var isInteractiveMode = args.Length == 0;
@@ -88,28 +98,6 @@ public class Program
         _mcpManager.Dispose();
     }
 
-    private static void InitializeOpenAIClient(IConfiguration config)
-    {
-        var endpoint = config["AzureOpenAI:Endpoint"];
-        var apiKey = config["AzureOpenAI:ApiKey"];
-        var deployment = config["AzureOpenAI:ChatDeploymentName"] ?? "o4-mini";
-
-        if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(apiKey))
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: Azure OpenAI endpoint and API key must be configured in appsettings.json[/]");
-            Environment.Exit(1);
-        }
-
-        var endpointUri = new Uri(endpoint);
-
-        AzureOpenAIClientOptions options = new AzureOpenAIClientOptions(AzureOpenAIClientOptions.ServiceVersion.V2025_03_01_Preview);
-
-        AzureOpenAIClient azureClient = new(
-            endpointUri,
-            new AzureKeyCredential(apiKey), 
-            options);
-        _client = azureClient.GetChatClient(deployment);
-    }
 
 
     private static async Task StartChatLoop()

@@ -1,15 +1,16 @@
 # Project Context for Claude
 
 ## Project Overview
-NotaBene (nb) - A C# console application that provides both interactive and single-shot chat modes with Azure OpenAI integration, MCP (Model Context Protocol) support, and persistent conversation history.
+NotaBene (nb) - A C# console application that provides both interactive and single-shot chat modes with pluggable AI provider support, MCP (Model Context Protocol) integration, and persistent conversation history.
 
 ## Key Technologies
 - **Language**: C# (.NET)
 - **UI Framework**: Spectre.Console for terminal UI
-- **AI Integration**: Azure OpenAI
-- **Architecture**: MCP-enabled chat application with dual execution modes (interactive/single-shot) and persistent conversation history
+- **AI Integration**: Microsoft.Extensions.AI with pluggable provider architecture
+- **Architecture**: MCP-enabled chat application with dual execution modes (interactive/single-shot), persistent conversation history, and extensible AI provider system
 
 ## Important Documentation Links
+- [Microsoft.Extensions.AI Documentation](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)
 - [Azure OpenAI .NET SDK](https://github.com/openai/openai-dotnet)
 - [Azure OpenAI SDK Examples](https://github.com/openai/openai-dotnet/tree/main/examples)
 - [Spectre.Console Documentation](https://spectreconsole.net/)
@@ -45,9 +46,13 @@ The application supports two execution modes:
 
 ## Project Structure
 - `Program.cs` - Main entry point, handles dual execution modes and history persistence
-- `ConversationManager.cs` - Handles LLM interactions, MCP tool integration, and conversation history serialization
+- `ConversationManager.cs` - Handles LLM interactions using Microsoft.Extensions.AI, MCP tool integration, and conversation history serialization
+- `ProviderManager.cs` - Manages AI provider discovery and loading (plugin architecture)
+- `IChatClientProvider.cs` - Interface for AI provider plugins
+- `AzureOpenAIProvider.cs` - Built-in Azure OpenAI provider implementation
 - `McpManager.cs` - Manages MCP client connections
 - `ConfigurationService.cs` - Configuration management
+- `providers/` - Directory for external AI provider plugins (DLLs)
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
 ## Custom Commands
@@ -67,11 +72,20 @@ The application supports these built-in commands (intercepted before LLM):
 - Tool calling safety: Max 3 tool calls per message to prevent infinite loops
 - **Directory-Based History**: Automatically persisted to `.nb_conversation_history.json` in current working directory
 - **Project Context**: Each directory maintains its own conversation history, perfect for project-specific AI assistance
-- **Multimodal Support**: Image insertion (JPG, PNG) with binary data handling for o4-mini vision capabilities
+- **Multimodal Support**: Image insertion (JPG, PNG) with DataContent handling for vision-capable models
+- **Provider Architecture**: Pluggable AI providers via IChatClientProvider interface, supporting any Microsoft.Extensions.AI compatible provider
+
+## AI Provider Plugin Architecture
+- **IChatClientProvider** - Interface for implementing AI provider plugins
+- **ProviderManager** - Discovers and loads providers from `providers/` directory and built-in providers
+- **Directory Isolation** - Each provider lives in its own subdirectory to prevent version conflicts
+- **Configuration** - Providers configured via `ChatProvider:Type` in appsettings.json with provider-specific sections
+- **Built-in Providers** - Ships with AzureOpenAI provider, others can be added as separate assemblies
+- **Runtime Discovery** - Providers are loaded at startup, with graceful error handling for missing dependencies
 
 ## MCP Implementation Details
 - **McpManager.cs** - Manages MCP client lifecycle and exposes tools/prompts via interfaces
-- **Tool Integration** - MCP tools are automatically converted to `ChatTool` format in `ConversationManager.cs:186-223`
+- **Tool Integration** - MCP tools are automatically integrated with Microsoft.Extensions.AI tool system
 - **Prompt Support** - MCP prompts are accessible via `/prompts` and `/prompt <name>` commands
 - **Argument Collection** - Prompt arguments are collected interactively using `AnsiConsole.Ask<string>()`
 - **Result Processing** - Prompt results are extracted from `TextContentBlock` messages and sent to LLM
@@ -98,12 +112,15 @@ The application supports these built-in commands (intercepted before LLM):
 - Avoid building DI scaffolding unless you're working with a library or package that expects you to use DI.
 
 ## Architecture Notes
-- **Model Isolation**: LLM interactions are isolated to `ConversationManager.cs` for easy provider swapping
+- **Microsoft.Extensions.AI Integration**: Uses modern AI abstractions with IChatClient interface for provider independence
+- **Provider Abstraction**: LLM interactions isolated through pluggable provider system for easy swapping between AI services
 - **Refactored Structure**: Commands (`CommandProcessor`), file operations (`FileContentExtractor`), prompts (`PromptProcessor`) separated for maintainability
 - **Safety Mechanisms**: Max tool calls per message, parameter validation, graceful error handling
+- **Clean Type System**: Uses Microsoft.Extensions.AI types (ChatMessage, ChatOptions, ChatResponse) throughout
 
 ## Important Workflow Reminders
 - When changing the structure of appsettings.json make sure to update appsettings.example.json
 
 ## Debugging Strategies
 - When resolving code compilation problems, before attempting to refactor, check to see if the project is missing a dependency
+- Don't add nuget packages or attempt to alter/update the version of an installed package by modifying csproj files
