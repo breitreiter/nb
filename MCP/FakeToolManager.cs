@@ -3,8 +3,9 @@ using Microsoft.Extensions.AI;
 using Spectre.Console;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using nb.Utilities;
 
-namespace nb;
+namespace nb.MCP;
 
 public class FakeToolManager
 {

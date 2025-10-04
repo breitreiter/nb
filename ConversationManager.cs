@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Azure.AI.OpenAI.Chat;
 using Microsoft.Extensions.AI;
-using OpenAI.Chat;
 using Spectre.Console;
+using nb.MCP;
+using nb.Utilities;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace nb;
@@ -66,8 +66,6 @@ public class ConversationManager
 
         try
         {
-            // Support for this recently-launched model with MaxOutputTokenCount parameter requires
-            // Azure.AI.OpenAI 2.2.0-beta.4 and SetNewMaxCompletionTokensPropertyEnabled
             var requestOptions = new ChatOptions()
             {
                 MaxOutputTokens = 10000,

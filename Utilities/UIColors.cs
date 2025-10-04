@@ -1,4 +1,4 @@
-namespace nb;
+namespace nb.Utilities;
 
 /// <summary>
 /// Centralized color scheme for consistent UI styling across the application.

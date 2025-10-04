@@ -3,12 +3,13 @@ using Microsoft.Extensions.AI;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using Spectre.Console;
+using nb.Utilities;
 
-namespace nb;
+namespace nb.MCP;
 
 public class McpManager : IDisposable
 {
-    private readonly List<IMcpClient> _mcpClients = new();
+    private readonly List<McpClient> _mcpClients = new();
     private readonly List<AIFunction> _mcpTools = new();
     private readonly List<McpClientPrompt> _mcpPrompts = new();
 
@@ -38,7 +39,7 @@ public class McpManager : IDisposable
                         EnvironmentVariables = serverConfig.Env ?? new Dictionary<string, string>()
                     });
 
-                    var client = await McpClientFactory.CreateAsync(transport);
+                    var client = (McpClient)await McpClientFactory.CreateAsync(transport);
                     _mcpClients.Add(client);
 
                     // Get tools from this client

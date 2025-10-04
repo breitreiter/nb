@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 
-namespace nb;
+namespace nb.Utilities;
 
 public class ConfigurationService
 {

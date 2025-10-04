@@ -1,11 +1,10 @@
-﻿using Azure;
-using Azure.AI.OpenAI;
-using Azure.AI.OpenAI.Chat;
-using OpenAI.Chat;
-using Microsoft.Extensions.AI;
+﻿using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using ModelContextProtocol.Protocol;
+using nb.Providers;
+using nb.MCP;
+using nb.Utilities;
 
 namespace nb;
 
@@ -109,15 +108,6 @@ public class Program
         var dirName = Path.GetFileName(currentDir);
         var historyExists = File.Exists(".nb_conversation_history.json");
         
-        if (historyExists)
-        {
-            AnsiConsole.MarkupLine($"[dim grey]Loaded conversation history for directory:[/] [yellow]{dirName}[/]");
-        }
-        else
-        {
-            AnsiConsole.MarkupLine($"[dim grey]Starting fresh conversation for directory:[/] [yellow]{dirName}[/]");
-        }
-
         while (true)
         {
             // Add visual separator before user input

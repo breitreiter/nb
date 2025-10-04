@@ -3,7 +3,7 @@ using iText.Kernel.Pdf.Canvas.Parser;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using Spectre.Console;
 
-namespace nb;
+namespace nb.Utilities;
 
 public class FileContentExtractor
 {
@@ -12,7 +12,7 @@ public class FileContentExtractor
         ".jpg", ".jpeg", ".png"
     };
     
-    private const int MaxImageSizeBytes = 20 * 1024 * 1024; // 20MB limit for Azure OpenAI
+    private const int MaxImageSizeBytes = 20 * 1024 * 1024; // 20MB limit for vision models
     
     public async Task<string> ExtractFileContentAsync(string filePath)
     {
@@ -76,7 +76,7 @@ public class FileContentExtractor
             // Check file size limit
             if (fileInfo.Length > MaxImageSizeBytes)
             {
-                throw new NotSupportedException($"Image file size ({fileInfo.Length:N0} bytes) exceeds the {MaxImageSizeBytes / (1024 * 1024)}MB limit for Azure OpenAI vision models.");
+                throw new NotSupportedException($"Image file size ({fileInfo.Length:N0} bytes) exceeds the {MaxImageSizeBytes / (1024 * 1024)}MB limit for vision models.");
             }
             
             var imageData = await File.ReadAllBytesAsync(filePath);

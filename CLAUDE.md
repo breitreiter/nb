@@ -76,12 +76,14 @@ The application supports these built-in commands (intercepted before LLM):
 - **Provider Architecture**: Pluggable AI providers via IChatClientProvider interface, supporting any Microsoft.Extensions.AI compatible provider
 
 ## AI Provider Plugin Architecture
-- **IChatClientProvider** - Interface for implementing AI provider plugins
-- **ProviderManager** - Discovers and loads providers from `providers/` directory and built-in providers
-- **Directory Isolation** - Each provider lives in its own subdirectory to prevent version conflicts
-- **Configuration** - Providers configured via `ChatProvider:Type` in appsettings.json with provider-specific sections
-- **Built-in Providers** - Ships with AzureOpenAI provider, others can be added as separate assemblies
-- **Runtime Discovery** - Providers are loaded at startup, with graceful error handling for missing dependencies
+- **nb.Providers.Abstractions** - Lightweight interface library containing only `IChatClientProvider` interface
+- **ProviderManager** - Discovers and loads providers from `providers/` directory using `AssemblyLoadContext` for proper isolation
+- **Directory Isolation** - Each provider lives in its own subdirectory with separate `AssemblyLoadContext` to prevent version conflicts
+- **Configuration** - Providers configured via `ActiveProvider` + `ChatProviders` array in appsettings.json (see Configuration Schema below)
+- **No Built-in Providers** - All providers are external plugins (AzureOpenAI, Anthropic, etc.) loaded at runtime
+- **Runtime Discovery** - Providers are loaded at startup with graceful error handling for missing dependencies
+- **Post-Build Deployment** - Provider projects auto-copy their output to `bin/{Config}/net8.0/providers/{name}/` via post-build events
+- **⚠️ Assembly Context Gotcha** - Shared types across different `AssemblyLoadContext` instances can cause type mismatch issues. Keep provider interface communication simple and avoid passing complex objects between providers and main app beyond the `IChatClient` interface.
 
 ## MCP Implementation Details
 - **McpManager.cs** - Manages MCP client lifecycle and exposes tools/prompts via interfaces
@@ -117,6 +119,30 @@ The application supports these built-in commands (intercepted before LLM):
 - **Refactored Structure**: Commands (`CommandProcessor`), file operations (`FileContentExtractor`), prompts (`PromptProcessor`) separated for maintainability
 - **Safety Mechanisms**: Max tool calls per message, parameter validation, graceful error handling
 - **Clean Type System**: Uses Microsoft.Extensions.AI types (ChatMessage, ChatOptions, ChatResponse) throughout
+
+## Configuration Schema
+The application uses an array-based provider configuration schema:
+```json
+{
+  "ActiveProvider": "AzureOpenAI",
+  "ChatProviders": [
+    {
+      "Name": "AzureOpenAI",
+      "Endpoint": "https://...",
+      "ApiKey": "...",
+      "ChatDeploymentName": "gpt-4"
+    },
+    {
+      "Name": "Anthropic",
+      "ApiKey": "...",
+      "Model": "claude-3-7-sonnet"
+    }
+  ]
+}
+```
+- `ActiveProvider` - Selects which provider from the array to use
+- `ChatProviders` - Array of provider configurations, each with a `Name` field matching the provider's implementation
+- Provider-specific fields are read directly from the provider's config object (no nested paths)
 
 ## Important Workflow Reminders
 - When changing the structure of appsettings.json make sure to update appsettings.example.json

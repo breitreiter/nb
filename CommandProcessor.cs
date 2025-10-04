@@ -1,4 +1,6 @@
 using Spectre.Console;
+using nb.MCP;
+using nb.Utilities;
 
 namespace nb;
 

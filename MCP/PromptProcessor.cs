@@ -1,7 +1,8 @@
 using ModelContextProtocol.Protocol;
 using Spectre.Console;
+using nb.Utilities;
 
-namespace nb;
+namespace nb.MCP;
 
 public class PromptProcessor
 {

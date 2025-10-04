@@ -7,13 +7,11 @@
     <Nullable>enable</Nullable>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <ApplicationIcon>nb.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.AI.OpenAI" Version="2.3.0-beta.2" />
     <PackageReference Include="itext7" Version="9.3.0" />
-    <PackageReference Include="Azure.Identity" Version="1.16.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.9.1-preview.1.25474.6" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0-rc.1.25451.107" />
     <PackageReference Include="ModelContextProtocol" Version="0.4.0-preview.1" />
     <PackageReference Include="Spectre.Console" Version="0.51.2-preview.0.1" />
@@ -24,7 +22,16 @@
 
   <ItemGroup>
     <Compile Remove="mcp-servers/**" />
+    <Compile Remove="Providers\Anthropic\**" />
+    <Compile Remove="Providers\AzureOpenAI\**" />
+    <Compile Remove="Providers\nb.Providers.Abstractions\**" />
+    <EmbeddedResource Remove="Providers\Anthropic\**" />
+    <EmbeddedResource Remove="Providers\AzureOpenAI\**" />
+    <EmbeddedResource Remove="Providers\nb.Providers.Abstractions\**" />
     <None Remove="mcp-servers/**" />
+    <None Remove="Providers\Anthropic\**" />
+    <None Remove="Providers\AzureOpenAI\**" />
+    <None Remove="Providers\nb.Providers.Abstractions\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,6 +44,15 @@
     <None Update="mcp.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="MCP\" />
+    <Folder Include="Providers\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="Providers\nb.Providers.Abstractions\nb.Providers.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

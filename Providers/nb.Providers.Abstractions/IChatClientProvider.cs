@@ -1,7 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 
-namespace nb;
+namespace nb.Providers;
 
 public interface IChatClientProvider
 {
