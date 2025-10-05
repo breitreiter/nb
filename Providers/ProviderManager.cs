@@ -57,20 +57,19 @@ public class ProviderManager
                     {
                         var provider = (IChatClientProvider)Activator.CreateInstance(providerType)!;
                         _providers.Add(provider);
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Loaded provider: {provider.Name} from {dirName}/{Path.GetFileName(dllFile)}[/]");
                     }
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Failed to load provider from {dirName}/{Path.GetFileName(dllFile)}: {ex.Message}[/]");
+                    // Silently skip failed providers
                 }
             }
         }
     }
 
-    public IChatClient? TryCreateChatClient(IConfiguration config)
+    public IChatClient? TryCreateChatClient(IConfiguration config, string? specificProviderName = null)
     {
-        var activeProviderName = config["ActiveProvider"];
+        var activeProviderName = specificProviderName ?? config["ActiveProvider"];
 
         if (string.IsNullOrEmpty(activeProviderName))
         {
@@ -126,7 +125,30 @@ public class ProviderManager
     }
 
     public IEnumerable<string> GetAvailableProviders() => _providers.Select(p => p.Name);
-    
+
+    public void ShowProvidersWithStatus(IConfiguration config, string currentProviderName)
+    {
+        var providerConfigs = config.GetSection("ChatProviders").GetChildren();
+
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Available Providers:[/]");
+
+        foreach (var provider in _providers)
+        {
+            var providerConfig = providerConfigs.FirstOrDefault(c =>
+                string.Equals(c["Name"], provider.Name, StringComparison.OrdinalIgnoreCase));
+
+            var canCreate = providerConfig != null && provider.CanCreate(providerConfig);
+            var isActive = string.Equals(provider.Name, currentProviderName, StringComparison.OrdinalIgnoreCase);
+
+            var status = canCreate ? "[green]configured[/]" : "[dim grey]not configured[/]";
+            var activeMarker = isActive ? "[yellow]*[/] " : "  ";
+
+            AnsiConsole.MarkupLine($"{activeMarker}[{UIColors.SpectreInfo}]{provider.Name}[/] {status}");
+        }
+
+        AnsiConsole.MarkupLine($"[dim grey]* = active provider[/]");
+    }
+
     public void ShowProviderStatus(IConfiguration config)
     {
         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Available Chat Providers:[/]");

@@ -7,11 +7,15 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb", "nb.csproj", "{9F51A07
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "mcp-tester", "mcp-servers\mcp-tester\mcp-tester.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Anthropic", "Providers\Anthropic\Anthropic.csproj", "{C575C8E4-DCCD-467A-BF33-63E7FD36C3FD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.AnthropicProvider", "Providers\Anthropic\nb.Providers.AnthropicProvider.csproj", "{C575C8E4-DCCD-467A-BF33-63E7FD36C3FD}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.Abstractions", "Providers\nb.Providers.Abstractions\nb.Providers.Abstractions.csproj", "{D1E2F3A4-B5C6-7890-DCBA-FE9876543210}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AzureOpenAI", "Providers\AzureOpenAI\AzureOpenAI.csproj", "{E2F3A4B5-C6D7-8901-EDCB-AF0987654321}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.AzureOpenAIProvider", "Providers\AzureOpenAI\nb.Providers.AzureOpenAIProvider.csproj", "{E2F3A4B5-C6D7-8901-EDCB-AF0987654321}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.OpenAIProvider", "Providers\OpenAI\nb.Providers.OpenAIProvider.csproj", "{F3A4B5C6-D7E8-9012-FEDC-BA1098765432}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.GeminiProvider", "Providers\Gemini\nb.Providers.GeminiProvider.csproj", "{A4B5C6D7-E8F9-0123-4567-89ABCDEF0123}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -39,6 +43,14 @@ Global
 		{E2F3A4B5-C6D7-8901-EDCB-AF0987654321}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E2F3A4B5-C6D7-8901-EDCB-AF0987654321}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E2F3A4B5-C6D7-8901-EDCB-AF0987654321}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F3A4B5C6-D7E8-9012-FEDC-BA1098765432}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F3A4B5C6-D7E8-9012-FEDC-BA1098765432}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F3A4B5C6-D7E8-9012-FEDC-BA1098765432}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F3A4B5C6-D7E8-9012-FEDC-BA1098765432}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A4B5C6D7-E8F9-0123-4567-89ABCDEF0123}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A4B5C6D7-E8F9-0123-4567-89ABCDEF0123}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A4B5C6D7-E8F9-0123-4567-89ABCDEF0123}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A4B5C6D7-E8F9-0123-4567-89ABCDEF0123}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

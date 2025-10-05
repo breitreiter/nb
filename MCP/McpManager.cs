@@ -12,6 +12,7 @@ public class McpManager : IDisposable
     private readonly List<McpClient> _mcpClients = new();
     private readonly List<AIFunction> _mcpTools = new();
     private readonly List<McpClientPrompt> _mcpPrompts = new();
+    private readonly List<string> _connectedServerNames = new();
 
     public async Task InitializeAsync(bool showBanners = true)
     {
@@ -41,6 +42,7 @@ public class McpManager : IDisposable
 
                     var client = (McpClient)await McpClientFactory.CreateAsync(transport);
                     _mcpClients.Add(client);
+                    _connectedServerNames.Add(serverName);
 
                     // Get tools from this client
                     var tools = await client.ListToolsAsync();
@@ -59,27 +61,17 @@ public class McpManager : IDisposable
                         // Most MCP servers don't support prompts, so we silently ignore this
                     }
 
-                    // Show success message for any server that connects (tools and/or prompts)
-                    if (showBanners)
-                    {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Connected to MCP server: {serverName} ({tools.Count} tools, {promptCount} prompts)[/]");
-                    }
+                    // Silently connect - no banners
                 }
                 catch (Exception ex)
                 {
-                    if (showBanners)
-                    {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to connect to MCP server '{serverName}': {ex.Message}[/]");
-                    }
+                    // Silently skip failed MCP servers
                 }
             }
         }
         catch (Exception ex)
         {
-            if (showBanners)
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to load MCP configuration: {ex.Message}[/]");
-            }
+            // Silently skip MCP config errors
         }
     }
 
@@ -91,6 +83,11 @@ public class McpManager : IDisposable
     public IReadOnlyList<McpClientPrompt> GetPrompts()
     {
         return _mcpPrompts.AsReadOnly();
+    }
+
+    public IReadOnlyList<string> GetConnectedServerNames()
+    {
+        return _connectedServerNames.AsReadOnly();
     }
 
     public void Dispose()

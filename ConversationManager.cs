@@ -10,20 +10,31 @@ namespace nb;
 public class ConversationManager
 {
     private const int MAX_TOOL_CALLS_PER_MESSAGE = 3;
-    
-    private readonly IChatClient _client;
+
+    private IChatClient _client;
     private readonly McpManager _mcpManager;
     private readonly FakeToolManager _fakeToolManager;
     private readonly List<AIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
     private int _toolCallCount = 0;
+    private string _currentProviderName = "";
 
-    public ConversationManager(IChatClient client, McpManager mcpManager, FakeToolManager fakeToolManager)
+    public ConversationManager(IChatClient client, McpManager mcpManager, FakeToolManager fakeToolManager, string providerName = "")
     {
         _client = client;
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
+        _currentProviderName = providerName;
     }
+
+    public void SwitchProvider(IChatClient newClient, string providerName)
+    {
+        _client = newClient;
+        _currentProviderName = providerName;
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓ Switched to provider: {providerName}[/]");
+    }
+
+    public string GetCurrentProvider() => _currentProviderName;
 
     public void InitializeWithSystemPrompt(string systemPrompt)
     {

@@ -26,6 +26,7 @@ public class Program
         var config = _configurationService.GetConfiguration();
         
         // Initialize chat client using provider system
+        var activeProviderName = config["ActiveProvider"] ?? "";
         _client = _providerManager.TryCreateChatClient(config);
         if (_client == null)
         {
@@ -46,36 +47,19 @@ public class Program
         {
             var mcpTools = _mcpManager.GetTools();
             _fakeToolManager.IntegrateWithMcpTools(mcpTools);
-            
-            if (isInteractiveMode)
-            {
-                var overriddenTools = _fakeToolManager.GetOverriddenTools();
-                var overrideCount = overriddenTools.Count;
-                var newCount = fakeToolResult.ToolsLoaded - overrideCount;
-                
-                if (overrideCount > 0)
-                {
-                    foreach (var toolName in overriddenTools)
-                    {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool '{toolName}' overrides MCP tool[/]");
-                    }
-                }
-                
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Loaded {fakeToolResult.ToolsLoaded} fake tools ({overrideCount} override{(overrideCount == 1 ? "" : "s")}, {newCount} new)[/]");
-            }
         }
         
         // Initialize conversation manager with dependencies
-        _conversationManager = new ConversationManager(_client, _mcpManager, _fakeToolManager);
+        _conversationManager = new ConversationManager(_client, _mcpManager, _fakeToolManager, activeProviderName);
         _conversationManager.InitializeWithSystemPrompt(_configurationService.GetSystemPrompt());
-        
+
         // Load conversation history from previous sessions
         await _conversationManager.LoadConversationHistoryAsync();
 
         // Initialize refactored services
         _fileExtractor = new FileContentExtractor();
         _promptProcessor = new PromptProcessor(_mcpManager);
-        _commandProcessor = new CommandProcessor(_fileExtractor, _promptProcessor, _conversationManager);
+        _commandProcessor = new CommandProcessor(_fileExtractor, _promptProcessor, _conversationManager, _configurationService, _providerManager);
 
         // Execute based on mode
         if (args.Length > 0)
@@ -101,8 +85,22 @@ public class Program
 
     private static async Task StartChatLoop()
     {
-        AnsiConsole.MarkupLine("[white]N[/]ota[white]B[/]ene 0.3α [grey]▪[/] [cadetblue_1]exit[/] [grey]to quit[/] [cadetblue_1]?[/] [grey]for help[/]");
-        
+        // Get available providers and current provider
+        var availableProviders = _providerManager.GetAvailableProviders();
+        var currentProvider = _conversationManager.GetCurrentProvider();
+        var providersList = string.Join(", ", availableProviders.Select(p =>
+            p == currentProvider ? $"[grey74]{p}[/]" : $"[grey]{p}[/]"));
+
+        // Get connected MCP servers
+        var mcpServers = _mcpManager.GetConnectedServerNames();
+        var mcpList = mcpServers.Count > 0
+            ? string.Join(", ", mcpServers.Select(s => $"[grey]{s}[/]"))
+            : "[dim]none[/]";
+
+        AnsiConsole.MarkupLine(" " + UIColors.robot_img_1 + $"  [grey]AI: [/]{providersList}");
+        AnsiConsole.MarkupLine(" " + UIColors.robot_img_2 + $"  [grey]MCP: [/]{mcpList}");
+        AnsiConsole.MarkupLine(" " + UIColors.robot_img_3 + "  [white]N[/]ota[white]B[/]ene 0.3α [grey]▪[/] [cadetblue_1]exit[/] [grey]to quit[/] [cadetblue_1]?[/] [grey]for help[/]");
+
         // Show directory context banner
         var currentDir = Directory.GetCurrentDirectory();
         var dirName = Path.GetFileName(currentDir);

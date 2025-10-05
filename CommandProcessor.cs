@@ -21,12 +21,16 @@ public class CommandProcessor
     private readonly FileContentExtractor _fileExtractor;
     private readonly PromptProcessor _promptProcessor;
     private readonly ConversationManager _conversationManager;
+    private readonly ConfigurationService _configService;
+    private readonly Providers.ProviderManager _providerManager;
 
-    public CommandProcessor(FileContentExtractor fileExtractor, PromptProcessor promptProcessor, ConversationManager conversationManager)
+    public CommandProcessor(FileContentExtractor fileExtractor, PromptProcessor promptProcessor, ConversationManager conversationManager, ConfigurationService configService, Providers.ProviderManager providerManager)
     {
         _fileExtractor = fileExtractor;
         _promptProcessor = promptProcessor;
         _conversationManager = conversationManager;
+        _configService = configService;
+        _providerManager = providerManager;
     }
 
     public async Task<CommandResult> ProcessCommandAsync(string userInput)
@@ -62,6 +66,17 @@ public class CommandProcessor
             return result;
         }
 
+        if (command == "/providers")
+        {
+            HandleProvidersCommand();
+            return CommandResult.Continue();
+        }
+
+        if (command.StartsWith("/provider "))
+        {
+            HandleSwitchProviderCommand(userInput);
+            return CommandResult.Continue();
+        }
 
         if (command == "?")
         {
@@ -144,6 +159,34 @@ public class CommandProcessor
     }
 
 
+    private void HandleProvidersCommand()
+    {
+        var config = _configService.GetConfiguration();
+        var currentProvider = _conversationManager.GetCurrentProvider();
+        _providerManager.ShowProvidersWithStatus(config, currentProvider);
+    }
+
+    private void HandleSwitchProviderCommand(string userInput)
+    {
+        var providerName = userInput.Substring(10).Trim();
+        if (string.IsNullOrEmpty(providerName))
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Please specify a provider name: /provider <name>[/]");
+            return;
+        }
+
+        var config = _configService.GetConfiguration();
+        var newClient = _providerManager.TryCreateChatClient(config, providerName);
+
+        if (newClient == null)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to switch to provider '{providerName}'[/]");
+            return;
+        }
+
+        _conversationManager.SwitchProvider(newClient, providerName);
+    }
+
     private void DisplayHelp()
     {
         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Available commands:[/]");
@@ -152,6 +195,8 @@ public class CommandProcessor
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/insert <filepath>[/] - Insert file content into conversation context (PDF, text, or images: JPG, PNG)");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/prompts[/] - List available MCP prompts");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/prompt <name>[/] - Invoke an MCP prompt");
+        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/providers[/] - List all available providers");
+        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/provider <name>[/] - Switch to a different provider");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]?[/] - Show this help");
     }
     

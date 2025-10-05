@@ -1,15 +1,18 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AssemblyName>AzureOpenAIProvider</AssemblyName>
+    <RootNamespace>nb.Providers</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Anthropic.SDK" Version="5.5.3" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.3.0-beta.2" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="9.9.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.9.1-preview.1.25474.6" />
   </ItemGroup>
 
   <ItemGroup>
@@ -17,10 +20,11 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <RemoveDir Directories="$(SolutionDir)bin\$(Configuration)\net8.0\providers\azureopenai" />
     <ItemGroup>
       <ProviderFiles Include="$(TargetDir)**\*.*" />
     </ItemGroup>
-    <Copy SourceFiles="@(ProviderFiles)" DestinationFolder="$(SolutionDir)bin\$(Configuration)\net8.0\providers\anthropic\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ProviderFiles)" DestinationFolder="$(SolutionDir)bin\$(Configuration)\net8.0\providers\azureopenai\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -1,4 +1,4 @@
-namespace nb.Utilities;
+﻿namespace nb.Utilities;
 
 /// <summary>
 /// Centralized color scheme for consistent UI styling across the application.
@@ -49,4 +49,11 @@ public static class UIColors
     public const string NativeMuted = "\u001b[90m";
     public const string NativeUserInput = "\u001b[92m";
     public const string NativeReset = "\u001b[0m";
+
+    /*
+     * Robot friend
+     */
+    public const string robot_img_1 = "[grey58 on grey66]▄[/][chartreuse2_1 on grey66]▄[/][grey58 on grey66]▄[/][chartreuse2_1 on grey66]▄[/][grey58 on grey66]▄[/]";
+    public const string robot_img_2 = "[grey50]▀▀[/][grey23 on grey50]▄[/][grey50]▀▀[/]";
+    public const string robot_img_3 = "[grey58 on grey66]▄[/][blue on grey66]▄▄▄[/][grey58 on grey66]▄[/]";
 }

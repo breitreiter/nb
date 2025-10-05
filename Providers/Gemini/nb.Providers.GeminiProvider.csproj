@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AssemblyName>GeminiProvider</AssemblyName>
+    <RootNamespace>nb.Providers</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI" Version="9.9.1" />
+    <PackageReference Include="Mscc.GenerativeAI.Microsoft" Version="2.8.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\nb.Providers.Abstractions\nb.Providers.Abstractions.csproj" />
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <RemoveDir Directories="$(SolutionDir)bin\$(Configuration)\net8.0\providers\gemini" />
+    <ItemGroup>
+      <ProviderFiles Include="$(TargetDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ProviderFiles)" DestinationFolder="$(SolutionDir)bin\$(Configuration)\net8.0\providers\gemini\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

@@ -1,20 +1,27 @@
 # NotaBene (nb)
 
-A command-line chat interface with pluggable AI provider support, MCP (Model Context Protocol) server integration, and direct file content integration.
+A feature-rich AI CLI.
+
+![NotaBene Preview](preview.png)
 
 ## Features
 
-- **Pluggable AI Providers**: Support for multiple AI services through provider plugins
-- **Interactive and single-shot execution modes**
-- **File insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support
-- **MCP server integration** (stdio only) for tools and prompts
-- **Directory-based conversation history** - each directory maintains its own context
-- **Built-in Azure OpenAI support** with easy extensibility for other providers
+- **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini
+- **Runtime Provider Switching**: Switch between AI providers mid-conversation without losing context
+- **Interactive and Single-Shot Modes**: Use interactively or execute single commands for scripting
+- **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
+- **MCP Server Integration** (stdio) for extensible tools and prompts
+- **Directory-Based Conversation History**: Each directory maintains its own persistent context
+- **Pluggable Provider Architecture**: Easy extensibility for additional AI services
 
 ## Prerequisites
 
 - .NET 8.0 or later
-- AI service (Azure OpenAI, OpenAI, or other Microsoft.Extensions.AI compatible provider)
+- API key for at least one supported AI provider:
+  - Azure OpenAI
+  - OpenAI
+  - Anthropic Claude
+  - Google Gemini
 
 ## Setup
 
@@ -28,16 +35,34 @@ A command-line chat interface with pluggable AI provider support, MCP (Model Con
 2. Edit `appsettings.json` with your AI provider configuration:
    ```json
    {
-     "ChatProvider": {
-       "Type": "AzureOpenAI",
-       "AzureOpenAI": {
+     "ActiveProvider": "AzureOpenAI",
+     "ChatProviders": [
+       {
+         "Name": "AzureOpenAI",
          "Endpoint": "https://your-resource-name.openai.azure.com/",
          "ApiKey": "your-api-key-here",
          "ChatDeploymentName": "o4-mini"
+       },
+       {
+         "Name": "Anthropic",
+         "ApiKey": "your-anthropic-api-key-here",
+         "Model": "claude-3-7-sonnet-20250219"
+       },
+       {
+         "Name": "OpenAI",
+         "ApiKey": "sk-your-openai-api-key-here",
+         "Model": "gpt-4o-mini"
+       },
+       {
+         "Name": "Gemini",
+         "ApiKey": "your-gemini-api-key-here",
+         "Model": "gemini-2.0-flash-exp"
        }
-     }
+     ]
    }
    ```
+
+   You can configure multiple providers and switch between them at runtime. Only the `ActiveProvider` needs valid credentials to start, but configuring all providers allows seamless switching.
 
 3. Optionally create `system.md` for a custom system prompt:
    ```markdown
@@ -75,6 +100,8 @@ In interactive mode, you can use these commands:
 - `exit` - Quit the application
 - `/clear` - Clear conversation history (preserves system prompt)
 - `/insert <filepath>` - Insert file content into conversation context (PDF, text, JPG, PNG)
+- `/providers` - List all available AI providers and their configuration status
+- `/provider <name>` - Switch to a different AI provider (e.g., `/provider Anthropic`)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands
@@ -91,7 +118,18 @@ nb /insert document.pdf
 nb Summarize this document
 ```
 
-Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context, single-shot mode maintains conversation continuity between invocations.
+Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context, and single-shot mode maintains conversation continuity between invocations.
+
+### Provider Switching
+Switch between AI providers during a conversation to leverage different models' strengths:
+```bash
+/providers                 # List all available providers
+/provider Anthropic        # Switch to Claude
+/provider OpenAI           # Switch to GPT models
+/provider Gemini           # Switch to Google Gemini
+```
+
+Conversation history is maintained when switching providers, allowing you to continue the same conversation with different AI models.
 
 ### MCP Prompts
 List and invoke prompts from connected MCP servers:
@@ -125,12 +163,51 @@ Use fake tools to validate/tune tool descriptions, structure, and responses.
 ## Configuration
 
 ### appsettings.json
-| Setting | Description | Default |
+
+#### Provider Configuration
+| Setting | Description | Example |
 |---------|-------------|---------|
-| `ChatProvider:Type` | AI provider to use | `AzureOpenAI` |
-| `ChatProvider:AzureOpenAI:Endpoint` | Your Azure OpenAI endpoint | Required |
-| `ChatProvider:AzureOpenAI:ApiKey` | Your Azure OpenAI API key | Required |
-| `ChatProvider:AzureOpenAI:ChatDeploymentName` | Chat model deployment name | `o4-mini` |
+| `ActiveProvider` | Which provider to use on startup | `"AzureOpenAI"` |
+| `ChatProviders` | Array of provider configurations | See below |
+
+#### Supported Providers
+
+**Azure OpenAI**
+```json
+{
+  "Name": "AzureOpenAI",
+  "Endpoint": "https://your-resource-name.openai.azure.com/",
+  "ApiKey": "your-api-key-here",
+  "ChatDeploymentName": "o4-mini"
+}
+```
+
+**OpenAI**
+```json
+{
+  "Name": "OpenAI",
+  "ApiKey": "sk-your-openai-api-key-here",
+  "Model": "gpt-4o-mini"
+}
+```
+
+**Anthropic Claude**
+```json
+{
+  "Name": "Anthropic",
+  "ApiKey": "your-anthropic-api-key-here",
+  "Model": "claude-3-7-sonnet-20250219"
+}
+```
+
+**Google Gemini**
+```json
+{
+  "Name": "Gemini",
+  "ApiKey": "your-gemini-api-key-here",
+  "Model": "gemini-2.0-flash-exp"
+}
+```
 
 ### system.md
 Place a `system.md` file in the same directory as the executable to customize the AI's behavior. The entire file content will be used as the system prompt.
@@ -156,36 +233,59 @@ dotnet publish -c Release -r win-x64 --self-contained
 
 Include `system.md` and `mcp.json` with your executable for custom configurations.
 
-## AI Provider Extensibility
+## AI Provider Architecture
+
+nb includes four built-in AI providers and supports extensibility for additional services:
+
+### Built-in Providers
+- **Azure OpenAI** - Microsoft's enterprise OpenAI service
+- **OpenAI** - Direct OpenAI API integration
+- **Anthropic** - Claude models with function calling support
+- **Google Gemini** - Google's generative AI models
+
+All providers are automatically compiled into the `bin/{Config}/net8.0/providers/` directory during build.
+
+### Provider Extensibility
 
 nb uses a pluggable provider architecture built on Microsoft.Extensions.AI. You can extend support to additional AI services by:
 
-1. **Using existing providers**: Drop compatible provider DLLs into the `providers/` directory
+1. **Using existing providers**: The four built-in providers cover most use cases
 2. **Building custom providers**: Implement the `IChatClientProvider` interface in a separate assembly
 
 ### Provider Directory Structure
 ```
-providers/
-├── openai/
-│   └── MyOpenAIProvider.dll
-├── anthropic/
-│   └── MyAnthropicProvider.dll
-└── local/
-    └── MyLocalProvider.dll
+Providers/
+├── AzureOpenAI/
+│   ├── nb.Providers.AzureOpenAIProvider.csproj
+│   └── AzureOpenAIProvider.cs
+├── OpenAI/
+│   ├── nb.Providers.OpenAIProvider.csproj
+│   └── OpenAIProvider.cs
+├── Anthropic/
+│   ├── nb.Providers.AnthropicProvider.csproj
+│   └── AnthropicProvider.cs
+└── Gemini/
+    ├── nb.Providers.GeminiProvider.csproj
+    └── GeminiProvider.cs
 ```
 
-Each provider is isolated in its own directory to avoid dependency conflicts.
+Each provider is isolated in its own directory with separate dependencies to avoid conflicts. Providers are automatically loaded at runtime using `AssemblyLoadContext`.
 
 ## Technical Details
 
-- .NET 8.0
-- Microsoft.Extensions.AI for provider abstraction
-- Azure.AI.OpenAI for built-in Azure OpenAI support
-- Model Context Protocol (MCP) SDK
-- iText7 for PDF extraction
-- Spectre.Console for terminal UI
-- Directory-based conversation persistence
-- Plugin architecture for AI provider extensibility
+- **.NET 8.0** - Modern C# runtime
+- **Microsoft.Extensions.AI** - Unified abstraction for AI providers with cross-provider compatibility
+- **Provider Support**:
+  - Azure.AI.OpenAI for Azure OpenAI
+  - Microsoft.Extensions.AI.OpenAI for OpenAI
+  - Anthropic.SDK for Claude models
+  - Mscc.GenerativeAI.Microsoft for Google Gemini
+- **Model Context Protocol (MCP) SDK** - Extensible tool integration
+- **iText7** - PDF extraction and processing
+- **Spectre.Console** - Rich terminal UI
+- **AssemblyLoadContext** - Isolated provider loading to prevent dependency conflicts
+- **Directory-based conversation persistence** - JSON-serialized chat history per working directory
+- **Runtime provider switching** - Seamless model switching with conversation continuity
 
 ## License
 
