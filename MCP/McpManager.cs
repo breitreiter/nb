@@ -32,15 +32,24 @@ public class McpManager : IDisposable
             {
                 try
                 {
+                    var envVars = new Dictionary<string, string?>();
+                    if (serverConfig.Env != null)
+                    {
+                        foreach (var kvp in serverConfig.Env)
+                        {
+                            envVars[kvp.Key] = kvp.Value;
+                        }
+                    }
+
                     var transport = new StdioClientTransport(new StdioClientTransportOptions
                     {
                         Name = serverName,
                         Command = serverConfig.Command,
                         Arguments = serverConfig.Args ?? Array.Empty<string>(),
-                        EnvironmentVariables = serverConfig.Env ?? new Dictionary<string, string>()
+                        EnvironmentVariables = envVars
                     });
 
-                    var client = (McpClient)await McpClientFactory.CreateAsync(transport);
+                    var client = await McpClient.CreateAsync(transport);
                     _mcpClients.Add(client);
                     _connectedServerNames.Add(serverName);
 
@@ -63,13 +72,13 @@ public class McpManager : IDisposable
 
                     // Silently connect - no banners
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     // Silently skip failed MCP servers
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Silently skip MCP config errors
         }
@@ -111,7 +120,7 @@ public class McpManager : IDisposable
     private static McpConfig LoadMcpConfiguration()
     {
         var executablePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-        var executableDirectory = Path.GetDirectoryName(executablePath);
+        var executableDirectory = Path.GetDirectoryName(executablePath) ?? Directory.GetCurrentDirectory();
         var mcpConfigPath = Path.Combine(executableDirectory, "mcp.json");
 
         if (!File.Exists(mcpConfigPath))

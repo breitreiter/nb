@@ -59,7 +59,7 @@ public class ProviderManager
                         _providers.Add(provider);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     // Silently skip failed providers
                 }
@@ -125,6 +125,20 @@ public class ProviderManager
     }
 
     public IEnumerable<string> GetAvailableProviders() => _providers.Select(p => p.Name);
+
+    public IEnumerable<string> GetConfiguredProviders(IConfiguration config)
+    {
+        var providerConfigs = config.GetSection("ChatProviders").GetChildren();
+
+        return _providers
+            .Where(provider =>
+            {
+                var providerConfig = providerConfigs.FirstOrDefault(c =>
+                    string.Equals(c["Name"], provider.Name, StringComparison.OrdinalIgnoreCase));
+                return providerConfig != null;
+            })
+            .Select(p => p.Name);
+    }
 
     public void ShowProvidersWithStatus(IConfiguration config, string currentProviderName)
     {

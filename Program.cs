@@ -11,23 +11,23 @@ namespace nb;
 
 public class Program
 {
-    private static IChatClient _client;
+    private static IChatClient _client = null!;
     private static McpManager _mcpManager = new McpManager();
     private static FakeToolManager _fakeToolManager = new FakeToolManager();
-    private static ConversationManager _conversationManager;
+    private static ConversationManager _conversationManager = null!;
     private static ConfigurationService _configurationService = new ConfigurationService();
     private static ProviderManager _providerManager = new ProviderManager();
-    private static CommandProcessor _commandProcessor;
-    private static FileContentExtractor _fileExtractor;
-    private static PromptProcessor _promptProcessor;
+    private static CommandProcessor _commandProcessor = null!;
+    private static FileContentExtractor _fileExtractor = null!;
+    private static PromptProcessor _promptProcessor = null!;
 
     public static async Task Main(string[] args)
     {
         var config = _configurationService.GetConfiguration();
-        
+
         // Initialize chat client using provider system
-        var activeProviderName = config["ActiveProvider"] ?? "";
-        _client = _providerManager.TryCreateChatClient(config);
+        var activeProviderName = config["ActiveProvider"] ?? string.Empty;
+        _client = _providerManager.TryCreateChatClient(config)!;
         if (_client == null)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to initialize chat client. Please check your configuration.[/]");
@@ -85,10 +85,11 @@ public class Program
 
     private static async Task StartChatLoop()
     {
-        // Get available providers and current provider
-        var availableProviders = _providerManager.GetAvailableProviders();
+        // Get configured providers and current provider
+        var config = _configurationService.GetConfiguration();
+        var configuredProviders = _providerManager.GetConfiguredProviders(config);
         var currentProvider = _conversationManager.GetCurrentProvider();
-        var providersList = string.Join(", ", availableProviders.Select(p =>
+        var providersList = string.Join(", ", configuredProviders.Select(p =>
             p == currentProvider ? $"[grey74]{p}[/]" : $"[grey]{p}[/]"));
 
         // Get connected MCP servers

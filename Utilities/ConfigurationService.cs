@@ -49,7 +49,7 @@ public class ConfigurationService
         try
         {
             var executablePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-            var executableDirectory = Path.GetDirectoryName(executablePath);
+            var executableDirectory = Path.GetDirectoryName(executablePath) ?? Directory.GetCurrentDirectory();
             var systemPromptPath = Path.Combine(executableDirectory, "system.md");
             
             if (File.Exists(systemPromptPath))

@@ -150,13 +150,17 @@ public class ConversationManager
                                 if (mcpTool != null)
                                 {
                                     var arguments = new AIFunctionArguments();
-                                    foreach (var kvp in functionCall.Arguments)
+                                    if (functionCall.Arguments != null)
                                     {
-                                        arguments[kvp.Key] = kvp.Value?.ToString();
+                                        foreach (var kvp in functionCall.Arguments)
+                                        {
+                                            arguments[kvp.Key] = kvp.Value?.ToString();
+                                        }
                                     }
-                                    
+
                                     var result = await mcpTool.InvokeAsync(arguments);
-                                    var mcpToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, result.ToString()) };
+                                    var resultString = result?.ToString() ?? string.Empty;
+                                    var mcpToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, resultString) };
                                     _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, mcpToolContent));
                                     
                                     AnsiConsole.MarkupLine($"[dim grey]• calling {functionCall.Name}[/]");
@@ -277,10 +281,12 @@ public class ConversationManager
             }
 
             // Reconstruct conversation history
-            foreach (var item in historyData)
+            if (historyData != null)
             {
-                var type = item.GetProperty("Type").GetString();
-                var content = item.GetProperty("Content").GetString();
+                foreach (var item in historyData)
+                {
+                    var type = item.GetProperty("Type").GetString();
+                    var content = item.GetProperty("Content").GetString();
 
                 if (string.IsNullOrEmpty(content) || type == "SystemChatMessage")
                     continue; // Skip empty content or system messages (already handled)
@@ -295,6 +301,7 @@ public class ConversationManager
                         break;
                     // Note: We skip ToolChatMessage as they're complex and transient
                 }
+            }
             }
         }
         catch (Exception ex)
