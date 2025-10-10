@@ -6,13 +6,10 @@ A feature-rich AI CLI.
 
 ## Features
 
-- **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini
-- **Runtime Provider Switching**: Switch between AI providers mid-conversation without losing context
-- **Interactive and Single-Shot Modes**: Use interactively or execute single commands for scripting
+- **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
+- **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
 - **MCP Server Integration** (stdio) for extensible tools and prompts
-- **Directory-Based Conversation History**: Each directory maintains its own persistent context
-- **Pluggable Provider Architecture**: Easy extensibility for additional AI services
 
 ## Prerequisites
 
@@ -32,56 +29,11 @@ A feature-rich AI CLI.
    cp appsettings.example.json appsettings.json
    ```
 
-2. Edit `appsettings.json` with your AI provider configuration:
-   ```json
-   {
-     "ActiveProvider": "AzureOpenAI",
-     "ChatProviders": [
-       {
-         "Name": "AzureOpenAI",
-         "Endpoint": "https://your-resource-name.openai.azure.com/",
-         "ApiKey": "your-api-key-here",
-         "ChatDeploymentName": "o4-mini"
-       },
-       {
-         "Name": "Anthropic",
-         "ApiKey": "your-anthropic-api-key-here",
-         "Model": "claude-3-7-sonnet-20250219"
-       },
-       {
-         "Name": "OpenAI",
-         "ApiKey": "sk-your-openai-api-key-here",
-         "Model": "gpt-4o-mini"
-       },
-       {
-         "Name": "Gemini",
-         "ApiKey": "your-gemini-api-key-here",
-         "Model": "gemini-2.0-flash-exp"
-       }
-     ]
-   }
-   ```
+2. Edit `appsettings.json` with your AI provider configuration. You can configure multiple providers and switch between them at runtime, but you only need to start with one.
 
-   You can configure multiple providers and switch between them at runtime. Only the `ActiveProvider` needs valid credentials to start, but configuring all providers allows seamless switching.
+3. Optionally edit `system.md` to enrich the default system prompt.
 
-3. Optionally create `system.md` for a custom system prompt:
-   ```markdown
-   You are a helpful AI assistant specialized in software development.
-   ```
-
-4. Optionally configure MCP servers by copying `mcp.example.json` to `mcp.json` and editing:
-   ```json
-   {
-     "inputs": [],
-     "servers": {
-       "test-server": {
-         "type": "stdio",
-         "command": "npx",
-         "args": ["-y", "@modelcontextprotocol/server-everything"]
-       }
-     }
-   }
-   ```
+4. Optionally configure MCP servers by copying `mcp.example.json` to `mcp.json` and editing.
 
 5. Build and run:
    ```bash
@@ -125,8 +77,6 @@ Switch between AI providers during a conversation to leverage different models' 
 ```bash
 /providers                 # List all available providers
 /provider Anthropic        # Switch to Claude
-/provider OpenAI           # Switch to GPT models
-/provider Gemini           # Switch to Google Gemini
 ```
 
 Conversation history is maintained when switching providers, allowing you to continue the same conversation with different AI models.
@@ -142,88 +92,10 @@ Prompts may request arguments interactively before execution.
 ### Built-in MCP Server
 The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools and dynamically generated prompts from markdown files.
 
-To use the built-in server, configure it in your `mcp.json`:
-```json
-{
-  "servers": {
-    "built-in-tester": {
-      "type": "stdio",
-      "command": "dotnet",
-      "args": ["run", "--project", "mcp-servers/mcp-tester/mcp-tester.csproj"]
-    }
-  }
-}
-```
-
 ### Fake Tools
 nb will read fake-tools.yaml and treat those definitions as normal tools. When the model requests a fake tool, nb will return the static response configured in the yaml file. Fake tool definitions will override MCP definitions.
 
 Use fake tools to validate/tune tool descriptions, structure, and responses.
-
-## Configuration
-
-### appsettings.json
-
-#### Provider Configuration
-| Setting | Description | Example |
-|---------|-------------|---------|
-| `ActiveProvider` | Which provider to use on startup | `"AzureOpenAI"` |
-| `ChatProviders` | Array of provider configurations | See below |
-
-#### Supported Providers
-
-**Azure OpenAI**
-```json
-{
-  "Name": "AzureOpenAI",
-  "Endpoint": "https://your-resource-name.openai.azure.com/",
-  "ApiKey": "your-api-key-here",
-  "ChatDeploymentName": "o4-mini"
-}
-```
-
-**OpenAI**
-```json
-{
-  "Name": "OpenAI",
-  "ApiKey": "sk-your-openai-api-key-here",
-  "Model": "gpt-4o-mini"
-}
-```
-
-**Anthropic Claude**
-```json
-{
-  "Name": "Anthropic",
-  "ApiKey": "your-anthropic-api-key-here",
-  "Model": "claude-3-7-sonnet-20250219"
-}
-```
-
-**Google Gemini**
-```json
-{
-  "Name": "Gemini",
-  "ApiKey": "your-gemini-api-key-here",
-  "Model": "gemini-2.0-flash-exp"
-}
-```
-
-### system.md
-Place a `system.md` file in the same directory as the executable to customize the AI's behavior. The entire file content will be used as the system prompt.
-
-### mcp.json
-Configure MCP servers to extend the AI with additional tools and capabilities. Each server runs as a separate process and communicates via stdio.
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| `servers.{name}.command` | Command to run the server | `"dotnet"`, `"npx"` |
-| `servers.{name}.args` | Arguments for the command | `["run", "--project", "path/to/server.csproj"]` |
-| `servers.{name}.type` | Transport type (currently only stdio) | `"stdio"` |
-
-Examples:
-- Built-in server: `"command": "dotnet", "args": ["run", "--project", "mcp-servers/mcp-tester/mcp-tester.csproj"]`
-- Node.js server: `"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]`
 
 ## Building for Distribution
 
@@ -270,22 +142,6 @@ Providers/
 ```
 
 Each provider is isolated in its own directory with separate dependencies to avoid conflicts. Providers are automatically loaded at runtime using `AssemblyLoadContext`.
-
-## Technical Details
-
-- **.NET 8.0** - Modern C# runtime
-- **Microsoft.Extensions.AI** - Unified abstraction for AI providers with cross-provider compatibility
-- **Provider Support**:
-  - Azure.AI.OpenAI for Azure OpenAI
-  - Microsoft.Extensions.AI.OpenAI for OpenAI
-  - Anthropic.SDK for Claude models
-  - Mscc.GenerativeAI.Microsoft for Google Gemini
-- **Model Context Protocol (MCP) SDK** - Extensible tool integration
-- **iText7** - PDF extraction and processing
-- **Spectre.Console** - Rich terminal UI
-- **AssemblyLoadContext** - Isolated provider loading to prevent dependency conflicts
-- **Directory-based conversation persistence** - JSON-serialized chat history per working directory
-- **Runtime provider switching** - Seamless model switching with conversation continuity
 
 ## License
 

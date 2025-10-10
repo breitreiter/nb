@@ -8,6 +8,10 @@
         "run",
         "--project",
         "mcp-servers/mcp-tester/mcp-tester.csproj"
+      ],
+      "alwaysAllow": [
+        "echo",
+        "current-time"
       ]
     },
     "external-server": {

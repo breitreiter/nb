@@ -128,14 +128,12 @@ public class ConversationManager
                     {
                         try
                         {
-                            // Check if this is a fake tool first
+                            // Check if this is a fake tool first (always auto-approve)
                             var fakeTool = _fakeToolManager.GetFakeTool(functionCall.Name);
                             if (fakeTool != null)
                             {
-                                // Handle fake tool
+                                // Handle fake tool - no approval needed
                                 var argumentsJson = JsonSerializer.Serialize(functionCall.Arguments);
-                                
-                                // Show fake tool invocation notification
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
                                 AnsiConsole.MarkupLine($"[dim grey]   Parameters: {argumentsJson}[/]");
                                 AnsiConsole.MarkupLine($"[dim grey]   → {fakeTool.Response}[/]");
@@ -145,10 +143,64 @@ public class ConversationManager
                             }
                             else
                             {
-                                // Handle MCP tools
+                                // Handle MCP tools - check approval
                                 var mcpTool = mcpTools.FirstOrDefault(t => t.Name == functionCall.Name);
                                 if (mcpTool != null)
                                 {
+                                    // Check if tool is in always-allow list
+                                    bool approved = _mcpManager.IsAlwaysAllowed(functionCall.Name);
+
+                                    if (!approved)
+                                    {
+                                        // Show tool call details and request approval
+                                        var argumentsJson = JsonSerializer.Serialize(functionCall.Arguments, new JsonSerializerOptions { WriteIndented = true });
+
+                                        while (true)
+                                        {
+                                            AnsiConsole.MarkupLine($"[{UIColors.SpectreUserPrompt}]Allow tool call: {functionCall.Name}? (Y/n/?)[/]");
+                                            var key = Console.ReadKey().KeyChar;
+
+                                            if (key == 'n')
+                                            {
+                                                approved = false;
+                                                break;
+                                            }
+                                            else if (key == '?' )
+                                            {
+                                                AnsiConsole.MarkupLine($"[dim]Arguments:[/]");
+                                                AnsiConsole.MarkupLine($"[dim]{argumentsJson}[/]");
+                                                approved = AnsiConsole.Confirm("Allow this call?", defaultValue: true);
+                                                break;
+                                            }
+                                            else if (key == '\r' || key == 'y')
+                                            {
+                                                approved = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if (!approved)
+                                    {
+                                        var reason = AnsiConsole.Prompt(
+                                            new TextPrompt<string>("Reason for rejection [dim](optional)[/]:")
+                                                .DefaultValue("User declined")
+                                                .AllowEmpty()
+                                        );
+
+                                        var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
+                                            ? "Error: User rejected this tool call. Permission denied. Do not retry this action."
+                                            : $"Error: User rejected this tool call. Reason: {reason}. Please consider an alternative approach based on the user's feedback.";
+
+                                        var rejectionContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, rejectionMessage) };
+                                        _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, rejectionContent));
+
+                                        AnsiConsole.MarkupLine($"[red]Tool call rejected, notifying model[/]");
+                                        _toolCallCount++;
+                                        continue; // Skip to next tool call
+                                    }
+
+                                    // Execute approved MCP tool
                                     var arguments = new AIFunctionArguments();
                                     if (functionCall.Arguments != null)
                                     {
@@ -162,7 +214,7 @@ public class ConversationManager
                                     var resultString = result?.ToString() ?? string.Empty;
                                     var mcpToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, resultString) };
                                     _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, mcpToolContent));
-                                    
+
                                     AnsiConsole.MarkupLine($"[dim grey]• calling {functionCall.Name}[/]");
                                 }
                             }

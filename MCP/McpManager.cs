@@ -13,6 +13,7 @@ public class McpManager : IDisposable
     private readonly List<AIFunction> _mcpTools = new();
     private readonly List<McpClientPrompt> _mcpPrompts = new();
     private readonly List<string> _connectedServerNames = new();
+    private readonly HashSet<string> _alwaysAllowTools = new();
 
     public async Task InitializeAsync(bool showBanners = true)
     {
@@ -53,9 +54,23 @@ public class McpManager : IDisposable
                     _mcpClients.Add(client);
                     _connectedServerNames.Add(serverName);
 
-                    // Get tools from this client
+                    // Get tools from this client and namespace them
                     var tools = await client.ListToolsAsync();
-                    _mcpTools.AddRange(tools);
+                    foreach (var tool in tools)
+                    {
+                        // Namespace the tool: serverName:toolName
+                        var namespacedTool = tool.WithName($"{serverName}:{tool.Name}");
+                        _mcpTools.Add(namespacedTool);
+                    }
+
+                    // Add tools to always-allow list if configured (namespace them)
+                    if (serverConfig.AlwaysAllow != null)
+                    {
+                        foreach (var toolName in serverConfig.AlwaysAllow)
+                        {
+                            _alwaysAllowTools.Add($"{serverName}:{toolName}");
+                        }
+                    }
 
                     // Get prompts from this client
                     var promptCount = 0;
@@ -97,6 +112,11 @@ public class McpManager : IDisposable
     public IReadOnlyList<string> GetConnectedServerNames()
     {
         return _connectedServerNames.AsReadOnly();
+    }
+
+    public bool IsAlwaysAllowed(string toolName)
+    {
+        return _alwaysAllowTools.Contains(toolName);
     }
 
     public void Dispose()
@@ -143,6 +163,7 @@ public class McpServerConfig
     public string[]? Args { get; set; }
     public Dictionary<string, string>? Env { get; set; }
     public int Timeout { get; set; } = 60000;
+    public string[]? AlwaysAllow { get; set; }
 }
 
 public class McpConfig
