@@ -3,8 +3,10 @@
 
 appsettings.json
 mcp.json
+fake-tools.yaml
 bin/
 obj/
+nb-builds/
 .vs/
 .claude/
 *.user

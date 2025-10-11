@@ -20,7 +20,9 @@ A feature-rich AI CLI.
   - Anthropic Claude
   - Google Gemini
 
-## Setup
+## Installation
+
+### Option 1: Build from Source (Recommended)
 
 1. Clone and configure:
    ```bash
@@ -29,17 +31,37 @@ A feature-rich AI CLI.
    cp appsettings.example.json appsettings.json
    ```
 
-2. Edit `appsettings.json` with your AI provider configuration. You can configure multiple providers and switch between them at runtime, but you only need to start with one.
+2. Edit `appsettings.json` with your AI provider configuration.
 
-3. Optionally edit `system.md` to enrich the default system prompt.
-
-4. Optionally configure MCP servers by copying `mcp.example.json` to `mcp.json` and editing.
-
-5. Build and run:
+3. Build and run:
    ```bash
    dotnet build
    dotnet run
    ```
+
+### Option 2: Pre-built Binaries
+
+Pre-built binaries are available in the [releases section](https://github.com/breitreiter/nb/releases), but they are not code-signed. This means you'll encounter security warnings on both Windows and macOS.
+
+#### Windows
+
+Windows Defender SmartScreen will warn you about running an unsigned application. Click "More info" then "Run anyway" to proceed. See Microsoft's [SmartScreen documentation](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/) for more information.
+
+#### macOS
+
+macOS Gatekeeper will block unsigned applications. See Apple's guide on [safely opening apps on your Mac](https://support.apple.com/en-us/102445) for instructions on how to run unsigned applications.
+
+## Configuration
+
+After installation, configure nb for your environment:
+
+1. **AI Provider**: Edit `appsettings.json` with your API keys and endpoints. You can configure multiple providers and switch between them at runtime, but you only need to start with one.
+
+2. **System Prompt** (Optional): Edit `system.md` to customize the default system prompt.
+
+3. **MCP Servers** (Optional): Copy `mcp.example.json` to `mcp.json` and configure your MCP server connections.
+
+4. **Theme** (Optional): Customize colors by editing `theme.json`.
 
 ## Usage
 
@@ -93,7 +115,7 @@ Prompts may request arguments interactively before execution.
 The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools and dynamically generated prompts from markdown files.
 
 ### Fake Tools
-nb will read fake-tools.yaml and treat those definitions as normal tools. When the model requests a fake tool, nb will return the static response configured in the yaml file. 
+nb will read fake-tools.yaml and treat those definitions as normal tools. When the model requests a fake tool, nb will return the static response configured in the yaml file. Refer to fake-tools.example.yaml for the expected format.
 
 Fake tool definitions will override MCP definitions. This is by design, to allow you to fake destructive actions or quickly tune tool descriptions for alignment testing.
 
