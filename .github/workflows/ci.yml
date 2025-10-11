@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Test
+      run: dotnet test --no-build --verbosity normal --configuration Release
+      continue-on-error: true
+
+    - name: Publish artifacts
+      run: |
+        dotnet publish -c Release -r win-x64 --self-contained -o ./artifacts/win-x64
+        dotnet publish -c Release -r linux-x64 --self-contained -o ./artifacts/linux-x64
+        dotnet publish -c Release -r osx-x64 --self-contained -o ./artifacts/osx-x64
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nb-builds
+        path: ./artifacts/
