@@ -1,0 +1,10 @@
+{
+  "Success": "deepskyblue4_1",
+  "Error": "red",
+  "Warning": "yellow",
+  "Info": "white",
+  "Muted": "grey",
+  "Accent": "cadetblue_1",
+  "UserPrompt": "greenyellow",
+  "FakeTool": "mediumpurple2"
+}

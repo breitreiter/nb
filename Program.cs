@@ -25,6 +25,9 @@ public class Program
     {
         var config = _configurationService.GetConfiguration();
 
+        // Load theme
+        UIColors.LoadTheme();
+
         // Initialize chat client using provider system
         var activeProviderName = config["ActiveProvider"] ?? string.Empty;
         _client = _providerManager.TryCreateChatClient(config)!;
@@ -90,17 +93,17 @@ public class Program
         var configuredProviders = _providerManager.GetConfiguredProviders(config);
         var currentProvider = _conversationManager.GetCurrentProvider();
         var providersList = string.Join(", ", configuredProviders.Select(p =>
-            p == currentProvider ? $"[grey74]{p}[/]" : $"[grey]{p}[/]"));
+            p == currentProvider ? $"[{UIColors.SpectreInfo}]{p}[/]" : $"[{UIColors.SpectreMuted}]{p}[/]"));
 
         // Get connected MCP servers
         var mcpServers = _mcpManager.GetConnectedServerNames();
         var mcpList = mcpServers.Count > 0
-            ? string.Join(", ", mcpServers.Select(s => $"[grey]{s}[/]"))
+            ? string.Join(", ", mcpServers.Select(s => $"[{UIColors.SpectreMuted}]{s}[/]"))
             : "[dim]none[/]";
 
-        AnsiConsole.MarkupLine(" " + UIColors.robot_img_1 + $"  [grey]AI: [/]{providersList}");
-        AnsiConsole.MarkupLine(" " + UIColors.robot_img_2 + $"  [grey]MCP: [/]{mcpList}");
-        AnsiConsole.MarkupLine(" " + UIColors.robot_img_3 + "  [white]N[/]ota[white]B[/]ene 0.3α [grey]▪[/] [cadetblue_1]exit[/] [grey]to quit[/] [cadetblue_1]?[/] [grey]for help[/]");
+        AnsiConsole.MarkupLine(" " + UIColors.robot_img_1 + $"  [{UIColors.SpectreMuted}]AI: [/]{providersList}");
+        AnsiConsole.MarkupLine(" " + UIColors.robot_img_2 + $"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
+        AnsiConsole.MarkupLine(" " + UIColors.robot_img_3 + $"  NotaBene 0.9β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
 
         // Show directory context banner
         var currentDir = Directory.GetCurrentDirectory();

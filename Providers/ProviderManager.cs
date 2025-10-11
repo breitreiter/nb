@@ -74,7 +74,7 @@ public class ProviderManager
         if (string.IsNullOrEmpty(activeProviderName))
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No active provider specified in configuration (ActiveProvider)[/]");
-            AnsiConsole.MarkupLine($"[dim grey]Available providers: {string.Join(", ", _providers.Select(p => p.Name))}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Available providers: {string.Join(", ", _providers.Select(p => p.Name))}[/]");
             return null;
         }
 
@@ -84,7 +84,7 @@ public class ProviderManager
         if (provider == null)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No provider found for: {activeProviderName}[/]");
-            AnsiConsole.MarkupLine($"[dim grey]Available providers: {string.Join(", ", _providers.Select(p => p.Name))}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Available providers: {string.Join(", ", _providers.Select(p => p.Name))}[/]");
             return null;
         }
 
@@ -108,7 +108,7 @@ public class ProviderManager
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Provider '{provider.Name}' is missing required configuration:[/]");
             foreach (var key in missingKeys)
             {
-                AnsiConsole.MarkupLine($"[dim grey]  - {key}[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  - {key}[/]");
             }
             return null;
         }
@@ -154,13 +154,13 @@ public class ProviderManager
             var canCreate = providerConfig != null && provider.CanCreate(providerConfig);
             var isActive = string.Equals(provider.Name, currentProviderName, StringComparison.OrdinalIgnoreCase);
 
-            var status = canCreate ? "[green]configured[/]" : "[dim grey]not configured[/]";
-            var activeMarker = isActive ? "[yellow]*[/] " : "  ";
+            var status = canCreate ? $"[{UIColors.SpectreSuccess}]configured[/]" : $"[{UIColors.SpectreMuted}]not configured[/]";
+            var activeMarker = isActive ? $"[{UIColors.SpectreWarning}]*[/] " : "  ";
 
             AnsiConsole.MarkupLine($"{activeMarker}[{UIColors.SpectreInfo}]{provider.Name}[/] {status}");
         }
 
-        AnsiConsole.MarkupLine($"[dim grey]* = active provider[/]");
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]* = active provider[/]");
     }
 
     public void ShowProviderStatus(IConfiguration config)
@@ -175,12 +175,12 @@ public class ProviderManager
                 string.Equals(c["Name"], provider.Name, StringComparison.OrdinalIgnoreCase));
 
             var canCreate = providerConfig != null && provider.CanCreate(providerConfig);
-            var status = canCreate ? "[green]✓[/]" : "[red]✗[/]";
+            var status = canCreate ? $"[{UIColors.SpectreSuccess}]✓[/]" : $"[{UIColors.SpectreError}]✗[/]";
             AnsiConsole.MarkupLine($"  {status} {provider.Name}");
 
             if (providerConfig == null)
             {
-                AnsiConsole.MarkupLine($"[dim grey]    No configuration found in ChatProviders array[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]    No configuration found in ChatProviders array[/]");
             }
             else if (!canCreate)
             {
@@ -189,7 +189,7 @@ public class ProviderManager
                     .ToArray();
                 foreach (var key in missingKeys)
                 {
-                    AnsiConsole.MarkupLine($"[dim grey]    Missing: {key}[/]");
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]    Missing: {key}[/]");
                 }
             }
         }

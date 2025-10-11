@@ -1,19 +1,73 @@
-﻿namespace nb.Utilities;
+﻿using System.Text.Json;
+
+namespace nb.Utilities;
 
 /// <summary>
 /// Centralized color scheme for consistent UI styling across the application.
 /// </summary>
 public static class UIColors
 {
-    // Spectre.Console markup colors
-    public const string SpectreSuccess = "deepskyblue4_1";
-    public const string SpectreError = "red";
-    public const string SpectreWarning = "yellow";
-    public const string SpectreInfo = "white";
-    public const string SpectreMuted = "grey";
-    public const string SpectreAccent = "cadetblue_1";
-    public const string SpectreUserPrompt = "greenyellow";
-    public const string SpectreFakeTool = "mediumpurple2";
+    private static Theme _theme = GetDefaultTheme();
+
+    public static void LoadTheme(string themeFilePath = "theme.json")
+    {
+        try
+        {
+            if (!File.Exists(themeFilePath))
+            {
+                return;
+            }
+
+            var json = File.ReadAllText(themeFilePath);
+            var theme = JsonSerializer.Deserialize<Theme>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (theme != null)
+            {
+                _theme = theme;
+            }
+        }
+        catch
+        {
+            // Fall back to default theme on any error
+        }
+    }
+
+    // Spectre.Console markup colors - dynamic based on theme
+    public static string SpectreSuccess => _theme.Success;
+    public static string SpectreError => _theme.Error;
+    public static string SpectreWarning => _theme.Warning;
+    public static string SpectreInfo => _theme.Info;
+    public static string SpectreMuted => _theme.Muted;
+    public static string SpectreAccent => _theme.Accent;
+    public static string SpectreUserPrompt => _theme.UserPrompt;
+    public static string SpectreFakeTool => _theme.FakeTool;
+
+    private static Theme GetDefaultTheme() => new()
+    {
+        Success = "deepskyblue4_1",
+        Error = "red",
+        Warning = "yellow",
+        Info = "white",
+        Muted = "grey",
+        Accent = "cadetblue_1",
+        UserPrompt = "greenyellow",
+        FakeTool = "mediumpurple2"
+    };
+
+    private class Theme
+    {
+        public string Success { get; set; } = "";
+        public string Error { get; set; } = "";
+        public string Warning { get; set; } = "";
+        public string Info { get; set; } = "";
+        public string Muted { get; set; } = "";
+        public string Accent { get; set; } = "";
+        public string UserPrompt { get; set; } = "";
+        public string FakeTool { get; set; } = "";
+    }
 
 
     /* Native Console markup colors
@@ -42,10 +96,6 @@ public static class UIColors
      * 1 = Bold
      * 4 = Underline
      */
-    public const string NativeSuccess = "\u001b[32m";
-    public const string NativeError = "\u001b[31m";
-    public const string NativeWarning = "\u001b[33m";
-    public const string NativeInfo = "\u001b[37m";
     public const string NativeMuted = "\u001b[90m";
     public const string NativeUserInput = "\u001b[92m";
     public const string NativeReset = "\u001b[0m";

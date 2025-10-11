@@ -9,7 +9,7 @@ A feature-rich AI CLI.
 - **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
 - **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
-- **MCP Server Integration** (stdio) for extensible tools and prompts
+- **MCP Server Integration** for extensible tools and prompts
 
 ## Prerequisites
 
@@ -93,9 +93,28 @@ Prompts may request arguments interactively before execution.
 The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools and dynamically generated prompts from markdown files.
 
 ### Fake Tools
-nb will read fake-tools.yaml and treat those definitions as normal tools. When the model requests a fake tool, nb will return the static response configured in the yaml file. Fake tool definitions will override MCP definitions.
+nb will read fake-tools.yaml and treat those definitions as normal tools. When the model requests a fake tool, nb will return the static response configured in the yaml file. 
 
-Use fake tools to validate/tune tool descriptions, structure, and responses.
+Fake tool definitions will override MCP definitions. This is by design, to allow you to fake destructive actions or quickly tune tool descriptions for alignment testing.
+
+## Theming
+
+nb loads its color scheme from `theme.json` at startup. Color names are from [Spectre.Console](https://spectreconsole.net/appendix/colors)
+
+For example, here's a high-contrast theme (WCAG AAA on standard Windows console background #0C0C0C):
+
+```json
+{
+  "Success": "lime",
+  "Error": "red",
+  "Warning": "yellow",
+  "Info": "white",
+  "Muted": "grey70",
+  "Accent": "aqua",
+  "UserPrompt": "lime",
+  "FakeTool": "magenta"
+}
+```
 
 ## Building for Distribution
 
@@ -103,7 +122,7 @@ Use fake tools to validate/tune tool descriptions, structure, and responses.
 dotnet publish -c Release -r win-x64 --self-contained
 ```
 
-Include `system.md` and `mcp.json` with your executable for custom configurations.
+Include `system.md`, `mcp.json`, and `theme.json` with your executable for custom configurations.
 
 ## AI Provider Architecture
 
@@ -119,29 +138,11 @@ All providers are automatically compiled into the `bin/{Config}/net8.0/providers
 
 ### Provider Extensibility
 
-nb uses a pluggable provider architecture built on Microsoft.Extensions.AI. You can extend support to additional AI services by:
+nb uses a pluggable provider architecture built on Microsoft.Extensions.AI. The repo includes 4 common providers, but you can roll your own.
 
-1. **Using existing providers**: The four built-in providers cover most use cases
-2. **Building custom providers**: Implement the `IChatClientProvider` interface in a separate assembly
-
-### Provider Directory Structure
-```
-Providers/
-├── AzureOpenAI/
-│   ├── nb.Providers.AzureOpenAIProvider.csproj
-│   └── AzureOpenAIProvider.cs
-├── OpenAI/
-│   ├── nb.Providers.OpenAIProvider.csproj
-│   └── OpenAIProvider.cs
-├── Anthropic/
-│   ├── nb.Providers.AnthropicProvider.csproj
-│   └── AnthropicProvider.cs
-└── Gemini/
-    ├── nb.Providers.GeminiProvider.csproj
-    └── GeminiProvider.cs
-```
-
-Each provider is isolated in its own directory with separate dependencies to avoid conflicts. Providers are automatically loaded at runtime using `AssemblyLoadContext`.
+1. You'll need to create your own project, includind a class which implements the `IChatClientProvider` interface from nb.Providers.Abstractions. That interface requires you to supply an instance of `IChatClient` from Microsoft.Extensions.AI, plus some basic tooling for configuration.
+2. Copy your built assembly to a new subdirectory under `providers/`
+3. If necessary, add any required configuration to appsettings.json. Since you had to DIY the configuration in step 1, you should know what you need to add.
 
 ## License
 

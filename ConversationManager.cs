@@ -135,8 +135,8 @@ public class ConversationManager
                                 // Handle fake tool - no approval needed
                                 var argumentsJson = JsonSerializer.Serialize(functionCall.Arguments);
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
-                                AnsiConsole.MarkupLine($"[dim grey]   Parameters: {argumentsJson}[/]");
-                                AnsiConsole.MarkupLine($"[dim grey]   → {fakeTool.Response}[/]");
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {argumentsJson}[/]");
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {fakeTool.Response}[/]");
                                 
                                 var fakeToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, fakeTool.Response) };
                                 _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, fakeToolContent));
@@ -195,7 +195,7 @@ public class ConversationManager
                                         var rejectionContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, rejectionMessage) };
                                         _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, rejectionContent));
 
-                                        AnsiConsole.MarkupLine($"[red]Tool call rejected, notifying model[/]");
+                                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool call rejected, notifying model[/]");
                                         _toolCallCount++;
                                         continue; // Skip to next tool call
                                     }
@@ -215,7 +215,7 @@ public class ConversationManager
                                     var mcpToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, resultString) };
                                     _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, mcpToolContent));
 
-                                    AnsiConsole.MarkupLine($"[dim grey]• calling {functionCall.Name}[/]");
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                 }
                             }
                             
