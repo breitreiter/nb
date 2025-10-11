@@ -249,7 +249,7 @@ public class ConversationManager
         {
             // Stop spinner on error
             _stopSpinner = true;
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
         }
         finally
         {
@@ -309,7 +309,7 @@ public class ConversationManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Could not save conversation history: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Could not save conversation history: {Markup.Escape(ex.Message)}[/]");
         }
     }
 
@@ -358,7 +358,7 @@ public class ConversationManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Could not load conversation history: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Could not load conversation history: {Markup.Escape(ex.Message)}[/]");
         }
     }
 

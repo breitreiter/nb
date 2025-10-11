@@ -61,4 +61,11 @@
     <ProjectReference Include="Providers\nb.Providers.Abstractions\nb.Providers.Abstractions.csproj" />
   </ItemGroup>
 
+  <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <ProviderDirs Include="$(SolutionDir)bin\$(Configuration)\net8.0\providers\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ProviderDirs)" DestinationFolder="$(PublishDir)providers\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

@@ -64,7 +64,7 @@ public class ConfigurationService
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading system prompt: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading system prompt: {Markup.Escape(ex.Message)}[/]");
             return "You are a helpful AI assistant.";
         }
     }

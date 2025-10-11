@@ -45,7 +45,7 @@ public class FakeToolManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to load fake tools: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to load fake tools: {Markup.Escape(ex.Message)}[/]");
             return new FakeToolLoadResult { Success = false, ToolsLoaded = 0, ToolsOverridden = 0 };
         }
     }

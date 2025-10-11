@@ -119,7 +119,7 @@ public class ProviderManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to create client for provider '{provider.Name}': {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to create client for provider '{provider.Name}': {Markup.Escape(ex.Message)}[/]");
             return null;
         }
     }

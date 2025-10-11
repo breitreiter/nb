@@ -1,5 +1,4 @@
 {
-  "inputs": [],
   "servers": {
     "built-in-tester": {
       "type": "stdio",
@@ -14,13 +13,9 @@
         "current-time"
       ]
     },
-    "external-server": {
-      "type": "stdio", 
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-everything"
-      ]
+    "cloudflare_demo_day": {
+      "type": "http",
+      "endpoint": "https://demo-day.mcp.cloudflare.com/sse"
     }
   }
 }

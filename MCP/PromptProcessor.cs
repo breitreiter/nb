@@ -80,7 +80,7 @@ public class PromptProcessor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error invoking prompt: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error invoking prompt: {Markup.Escape(ex.Message)}[/]");
             return null;
         }
     }

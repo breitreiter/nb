@@ -33,22 +33,42 @@ public class McpManager : IDisposable
             {
                 try
                 {
-                    var envVars = new Dictionary<string, string?>();
-                    if (serverConfig.Env != null)
-                    {
-                        foreach (var kvp in serverConfig.Env)
-                        {
-                            envVars[kvp.Key] = kvp.Value;
-                        }
-                    }
+                    // Create appropriate transport based on type
+                    IClientTransport transport;
 
-                    var transport = new StdioClientTransport(new StdioClientTransportOptions
+                    if (serverConfig.Type.Equals("http", StringComparison.OrdinalIgnoreCase))
                     {
-                        Name = serverName,
-                        Command = serverConfig.Command,
-                        Arguments = serverConfig.Args ?? Array.Empty<string>(),
-                        EnvironmentVariables = envVars
-                    });
+                        // HTTP/SSE transport
+                        if (string.IsNullOrEmpty(serverConfig.Endpoint))
+                        {
+                            throw new InvalidOperationException($"HTTP transport for '{serverName}' requires an 'endpoint' property");
+                        }
+
+                        transport = new HttpClientTransport(new HttpClientTransportOptions
+                        {
+                            Endpoint = new Uri(serverConfig.Endpoint)
+                        });
+                    }
+                    else
+                    {
+                        // Default to stdio transport
+                        var envVars = new Dictionary<string, string?>();
+                        if (serverConfig.Env != null)
+                        {
+                            foreach (var kvp in serverConfig.Env)
+                            {
+                                envVars[kvp.Key] = kvp.Value;
+                            }
+                        }
+
+                        transport = new StdioClientTransport(new StdioClientTransportOptions
+                        {
+                            Name = serverName,
+                            Command = serverConfig.Command,
+                            Arguments = serverConfig.Args ?? Array.Empty<string>(),
+                            EnvironmentVariables = envVars
+                        });
+                    }
 
                     var client = await McpClient.CreateAsync(transport);
                     _mcpClients.Add(client);
@@ -58,8 +78,8 @@ public class McpManager : IDisposable
                     var tools = await client.ListToolsAsync();
                     foreach (var tool in tools)
                     {
-                        // Namespace the tool: serverName:toolName
-                        var namespacedTool = tool.WithName($"{serverName}:{tool.Name}");
+                        // Namespace the tool: serverName.toolName (dot separator for OpenAI compatibility)
+                        var namespacedTool = tool.WithName($"{serverName}.{tool.Name}");
                         _mcpTools.Add(namespacedTool);
                     }
 
@@ -68,7 +88,7 @@ public class McpManager : IDisposable
                     {
                         foreach (var toolName in serverConfig.AlwaysAllow)
                         {
-                            _alwaysAllowTools.Add($"{serverName}:{toolName}");
+                            _alwaysAllowTools.Add($"{serverName}.{toolName}");
                         }
                     }
 
@@ -87,9 +107,9 @@ public class McpManager : IDisposable
 
                     // Silently connect - no banners
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Silently skip failed MCP servers
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP error: {serverName} - {Markup.Escape(ex.Message)}[/]");
                 }
             }
         }
@@ -159,11 +179,13 @@ public class McpManager : IDisposable
 
 public class McpServerConfig
 {
+    public string Type { get; set; } = "stdio"; // "stdio" or "http"
     public string Command { get; set; } = string.Empty;
     public string[]? Args { get; set; }
     public Dictionary<string, string>? Env { get; set; }
     public int Timeout { get; set; } = 60000;
     public string[]? AlwaysAllow { get; set; }
+    public string Endpoint { get; set; } = string.Empty; // For HTTP transport
 }
 
 public class McpConfig

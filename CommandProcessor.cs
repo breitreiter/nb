@@ -123,7 +123,7 @@ public class CommandProcessor
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to load image: {ex.Message}[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to load image: {Markup.Escape(ex.Message)}[/]");
                 return CommandResult.Continue();
             }
         }

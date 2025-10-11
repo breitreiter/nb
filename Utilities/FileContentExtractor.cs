@@ -51,7 +51,7 @@ public class FileContentExtractor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error reading file: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error reading file: {Markup.Escape(ex.Message)}[/]");
             return string.Empty;
         }
     }
@@ -86,7 +86,7 @@ public class FileContentExtractor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading image: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading image: {Markup.Escape(ex.Message)}[/]");
             throw;
         }
     }
@@ -111,7 +111,7 @@ public class FileContentExtractor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error extracting PDF text: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error extracting PDF text: {Markup.Escape(ex.Message)}[/]");
             return string.Empty;
         }
     }
