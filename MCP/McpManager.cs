@@ -4,6 +4,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using Spectre.Console;
 using nb.Utilities;
+using ModelContextProtocol.Protocol;
 
 namespace nb.MCP;
 
@@ -70,7 +71,45 @@ public class McpManager : IDisposable
                         });
                     }
 
-                    var client = await McpClient.CreateAsync(transport);
+                    // Create client options with roots support (current working directory)
+                    // TODO: Centralize version string (also used in startup banner)
+                    var clientOptions = new McpClientOptions
+                    {
+                        ClientInfo = new Implementation
+                        {
+                            Name = "nb",
+                            Version = "0.9.0" 
+                        },
+                        Capabilities = new ClientCapabilities
+                        {
+                            Roots = new RootsCapability
+                            {
+                                ListChanged = true
+                            }
+                        },
+                        Handlers = new McpClientHandlers
+                        {
+                            RootsHandler = (request, cancellationToken) =>
+                            {
+                                var cwd = Directory.GetCurrentDirectory();
+                                var cwdUri = new Uri(cwd).AbsoluteUri;
+                                var result = new ListRootsResult
+                                {
+                                    Roots = new List<Root>
+                                    {
+                                        new Root
+                                        {
+                                            Uri = cwdUri,
+                                            Name = "Working Directory"
+                                        }
+                                    }
+                                };
+                                return ValueTask.FromResult(result);
+                            }
+                        }
+                    };
+
+                    var client = await McpClient.CreateAsync(transport, clientOptions);
                     _mcpClients.Add(client);
                     _connectedServerNames.Add(serverName);
 

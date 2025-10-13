@@ -83,16 +83,19 @@ In interactive mode, you can use these commands:
 ### Single-Shot Mode
 Launch with parameters to execute a single command and exit immediately:
 ```bash
-# Send a chat message and exit
-nb What is the capital of France?
-
-# Execute a command and exit
 nb /clear
 nb /insert document.pdf
 nb Summarize this document
 ```
 
+Text piped to stdin is treated as conversation context. nb will read stdin to completion before continuing.
+```bash
+echo "the air in spring is fresh and clean" | nb "write a sentence that rhymes with this, to create a couplet"
+```
+
 Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context, and single-shot mode maintains conversation continuity between invocations.
+
+nb exposes the current working directory as an MCP root, to help filesystem MCP servers orient themselves.
 
 ### Provider Switching
 Switch between AI providers during a conversation to leverage different models' strengths:

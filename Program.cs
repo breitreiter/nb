@@ -21,6 +21,34 @@ public class Program
     private static FileContentExtractor _fileExtractor = null!;
     private static PromptProcessor _promptProcessor = null!;
 
+    private static string BuildUserInput(string[] args, string? stdinContent)
+    {
+        // Treat piped stdin as content to include in the message
+        // Args (if present) become the instruction for what to do with the content
+
+        if (!string.IsNullOrWhiteSpace(stdinContent))
+        {
+            var content = stdinContent.TrimEnd();
+
+            // If we have args, format as: <content>\n\n<instruction>
+            if (args.Length > 0)
+            {
+                var instruction = string.Join(" ", args);
+                return $"```\n{content}\n```\n\n{instruction}";
+            }
+            // If no args, just send the content wrapped in code block
+            else
+            {
+                return $"```\n{content}\n```";
+            }
+        }
+        else
+        {
+            // No stdin, just use args as normal
+            return string.Join(" ", args);
+        }
+    }
+
     public static async Task Main(string[] args)
     {
         var config = _configurationService.GetConfiguration();
@@ -64,11 +92,18 @@ public class Program
         _promptProcessor = new PromptProcessor(_mcpManager);
         _commandProcessor = new CommandProcessor(_fileExtractor, _promptProcessor, _conversationManager, _configurationService, _providerManager);
 
+        // Check if stdin is being piped
+        string? stdinContent = null;
+        if (Console.IsInputRedirected)
+        {
+            stdinContent = await Console.In.ReadToEndAsync();
+        }
+
         // Execute based on mode
-        if (args.Length > 0)
+        if (args.Length > 0 || stdinContent != null)
         {
             // Single-shot mode: execute command and exit
-            var userInput = string.Join(" ", args);
+            var userInput = BuildUserInput(args, stdinContent);
             await ExecuteSingleCommand(userInput);
         }
         else
