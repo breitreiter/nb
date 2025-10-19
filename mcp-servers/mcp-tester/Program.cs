@@ -27,7 +27,8 @@ public class Program
             .AddMcpServer()
             .WithStdioServerTransport()
             .WithToolsFromAssembly()
-            .WithPrompts(CreatePrompts());
+            .WithPrompts(CreatePrompts())
+            .WithResources(CreateResources());
 
         await builder.Build().RunAsync();
     }
@@ -129,6 +130,36 @@ public class Program
             3 => new Func<string, string, string, string>((p0, p1, p2) => ProcessTemplate3(content, p0, p1, p2, parameterNames[0], parameterNames[1], parameterNames[2])),
             _ => throw new NotSupportedException($"Too many parameters: {parameterNames.Count}. Maximum supported is 3.")
         };
+    }
+
+    static IEnumerable<McpServerResource> CreateResources()
+    {
+        // A silly test resource that won't conflict with real work
+        // Simple function that returns the haiku text
+        Func<string> getHaikus = () => @"Random Haikus for Testing
+
+MCP resources work
+Data flows through the server
+Testing is complete
+
+Knock knock who is there
+It's your friendly test data
+Please ignore this file
+
+Silly haikus dance
+Across the context window
+Do not use for work";
+
+        yield return McpServerResource.Create(
+            getHaikus,
+            new McpServerResourceCreateOptions
+            {
+                UriTemplate = "test://haikus",
+                Name = "Test Haikus",
+                Description = "A collection of silly haikus for testing MCP resource support. Not for actual use!",
+                MimeType = "text/plain"
+            }
+        );
     }
 }
 

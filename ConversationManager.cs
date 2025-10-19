@@ -82,8 +82,13 @@ public class ConversationManager
                 MaxOutputTokens = 10000,
             };
 
-            // Add MCP tools and fake tools (fake tools override MCP tools with same name)
-            var mcpTools = _mcpManager.GetTools();
+            // Add MCP tools, native resource tools, and fake tools (fake tools override MCP tools with same name)
+            var mcpTools = _mcpManager.GetTools().ToList();
+
+            // Add native resource tools
+            mcpTools.Add(ResourceTools.CreateListResourcesTool(_mcpManager));
+            mcpTools.Add(ResourceTools.CreateReadResourceTool(_mcpManager));
+
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
             if (allTools.Count > 0)
             {
@@ -128,16 +133,39 @@ public class ConversationManager
                     {
                         try
                         {
-                            // Check if this is a fake tool first (always auto-approve)
-                            var fakeTool = _fakeToolManager.GetFakeTool(functionCall.Name);
-                            if (fakeTool != null)
+                            // Check if this is a native resource tool (always auto-approve, read-only)
+                            if (functionCall.Name.StartsWith("nb."))
+                            {
+                                // Handle native resource tools - no approval needed
+                                var resourceTool = mcpTools.FirstOrDefault(t => t.Name == functionCall.Name);
+                                if (resourceTool != null)
+                                {
+                                    var arguments = new AIFunctionArguments();
+                                    if (functionCall.Arguments != null)
+                                    {
+                                        foreach (var kvp in functionCall.Arguments)
+                                        {
+                                            arguments[kvp.Key] = kvp.Value?.ToString();
+                                        }
+                                    }
+
+                                    var result = await resourceTool.InvokeAsync(arguments);
+                                    var resultString = result?.ToString() ?? string.Empty;
+                                    var resourceToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, resultString) };
+                                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, resourceToolContent));
+
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                }
+                            }
+                            // Check if this is a fake tool (always auto-approve)
+                            else if (_fakeToolManager.GetFakeTool(functionCall.Name) is {} fakeTool)
                             {
                                 // Handle fake tool - no approval needed
                                 var argumentsJson = JsonSerializer.Serialize(functionCall.Arguments);
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {argumentsJson}[/]");
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {fakeTool.Response}[/]");
-                                
+
                                 var fakeToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, fakeTool.Response) };
                                 _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, fakeToolContent));
                             }

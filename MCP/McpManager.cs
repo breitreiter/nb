@@ -13,6 +13,7 @@ public class McpManager : IDisposable
     private readonly List<McpClient> _mcpClients = new();
     private readonly List<AIFunction> _mcpTools = new();
     private readonly List<McpClientPrompt> _mcpPrompts = new();
+    private readonly List<ResourceInfo> _mcpResources = new();
     private readonly List<string> _connectedServerNames = new();
     private readonly HashSet<string> _alwaysAllowTools = new();
 
@@ -144,6 +145,28 @@ public class McpManager : IDisposable
                         // Most MCP servers don't support prompts, so we silently ignore this
                     }
 
+                    // Get resources from this client
+                    try
+                    {
+                        var resources = await client.ListResourcesAsync();
+                        foreach (var resource in resources)
+                        {
+                            _mcpResources.Add(new ResourceInfo
+                            {
+                                ServerName = serverName,
+                                Client = client,
+                                Uri = resource.Uri,
+                                Name = resource.Name ?? resource.Uri,
+                                Description = resource.Description,
+                                MimeType = resource.MimeType
+                            });
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Many MCP servers don't support resources, so we silently ignore this
+                    }
+
                     // Silently connect - no banners
                 }
                 catch (Exception ex)
@@ -176,6 +199,47 @@ public class McpManager : IDisposable
     public bool IsAlwaysAllowed(string toolName)
     {
         return _alwaysAllowTools.Contains(toolName);
+    }
+
+    public IReadOnlyList<ResourceInfo> GetResources()
+    {
+        return _mcpResources.AsReadOnly();
+    }
+
+    public async Task<string> ReadResourceAsync(string uri)
+    {
+        // Find the resource info
+        var resourceInfo = _mcpResources.FirstOrDefault(r => r.Uri == uri);
+        if (resourceInfo == null)
+        {
+            throw new InvalidOperationException($"Resource not found: {uri}");
+        }
+
+        // Read the resource from the appropriate client
+        var result = await resourceInfo.Client.ReadResourceAsync(uri);
+
+        // Return the first resource content (we only request one URI at a time)
+        if (result.Contents.Count == 0)
+        {
+            throw new InvalidOperationException($"Resource returned no content: {uri}");
+        }
+
+        var content = result.Contents[0];
+
+        // Handle text and blob content
+        if (content is TextResourceContents textContent)
+        {
+            return textContent.Text ?? throw new InvalidOperationException($"Text resource content is null: {uri}");
+        }
+        else if (content is BlobResourceContents blobContent)
+        {
+            // Return base64-encoded blob with mime type info
+            return $"[Binary content, MIME type: {content.MimeType ?? "unknown"}]\nBase64: {blobContent.Blob}";
+        }
+        else
+        {
+            throw new InvalidOperationException($"Unknown resource content type: {content.GetType().Name}");
+        }
     }
 
     public void Dispose()
@@ -231,4 +295,14 @@ public class McpConfig
 {
     public Dictionary<string, McpServerConfig> McpServers { get; set; } = new();
     public Dictionary<string, McpServerConfig> Servers { get; set; } = new();
+}
+
+public class ResourceInfo
+{
+    public required string ServerName { get; init; }
+    public required McpClient Client { get; init; }
+    public required string Uri { get; init; }
+    public required string Name { get; init; }
+    public string? Description { get; init; }
+    public string? MimeType { get; init; }
 }

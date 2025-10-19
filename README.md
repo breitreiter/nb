@@ -9,7 +9,7 @@ A feature-rich AI CLI.
 - **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
 - **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
-- **MCP Server Integration** for extensible tools and prompts
+- **MCP Server Integration** for extensible tools, prompts, and resources
 
 ## Prerequisites
 
