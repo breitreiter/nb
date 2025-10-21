@@ -119,7 +119,7 @@ public class McpManager : IDisposable
                     foreach (var tool in tools)
                     {
                         // Namespace the tool: serverName.toolName (dot separator for OpenAI compatibility)
-                        var namespacedTool = tool.WithName($"{serverName}.{tool.Name}");
+                        var namespacedTool = tool.WithName($"{serverName}_{tool.Name}");
                         _mcpTools.Add(namespacedTool);
                     }
 
@@ -128,7 +128,7 @@ public class McpManager : IDisposable
                     {
                         foreach (var toolName in serverConfig.AlwaysAllow)
                         {
-                            _alwaysAllowTools.Add($"{serverName}.{toolName}");
+                            _alwaysAllowTools.Add($"{serverName}_{toolName}");
                         }
                     }
 

@@ -46,7 +46,7 @@ public static class ResourceTools
 
         return AIFunctionFactory.Create(
             listResourcesFunc,
-            name: "nb.list_resources",
+            name: "nb_list_resources",
             description: "Lists available MCP resources. Optionally filter by server name. Returns JSON array of resources with uri, name, description, mimeType, and server fields."
         );
     }
@@ -72,8 +72,8 @@ public static class ResourceTools
 
         return AIFunctionFactory.Create(
             readResourceFunc,
-            name: "nb.read_resource",
-            description: "Reads the content of an MCP resource by URI. Returns the resource content as text, or base64 for binary content. Use nb.list_resources first to discover available resource URIs."
+            name: "nb_read_resource",
+            description: "Reads the content of an MCP resource by URI. Returns the resource content as text, or base64 for binary content. Use nb_list_resources first to discover available resource URIs."
         );
     }
 }

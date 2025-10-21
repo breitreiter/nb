@@ -26,10 +26,9 @@ public class AnthropicProvider : IChatClientProvider
             var anthropicClient = new AnthropicClient(apiKey);
 
             // Return the Messages endpoint as IChatClient
-            // Use ChatClientBuilder to add function invocation support and configure model
+            // Configure model but don't use UseFunctionInvocation() since we handle tool approval manually
             return new ChatClientBuilder(anthropicClient.Messages)
                 .ConfigureOptions(options => options.ModelId = model)
-                .UseFunctionInvocation()
                 .Build();
         }
     }

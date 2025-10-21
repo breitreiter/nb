@@ -105,13 +105,13 @@ public class ConversationManager
             // Start spinner and make async API call
             var spinnerTask = Task.Run(() => ShowSpinner());
             var apiTask = _client.GetResponseAsync(_conversationHistory, requestOptions);
-            
+
             var response = await apiTask;
-            
+
             // Stop spinner
             _stopSpinner = true;
             await spinnerTask;
-            
+
             // Handle tool calls if present - check if any message has tool calls
             var hasToolCalls = response.Messages.Any(m => m.Contents.Any(c => c is FunctionCallContent));
             if (hasToolCalls)
@@ -126,6 +126,9 @@ public class ConversationManager
                 // Add assistant message with tool calls to history
                 _conversationHistory.AddRange(response.Messages);
 
+                // Collect all tool results in a single list
+                var allToolResults = new List<AIContent>();
+
                 // Execute tool calls
                 foreach (var message in response.Messages)
                 {
@@ -134,7 +137,7 @@ public class ConversationManager
                         try
                         {
                             // Check if this is a native resource tool (always auto-approve, read-only)
-                            if (functionCall.Name.StartsWith("nb."))
+                            if (functionCall.Name.StartsWith("nb_"))
                             {
                                 // Handle native resource tools - no approval needed
                                 var resourceTool = mcpTools.FirstOrDefault(t => t.Name == functionCall.Name);
@@ -151,8 +154,7 @@ public class ConversationManager
 
                                     var result = await resourceTool.InvokeAsync(arguments);
                                     var resultString = result?.ToString() ?? string.Empty;
-                                    var resourceToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, resultString) };
-                                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, resourceToolContent));
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
 
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                 }
@@ -166,8 +168,7 @@ public class ConversationManager
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {argumentsJson}[/]");
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {fakeTool.Response}[/]");
 
-                                var fakeToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, fakeTool.Response) };
-                                _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, fakeToolContent));
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, fakeTool.Response));
                             }
                             else
                             {
@@ -220,8 +221,7 @@ public class ConversationManager
                                             ? "Error: User rejected this tool call. Permission denied. Do not retry this action."
                                             : $"Error: User rejected this tool call. Reason: {reason}. Please consider an alternative approach based on the user's feedback.";
 
-                                        var rejectionContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, rejectionMessage) };
-                                        _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, rejectionContent));
+                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, rejectionMessage));
 
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool call rejected, notifying model[/]");
                                         _toolCallCount++;
@@ -240,22 +240,26 @@ public class ConversationManager
 
                                     var result = await mcpTool.InvokeAsync(arguments);
                                     var resultString = result?.ToString() ?? string.Empty;
-                                    var mcpToolContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, resultString) };
-                                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, mcpToolContent));
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
 
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                 }
                             }
-                            
+
                             // Increment tool call counter
                             _toolCallCount++;
                         }
                         catch (Exception ex)
                         {
-                            var errorContent = new List<AIContent> { new FunctionResultContent(functionCall.CallId, $"Error: {ex.Message}") };
-                            _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, errorContent));
+                            allToolResults.Add(new FunctionResultContent(functionCall.CallId, $"Error: {ex.Message}"));
                         }
                     }
+                }
+
+                // Add all tool results as a single message
+                if (allToolResults.Count > 0)
+                {
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, allToolResults));
                 }
 
                 // Get another response after tool execution
