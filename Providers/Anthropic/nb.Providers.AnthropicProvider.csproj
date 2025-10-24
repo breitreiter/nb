@@ -19,11 +19,15 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <RemoveDir Directories="$(SolutionDir)bin\$(Configuration)\net8.0\providers\anthropic" />
+    <PropertyGroup>
+      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' != ''">$(SolutionDir)bin\$(Configuration)\net8.0\$(RuntimeIdentifier)\providers\anthropic</ProviderOutputPath>
+      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' == ''">$(SolutionDir)bin\$(Configuration)\net8.0\providers\anthropic</ProviderOutputPath>
+    </PropertyGroup>
+    <RemoveDir Directories="$(ProviderOutputPath)" />
     <ItemGroup>
       <ProviderFiles Include="$(TargetDir)**\*.*" />
     </ItemGroup>
-    <Copy SourceFiles="@(ProviderFiles)" DestinationFolder="$(SolutionDir)bin\$(Configuration)\net8.0\providers\anthropic\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ProviderFiles)" DestinationFolder="$(ProviderOutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

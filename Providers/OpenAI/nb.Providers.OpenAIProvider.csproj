@@ -20,11 +20,15 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <RemoveDir Directories="$(SolutionDir)bin\$(Configuration)\net8.0\providers\openai" />
+    <PropertyGroup>
+      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' != ''">$(SolutionDir)bin\$(Configuration)\net8.0\$(RuntimeIdentifier)\providers\openai</ProviderOutputPath>
+      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' == ''">$(SolutionDir)bin\$(Configuration)\net8.0\providers\openai</ProviderOutputPath>
+    </PropertyGroup>
+    <RemoveDir Directories="$(ProviderOutputPath)" />
     <ItemGroup>
       <ProviderFiles Include="$(TargetDir)**\*.*" />
     </ItemGroup>
-    <Copy SourceFiles="@(ProviderFiles)" DestinationFolder="$(SolutionDir)bin\$(Configuration)\net8.0\providers\openai\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ProviderFiles)" DestinationFolder="$(ProviderOutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

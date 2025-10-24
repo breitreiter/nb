@@ -67,9 +67,9 @@
     <ProjectReference Include="Providers\nb.Providers.Abstractions\nb.Providers.Abstractions.csproj" />
   </ItemGroup>
 
-  <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish">
+  <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
     <ItemGroup>
-      <ProviderDirs Include="$(SolutionDir)bin\$(Configuration)\net8.0\providers\**\*.*" />
+      <ProviderDirs Include="$(SolutionDir)bin\$(Configuration)\net8.0\$(RuntimeIdentifier)\providers\**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(ProviderDirs)" DestinationFolder="$(PublishDir)providers\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
