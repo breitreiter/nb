@@ -1,6 +1,5 @@
 using Azure;
 using Azure.AI.OpenAI;
-using Azure.AI.OpenAI.Chat;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 

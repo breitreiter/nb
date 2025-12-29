@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
-using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using Spectre.Console;
 using nb.Utilities;
@@ -133,12 +132,10 @@ public class McpManager : IDisposable
                     }
 
                     // Get prompts from this client
-                    var promptCount = 0;
                     try
                     {
                         var prompts = await client.ListPromptsAsync();
                         _mcpPrompts.AddRange(prompts);
-                        promptCount = prompts.Count;
                     }
                     catch (Exception)
                     {

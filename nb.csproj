@@ -59,7 +59,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="MCP\" />
     <Folder Include="Providers\" />
   </ItemGroup>
 

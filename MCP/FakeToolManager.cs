@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 using YamlDotNet.Serialization;

@@ -7,7 +7,9 @@ fake-tools.yaml
 bin/
 obj/
 nb-builds/
+artifacts/
 .vs/
+.idea/
 .claude/
 *.user
 *.suo

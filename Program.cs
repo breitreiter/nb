@@ -1,7 +1,5 @@
 ﻿using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Configuration;
 using Spectre.Console;
-using ModelContextProtocol.Protocol;
 using nb.Providers;
 using nb.MCP;
 using nb.Utilities;
@@ -139,11 +137,6 @@ public class Program
         AnsiConsole.MarkupLine(" " + UIColors.robot_img_1 + $"  [{UIColors.SpectreMuted}]AI: [/]{providersList}");
         AnsiConsole.MarkupLine(" " + UIColors.robot_img_2 + $"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
         AnsiConsole.MarkupLine(" " + UIColors.robot_img_3 + $"  NotaBene 0.9β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
-
-        // Show directory context banner
-        var currentDir = Directory.GetCurrentDirectory();
-        var dirName = Path.GetFileName(currentDir);
-        var historyExists = File.Exists(".nb_conversation_history.json");
         
         while (true)
         {
