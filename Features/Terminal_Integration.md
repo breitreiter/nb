@@ -1,145 +1,317 @@
 # nb Terminal Integration Proposal
 
+Status: Planned
+
 ## Overview
 
-Replace nb's basic test MCP server (echo, string-reverse) with an OS integration server that provides filesystem and shell access. This enables use cases like AI-assisted troubleshooting, where the model can run diagnostic commands and analyze results without tedious copy-paste loops.
+Add a native shell execution tool to nb that provides filesystem and shell access. This enables use cases like AI-assisted troubleshooting, where the model can run diagnostic commands and analyze results without tedious copy-paste loops.
+
+Implemented as a native tool (not MCP) so nb has full control over approval UX - specifically, showing the actual command to be executed rather than just a tool name.
 
 ## System Prompt Context
 
-The MCP server should expose context that helps the model make good decisions. Include in system prompt (or via MCP resources):
+Inject machine context into the system prompt so the model can make informed decisions.
 
-**Static (set once at startup):**
-- OS name
-- Shell name (e.g., bash, zsh, powershell)
-- Username
-- Home directory path
-- Platform architecture (x86_64, arm64)
-- Case sensitivity (filesystem behavior differs across platforms)
+### Static Context (set once at startup)
 
-**Dynamic (may change during session):**
-- Current working directory
+Detected at nb startup and included in every system prompt:
 
-For dynamic context, consider whether to include in system prompt (uses tokens every request) or make available via a `get_context` tool the model can call when needed.
+```
+## Environment
+- OS: Linux (Ubuntu 22.04) / macOS 14.1 / Windows 11
+- Shell: bash / zsh / powershell
+- Architecture: x86_64 / arm64
+- User: joseph
+- Home: /home/joseph
+- Case-sensitive filesystem: yes / no
+```
 
-Optional/nice-to-have:
-- PATH (helps model know what commands are available)
-- Terminal capabilities (color support, dimensions)
-- Default editor
+### Capability Detection
+
+Check for common utilities at startup and report availability. This shapes how the model approaches problems - it won't suggest ffmpeg commands if ffmpeg isn't installed.
+
+```
+## Available Tools
+Present: python3, dotnet, git, docker, ffmpeg, curl, jq
+Not found: node, ruby, kubectl, aws
+```
+
+Detection: run `which <tool>` (Unix) or `where <tool>` (Windows) for a configured list of utilities. List is user-configurable in settings with sensible defaults.
+
+Default detection list:
+```json
+{
+  "terminalIntegration": {
+    "detectTools": [
+      "python3", "python", "node", "dotnet", "ruby",
+      "git", "docker", "kubectl",
+      "ffmpeg", "magick", "curl", "jq", "aws", "az", "gcloud"
+    ]
+  }
+}
+```
+
+### Dynamic Context
+
+**Current working directory** - changes during session as the model navigates.
+
+Options:
+1. Include in system prompt (uses tokens every request, but always visible)
+2. Expose via `get_cwd` tool the model can call when needed
+
+Recommend option 1 for cwd since it's small and frequently relevant:
+```
+## Session
+- Working directory: /home/joseph/projects/myapp
+```
 
 ## Working Directory Handling
 
 **Problem:** Each shell invocation is independent. If the model runs `cd /tmp` in one tool call, it won't persist to the next. Models expect cd to work and will get confused.
 
-**Recommended approach:** Track cwd in nb's state.
+**Complication:** nb stores conversation history in `.nb_conversation_history.json` relative to where nb was launched. If the model "changes directory" and that affects history location, we'd lose conversation context or write history to unexpected places.
 
-- Shell tool accepts optional `cwd` parameter, defaults to nb's tracked cwd
-- When model runs `cd /somewhere`, parse and update nb's internal cwd state
-- All subsequent shell calls use the updated cwd
-- Need to handle: relative paths, `cd -`, `cd ~`, validation that target exists
+### Two Directory Concepts
 
-**Alternative:** Structured tools with explicit cwd.
+Separate the concerns:
 
-Instead of a raw shell tool, expose specific operations:
-- `read_file(path)`
-- `write_file(path, content)`
-- `list_directory(path)`
-- `execute_command(command, cwd)`
+```
+launchDirectory  - where nb was started, where history lives (immutable for session)
+shellCwd         - where shell commands execute (mutable by model)
+```
 
-Each command specifies its working directory explicitly. Model can't "cd" at all - must be explicit per-command. Cleaner from an MCP design perspective but less natural for the model.
+At startup:
+```csharp
+var launchDirectory = Directory.GetCurrentDirectory();
+var shellCwd = launchDirectory; // starts the same
+var historyPath = Path.Combine(launchDirectory, ".nb_conversation_history.json");
+```
 
-**Not recommended for initial implementation:** Persistent shell sessions. This is essentially building a terminal emulator (PTY management, prompt detection, output parsing, timeout handling, interactive input). Powerful but complex. Only pursue if the simpler approaches prove insufficient.
+When model changes directory:
+- Update `shellCwd` only
+- History path unchanged (anchored to `launchDirectory`)
+- System prompt shows `shellCwd` as the working directory
+- Shell commands execute in `shellCwd`
+
+Example session:
+1. User launches nb in `/home/joseph/myproject`
+2. Model runs `cd /tmp` to do some work
+3. `shellCwd` becomes `/tmp`, subsequent commands run there
+4. History still saves to `/home/joseph/myproject/.nb_conversation_history.json`
+
+The history file location reflects "which project am I working on" (user's choice at launch). The shell cwd reflects "where is the model currently poking around" (model's choice during session).
+
+### Tracking CWD Changes
+
+**Option A: Explicit cwd parameter only (simpler)**
+
+- `run_cmd(command, cwd?)` - cwd defaults to current `shellCwd`
+- Add a `set_cwd(path)` tool for explicit directory changes
+- No parsing of commands - model explicitly requests cwd changes
+- Clean and predictable
+
+**Option B: Parse cd commands (more natural)**
+
+Track `shellCwd` by detecting cd in commands. Edge cases to handle:
+- Standalone `cd /path` - update shellCwd
+- Compound `cd /tmp && ls` - update shellCwd to /tmp
+- Subshells `(cd /tmp; ls)` - don't update (ran in subshell)
+- Conditionals `[ -d /foo ] && cd /foo` - only update if cd actually ran (check exit code? fragile)
+- Failed cd - don't update if exit code non-zero
+- `pushd`/`popd` - would need a stack
+
+Recommendation: Start with Option A. Add cd-parsing later if the explicit approach feels awkward in practice.
 
 ## Tool Design
 
-Minimum viable set:
-- `run_cmd` - execute a shell command, return stdout/stderr/exit code
-- `read_file` - read file contents
-- `write_file` - write/overwrite file
-- `list_dir` - directory listing
+### `run_cmd`
 
-Consider also:
-- `get_context` - returns current cwd, env vars, etc.
-- `file_exists` / `path_info` - check existence, get metadata
+Execute a shell command and return results.
 
-For `run_cmd`:
-- Accept optional `cwd` parameter
-- Return structured result: `{ stdout, stderr, exitCode }`
-- Consider timeout parameter with sensible default
+```csharp
+ToolResult RunCommand(string command, string? cwd = null, int? timeoutSeconds = null)
+```
 
-## Approval Mechanism
+Parameters:
+- `command` - the shell command to execute
+- `cwd` - working directory (defaults to nb's cwd)
+- `timeoutSeconds` - max execution time (default: 30)
 
-**Problem:** nb's current approval is at the tool name level (`os_run_cmd? [Y/n/a/?]`). This doesn't work for shell tools where the risk is in the arguments, not the tool name. Approving "always" for `run_cmd` is dangerous.
+Returns:
+```json
+{
+  "stdout": "...",
+  "stderr": "...",
+  "exitCode": 0
+}
+```
 
-**Current nb approval flow:**
-- Terse display: `toolname? [Y/n/a/?]`
-- Options: yes, no, always, show full request
-- Full request hidden by default (could be verbose, e.g., file writes)
+Implementation notes:
+- Unix: `/bin/bash -c "command"` (or user's configured shell)
+- Windows: `cmd.exe /c "command"` or `powershell -Command "command"`
+- Capture both stdout and stderr separately
+- Kill process if timeout exceeded (return partial output + "[Killed - exceeded Ns timeout]")
+- Assume UTF-8 encoding; if output isn't valid UTF-8, return error: "Binary output detected. Use /insert for binary files."
 
-**Proposed enhancement:** Tool-specific approval formatting via server config.
+### Output Size Handling
 
-Add to MCP server config in nb:
+Large output wastes context and doesn't give the model feedback to try a smarter approach. Use a "sandwich" strategy:
+
+- **Small output** (< threshold): return everything
+- **Large output** (> threshold): return first 50 lines + last 20 lines + stats
+
+```
+Dec 29 00:00:01 server CRON[1234]: ...
+Dec 29 00:00:02 server systemd[1]: ...
+(... first 50 lines ...)
+
+[... 44,900 lines omitted (2.3MB total) - use grep/tail/head to filter ...]
+
+Dec 29 23:58:01 server nginx[5678]: ...
+Dec 29 23:59:59 server kernel: ...
+(... last 20 lines ...)
+```
+
+This mimics human behavior: see wall of text, Ctrl+C, run `head` and `tail` to understand structure before grepping. We do it automatically, saving a round-trip.
+
+Threshold: ~10KB or ~200 lines, whichever hits first. Configurable.
+
+### Why No Separate File Tools?
+
+Models have strong priors about shell commands from training - they know `cat` reads files and `echo >` writes them. Custom tools like `read_file` or `write_file` fight against this training and can cause confusion (the OpenAI Codex team noted models get confused when given tools with familiar names but different behavior - the inverse is also true).
+
+Instead: let the model use shell commands naturally, and pattern-match in the approval layer to show clean prompts. See "Approval UX" section below.
+
+## Approval UX
+
+Native tool implementation allows custom approval display. Pattern-match commands to show user-friendly prompts.
+
+### Command Classification
+
+Detect common operations and display clean prompts:
+
+| Pattern | Display |
+|---------|---------|
+| `cat <path>` | `read: <path>` |
+| `head <path>`, `tail <path>` | `read: <path>` |
+| `echo ... > <path>` | `write: <path>` |
+| `echo ... >> <path>` | `append: <path>` |
+| `cp <src> <dst>` | `copy: <src> → <dst>` |
+| `mv <src> <dst>` | `move: <src> → <dst>` |
+| `rm <path>` | `delete: <path>` |
+| `mkdir <path>` | `mkdir: <path>` |
+| (unrecognized) | `run: <command>` |
+
+Examples:
+```
+read: /etc/hosts
+[Y]es  [N]o  [A]lways  [?]
+
+write: ~/.bashrc
+[y]es  [N]o  [?] show content
+
+run: yarn cache clean && yarn install
+[Y]es  [N]o  [A]lways  [?]
+```
+
+Truncate long commands with `?` to show full:
+```
+run: find /var/log -name "*.log" -mtime +7 -exec rm...
+[Y]es  [N]o  [A]lways  [?] show full
+```
+
+### Dangerous Command Warnings
+
+Pattern-match against risky commands and add visual warning + flip default to No:
+
+```
+run ⚠️: sudo rm -rf /tmp/cache
+[y]es  [N]o  [?]
+```
+
+Warning patterns (configurable):
+- `rm -rf`, `rm -r` (recursive delete)
+- `sudo` (privilege escalation)
+- `dd` (disk operations)
+- `> /` or `>> /` (redirect to root paths)
+- `chmod 777`, `chmod -R` (permission changes)
+- `curl | sh`, `wget | sh` (pipe to shell)
+- `mkfs`, `fdisk` (disk formatting)
+
+Additionally, all write/append/delete/move operations show warning by default:
+```
+write ⚠️: ~/.bashrc
+[y]es  [N]o  [?] show content
+
+delete ⚠️: /tmp/cache/*
+[y]es  [N]o  [?]
+```
+
+For warned commands:
+- Default changes from Yes to No
+- "Always" option hidden (must approve each time)
+
+### Multi-Line Scripts
+
+Models naturally emit multi-line scripts for related operations. Allow this - the script is the batching mechanism.
+
+```
+run (4 lines):
+  mkdir -p /tmp/build
+  cd /tmp/build
+  cmake ..
+  make -j4
+[Y]es  [N]o  [?]
+```
+
+Display rules:
+- Show entire script (no truncation - scrolling is fine)
+- Scan all lines for dangerous patterns
+- One warning covers the whole script if any line matches
+- Single approval for the whole thing
+
+```
+run ⚠️ (6 lines):
+  cd /var/log
+  find . -name "*.log" -mtime +30 -delete
+  rm -rf /tmp/cache
+  systemctl restart nginx
+  echo "done"
+[y]es  [N]o  [?]
+```
+
+## Implementation Sequence
+
+1. **Basic run_cmd** - Execute commands in cwd, return stdout/stderr/exit. Simple approval showing command.
+
+2. **System prompt context** - Inject OS, shell, user, home, architecture, cwd.
+
+3. **Capability detection** - Check for configured tools at startup, include in system prompt.
+
+4. **Command classification** - Pattern-match commands to show clean approval prompts (read/write/delete vs raw command).
+
+5. **Dangerous command warnings** - Pattern matching, visual indicators, flip defaults.
+
+6. **Output limits** - Truncation for large outputs, timeout handling.
+
+## Configuration
 
 ```json
 {
-  "mcpServers": {
-    "os": {
-      "command": "...",
-      "approvalHints": {
-        "run_cmd": {
-          "displayArgs": ["command"],
-          "truncate": 60,
-          "warnPatterns": ["rm ", "sudo ", "dd ", "> ", "| ", "curl "]
-        },
-        "write_file": {
-          "displayArgs": ["path"],
-          "alwaysWarn": true
-        },
-        "read_file": {
-          "displayArgs": ["path"]
-        }
-      }
-    }
+  "terminalIntegration": {
+    "enabled": true,
+    "shell": "auto",
+    "defaultTimeout": 30,
+    "outputThresholdBytes": 10240,
+    "outputThresholdLines": 200,
+    "sandwichHeadLines": 50,
+    "sandwichTailLines": 20,
+    "detectTools": ["python3", "node", "dotnet", "git", "docker", "..."],
+    "warnPatterns": ["rm -rf", "sudo ", "dd ", "..."]
   }
 }
 ```
 
-Behavior:
-- `displayArgs`: which tool arguments to show inline in the terse prompt
-- `truncate`: max chars before truncating (user can hit `?` for full)
-- `warnPatterns`: if command matches any pattern, add visual indicator (⚠️) and maybe require explicit `y` instead of default-yes
-- `alwaysWarn`: always show warning indicator
-
-Example approval prompts with this config:
-```
-os_run_cmd: yarn cache clean && yarn install? [Y/n/a/?]
-os_run_cmd ⚠️: sudo rm -rf /tmp/cac...? [y/N/a/?]
-os_write_file ⚠️: /home/joseph/.bashrc? [y/N/?]
-```
-
-Note: dangerous operations might flip default to No and/or hide the "always" option.
-
-**Alternative considered:** Server-provided metadata via `x-nb-*` extensions in tool definitions. Cleaner architecturally (server knows its tools) but more complex. Start with config-based approach since server configs already exist in nb.
-
-## Implementation Sequence
-
-Suggested order:
-
-1. **Basic MCP server with shell tool** - `run_cmd` that executes in cwd, returns stdout/stderr/exit. No state tracking yet.
-
-2. **System prompt context** - Inject OS, shell, user, home, cwd into system prompt.
-
-3. **Approval formatting** - Add `approvalHints` config support. Show command strings in approval prompt.
-
-4. **CWD tracking** - Parse cd commands, maintain state in nb, pass cwd to shell invocations.
-
-5. **Additional tools** - `read_file`, `write_file`, `list_dir` as needed.
-
-6. **Warn patterns** - Add visual indicators for risky commands, flip defaults.
-
 ## Open Questions
 
-- Should `read_file` / `write_file` be separate tools, or just let the model use shell commands (`cat`, redirection)? Separate tools are more explicit and easier to control approval for.
-
-- How to handle long-running commands? Timeout with error, or stream output somehow?
-
-- Should there be a "batch approval" flow where model proposes multiple commands and user approves the set? Useful for diagnostic sequences but adds UX complexity.
+None - all resolved.

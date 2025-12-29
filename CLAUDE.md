@@ -120,6 +120,12 @@ The application supports these built-in commands (intercepted before LLM):
 - Ask before adding an interface, unless there is an immediate, obvious reason to do so. Don't create new interfaces for "future flexibility."
 - Avoid building DI scaffolding unless you're working with a library or package that expects you to use DI.
 
+## Feature Documents
+- `Features/` contains design docs for planned and implemented features
+- These capture intent and reasoning, not current behavior - don't update them to match code
+- When implementing: update Status to "Implemented", add PR link
+- When revising significantly: add a "Revisions" section, don't rewrite history
+
 ## Architecture Notes
 - **Microsoft.Extensions.AI Integration**: Uses modern AI abstractions with IChatClient interface for provider independence
 - **Provider Abstraction**: LLM interactions isolated through pluggable provider system for easy swapping between AI services
