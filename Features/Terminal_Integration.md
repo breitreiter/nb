@@ -1,6 +1,6 @@
 # nb Terminal Integration Proposal
 
-Status: Planned
+Status: Implemented
 
 ## Overview
 
@@ -279,6 +279,30 @@ run ⚠️ (6 lines):
   echo "done"
 [y]es  [N]o  [?]
 ```
+
+### Auto-Approval for Scripting/Testing
+
+For automated testing or scripting scenarios, allow pre-approving commands via command line:
+
+```bash
+# Pre-approve specific commands for this invocation
+./nb --approve "ls" --approve "cat *" "how many files are here?"
+
+# Multiple approvals
+./nb --approve "ls" --approve "pwd" --approve "cat package.json" "analyze this project"
+```
+
+Matching rules:
+- Exact match: `--approve "ls"` approves only `ls`
+- Glob patterns: `--approve "cat *"` approves `cat` with any arguments
+- Multiple `--approve` flags accumulate
+
+Commands matching an `--approve` pattern skip the interactive prompt entirely. Non-matching commands still require approval.
+
+This enables:
+- Automated testing of nb itself
+- Scripting with predictable tool usage
+- CI/CD pipelines that use nb
 
 ## Implementation Sequence
 

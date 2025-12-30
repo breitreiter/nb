@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 using nb.MCP;
+using nb.Shell;
 using nb.Utilities;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
@@ -14,16 +15,26 @@ public class ConversationManager
     private IChatClient _client;
     private readonly McpManager _mcpManager;
     private readonly FakeToolManager _fakeToolManager;
+    private readonly BashTool? _bashTool;
+    private readonly ApprovalPatterns _approvalPatterns;
     private readonly List<AIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
     private int _toolCallCount = 0;
     private string _currentProviderName = "";
 
-    public ConversationManager(IChatClient client, McpManager mcpManager, FakeToolManager fakeToolManager, string providerName = "")
+    public ConversationManager(
+        IChatClient client,
+        McpManager mcpManager,
+        FakeToolManager fakeToolManager,
+        BashTool? bashTool,
+        ApprovalPatterns approvalPatterns,
+        string providerName = "")
     {
         _client = client;
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
+        _bashTool = bashTool;
+        _approvalPatterns = approvalPatterns;
         _currentProviderName = providerName;
     }
 
@@ -82,12 +93,19 @@ public class ConversationManager
                 MaxOutputTokens = 10000,
             };
 
-            // Add MCP tools, native resource tools, and fake tools (fake tools override MCP tools with same name)
+            // Add MCP tools, native resource tools, bash tools, and fake tools
             var mcpTools = _mcpManager.GetTools().ToList();
 
             // Add native resource tools
             mcpTools.Add(ResourceTools.CreateListResourcesTool(_mcpManager));
             mcpTools.Add(ResourceTools.CreateReadResourceTool(_mcpManager));
+
+            // Add bash tools if enabled
+            if (_bashTool != null)
+            {
+                mcpTools.Add(_bashTool.CreateTool());
+                mcpTools.Add(_bashTool.CreateSetCwdTool());
+            }
 
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
             if (allTools.Count > 0)
@@ -157,6 +175,35 @@ public class ConversationManager
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
 
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                }
+                            }
+                            // Check if this is a bash tool (custom approval UX)
+                            else if (functionCall.Name == "bash" && _bashTool != null)
+                            {
+                                var command = functionCall.Arguments?["command"]?.ToString() ?? "";
+                                var result = await HandleBashToolCall(functionCall.CallId, command);
+                                allToolResults.Add(result);
+                            }
+                            // Check if this is set_cwd (no approval needed)
+                            else if (functionCall.Name == "set_cwd" && _bashTool != null)
+                            {
+                                var bashSetCwdTool = allTools.FirstOrDefault(t => t.Name == "set_cwd");
+                                if (bashSetCwdTool != null)
+                                {
+                                    var arguments = new AIFunctionArguments();
+                                    if (functionCall.Arguments != null)
+                                    {
+                                        foreach (var kvp in functionCall.Arguments)
+                                        {
+                                            arguments[kvp.Key] = kvp.Value?.ToString();
+                                        }
+                                    }
+
+                                    var result = await bashSetCwdTool.InvokeAsync(arguments);
+                                    var resultString = result?.ToString() ?? string.Empty;
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• {resultString}[/]");
                                 }
                             }
                             // Check if this is a fake tool (always auto-approve)
@@ -323,6 +370,137 @@ public class ConversationManager
     private static void RenderMarkdown(string markdown)
     {
         AnsiConsole.WriteLine(markdown);
+    }
+
+    private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command)
+    {
+        try
+        {
+            // Classify the command for display
+            var classified = CommandClassifier.Classify(command);
+
+            // Check if pre-approved via --approve flag
+            if (_approvalPatterns.IsApproved(command))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• bash (pre-approved): {Markup.Escape(classified.DisplayText)}[/]");
+                return await ExecuteBashCommand(callId, command);
+            }
+
+            // Show approval prompt with command classification
+            var categoryColor = classified.IsDangerous ? UIColors.SpectreError : UIColors.SpectreInfo;
+            var warningIndicator = classified.IsDangerous ? " ⚠️" : "";
+
+            AnsiConsole.MarkupLine($"[{categoryColor}]{classified.Category}{warningIndicator}[/]: {Markup.Escape(classified.DisplayText)}");
+
+            if (classified.IsDangerous && classified.DangerReason != null)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: {classified.DangerReason}[/]");
+            }
+
+            // Default based on danger level
+            var defaultYes = !classified.IsDangerous;
+            var options = classified.IsDangerous ? "[[y/N/?]]" : "[[Y/n/?]]";
+
+            // Flush any pending input
+            while (Console.KeyAvailable)
+            {
+                Console.ReadKey(intercept: true);
+            }
+
+            while (true)
+            {
+                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? {options}[/] ");
+                var key = Console.ReadKey().KeyChar;
+                Console.WriteLine();
+
+                if (key == 'n' || key == 'N' || (!defaultYes && (key == '\r' || key == '\n')))
+                {
+                    // Rejected
+                    var reason = AnsiConsole.Prompt(
+                        new TextPrompt<string>($"[{UIColors.SpectreMuted}]Reason (optional):[/]")
+                            .DefaultValue("User declined")
+                            .AllowEmpty()
+                    );
+
+                    var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
+                        ? "Error: User rejected this command. Permission denied."
+                        : $"Error: User rejected this command. Reason: {reason}";
+
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Command rejected[/]");
+                    return new FunctionResultContent(callId, rejectionMessage);
+                }
+                else if (key == '?')
+                {
+                    // Show full command
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Full command:[/]");
+                    AnsiConsole.WriteLine(command);
+                    continue;
+                }
+                else if (key == 'y' || key == 'Y' || (defaultYes && (key == '\r' || key == '\n')))
+                {
+                    // Approved
+                    return await ExecuteBashCommand(callId, command);
+                }
+                // For any other key, loop and ask again
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Approval error: {Markup.Escape(ex.Message)}[/]");
+            return new FunctionResultContent(callId, $"Error during command approval: {ex.Message}");
+        }
+    }
+
+    private async Task<FunctionResultContent> ExecuteBashCommand(string callId, string command)
+    {
+        if (_bashTool == null)
+        {
+            return new FunctionResultContent(callId, "Error: Bash tool not initialized");
+        }
+
+        try
+        {
+            var result = await _bashTool.ExecuteAsync(command);
+
+            // Format result for the model
+            var output = new System.Text.StringBuilder();
+
+            if (!string.IsNullOrEmpty(result.Stdout))
+            {
+                output.AppendLine(result.Stdout);
+            }
+
+            if (!string.IsNullOrEmpty(result.Stderr))
+            {
+                output.AppendLine($"[stderr]\n{result.Stderr}");
+            }
+
+            output.AppendLine($"\n[exit code: {result.ExitCode}]");
+
+            if (result.Truncated)
+            {
+                output.AppendLine("[output was truncated]");
+            }
+
+            if (result.TimedOut)
+            {
+                output.AppendLine("[command timed out]");
+            }
+
+            var outputStr = output.ToString().Trim();
+
+            // Show brief status to user
+            var statusColor = result.ExitCode == 0 ? UIColors.SpectreSuccess : UIColors.SpectreWarning;
+            var statusIcon = result.ExitCode == 0 ? "✓" : "✗";
+            AnsiConsole.MarkupLine($"[{statusColor}]{statusIcon}[/] [{UIColors.SpectreMuted}]exit {result.ExitCode}[/]");
+
+            return new FunctionResultContent(callId, outputStr);
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
+            return new FunctionResultContent(callId, $"Error executing command: {ex.Message}");
+        }
     }
 
     public async Task SaveConversationHistoryAsync(string filePath = ".nb_conversation_history.json")

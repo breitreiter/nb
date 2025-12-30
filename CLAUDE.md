@@ -23,11 +23,14 @@ NotaBene (nb) - A C# console application that provides both interactive and sing
 # Build the project
 dotnet build
 
-# Run the application
-dotnet run
+# Run from bin directory (providers only load from here)
+cd bin/Debug/net8.0 && ./nb
 
-# Add any test commands here when available
+# Single-shot mode for quick tests
+cd bin/Debug/net8.0 && ./nb "your prompt here"
 ```
+
+Note: `dotnet run` from project root won't work - provider DLLs are discovered relative to the executable.
 
 ## Execution Modes
 The application supports two execution modes:
@@ -52,6 +55,7 @@ The application supports two execution modes:
 - `AzureOpenAIProvider.cs` - Built-in Azure OpenAI provider implementation
 - `McpManager.cs` - Manages MCP client connections
 - `ConfigurationService.cs` - Configuration management
+- `Shell/` - Native bash tool implementation for shell command execution
 - `providers/` - Directory for external AI provider plugins (DLLs)
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
@@ -109,6 +113,35 @@ The application supports these built-in commands (intercepted before LLM):
 - **Tools** - Includes basic test tools (echo, reverse-echo, current-time)
 - **Integration** - Added to solution file, builds alongside main project
 - **Usage** - Configure in `mcp.json` with dotnet run command pointing to the project
+
+## Bash Tool (Shell Integration)
+Native tool that gives the model shell access with custom approval UX.
+
+**Files:**
+- `Shell/ShellEnvironment.cs` - Detects OS, shell, architecture, available tools at startup
+- `Shell/BashTool.cs` - Executes commands with timeout, output truncation (sandwich strategy)
+- `Shell/CommandClassifier.cs` - Classifies commands (read/write/delete/run) for approval display
+- `Shell/ApprovalPatterns.cs` - Handles --approve flag patterns for automated testing
+
+**Features:**
+- Environment context injected into system prompt (OS, shell, available tools, cwd)
+- Custom approval UX showing classified commands (e.g., "read: /etc/hosts" vs "run: yarn install")
+- Dangerous command detection with warnings (sudo, rm -rf, etc.)
+- Output sandwich truncation for large outputs (head + tail + stats)
+- Pre-approval via `--approve` flag for scripting/testing
+
+**Usage:**
+```bash
+# Interactive - prompts for approval
+./nb "list the files here"
+
+# Pre-approve commands for automation
+./nb --approve "ls" --approve "cat *" "analyze the project structure"
+```
+
+**Two-directory model:**
+- `launchDirectory` - where nb started, where history lives (immutable)
+- `shellCwd` - where commands execute, can change via `set_cwd` tool
 
 ## Coding Conventions
 - Follow existing C# conventions in the codebase

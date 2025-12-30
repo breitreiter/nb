@@ -8,6 +8,7 @@ A feature-rich AI CLI.
 
 - **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
 - **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
+- **Terminal Integration**: Native shell access with approval UX. Models can execute commands, with dangerous operations requiring explicit confirmation.
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
 - **MCP Server Integration** for extensible tools, prompts, and resources
 
@@ -96,6 +97,32 @@ echo "the air in spring is fresh and clean" | nb "write a sentence that rhymes w
 Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context, and single-shot mode maintains conversation continuity between invocations.
 
 nb exposes the current working directory as an MCP root, to help filesystem MCP servers orient themselves.
+
+### Shell Commands
+
+Models can execute shell commands via the built-in `bash` tool. Each command requires approval before execution:
+
+```
+Run: ls -la
+Execute? [Y/n/?]
+```
+
+Commands are classified for clarity (`Read`, `Write`, `Delete`, `Run`) and dangerous operations show warnings with flipped defaults:
+
+```
+Delete ⚠: /tmp/important-file
+  Warning: deletes files
+Execute? [y/N/?]
+```
+
+Press `?` to see the full command before deciding.
+
+For automation and scripting, pre-approve commands with the `--approve` flag:
+```bash
+nb --approve "ls" --approve "cat *" "analyze this project"
+```
+
+Patterns support globs (`cat *` matches `cat file.txt`, `cat /etc/hosts`, etc.).
 
 ### Provider Switching
 Switch between AI providers during a conversation to leverage different models' strengths:

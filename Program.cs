@@ -2,6 +2,7 @@
 using Spectre.Console;
 using nb.Providers;
 using nb.MCP;
+using nb.Shell;
 using nb.Utilities;
 
 namespace nb;
@@ -18,6 +19,9 @@ public class Program
     private static CommandProcessor _commandProcessor = null!;
     private static FileContentExtractor _fileExtractor = null!;
     private static PromptProcessor _promptProcessor = null!;
+    private static ShellEnvironment _shellEnvironment = null!;
+    private static BashTool _bashTool = null!;
+    private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -47,12 +51,38 @@ public class Program
         }
     }
 
+    private static string[] ParseApproveFlags(string[] args)
+    {
+        var remainingArgs = new List<string>();
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--approve" && i + 1 < args.Length)
+            {
+                _approvalPatterns.Add(args[++i]);
+            }
+            else
+            {
+                remainingArgs.Add(args[i]);
+            }
+        }
+
+        return remainingArgs.ToArray();
+    }
+
     public static async Task Main(string[] args)
     {
+        // Parse --approve flags before processing other args
+        var remainingArgs = ParseApproveFlags(args);
+
         var config = _configurationService.GetConfiguration();
 
         // Load theme
         UIColors.LoadTheme();
+
+        // Initialize shell environment
+        _shellEnvironment = ShellEnvironment.Detect();
+        _bashTool = new BashTool(_shellEnvironment);
 
         // Initialize chat client using provider system
         var activeProviderName = config["ActiveProvider"] ?? string.Empty;
@@ -63,9 +93,9 @@ public class Program
             _providerManager.ShowProviderStatus(config);
             Environment.Exit(1);
         }
-        
+
         // Determine execution mode first to control banner display
-        var isInteractiveMode = args.Length == 0;
+        var isInteractiveMode = remainingArgs.Length == 0;
         await _mcpManager.InitializeAsync(showBanners: isInteractiveMode);
         
         // Load fake tools (notifications will be shown after integration)
@@ -79,8 +109,14 @@ public class Program
         }
         
         // Initialize conversation manager with dependencies
-        _conversationManager = new ConversationManager(_client, _mcpManager, _fakeToolManager, activeProviderName);
-        _conversationManager.InitializeWithSystemPrompt(_configurationService.GetSystemPrompt());
+        _conversationManager = new ConversationManager(
+            _client, _mcpManager, _fakeToolManager, _bashTool, _approvalPatterns, activeProviderName);
+
+        // Build enhanced system prompt with environment context
+        var basePrompt = _configurationService.GetSystemPrompt();
+        var envSection = _shellEnvironment.BuildSystemPromptSection();
+        var fullPrompt = $"{basePrompt}\n\n{envSection}";
+        _conversationManager.InitializeWithSystemPrompt(fullPrompt);
 
         // Load conversation history from previous sessions
         await _conversationManager.LoadConversationHistoryAsync();
@@ -98,10 +134,10 @@ public class Program
         }
 
         // Execute based on mode
-        if (args.Length > 0 || stdinContent != null)
+        if (remainingArgs.Length > 0 || stdinContent != null)
         {
             // Single-shot mode: execute command and exit
-            var userInput = BuildUserInput(args, stdinContent);
+            var userInput = BuildUserInput(remainingArgs, stdinContent);
             await ExecuteSingleCommand(userInput);
         }
         else
@@ -136,7 +172,7 @@ public class Program
 
         AnsiConsole.MarkupLine(" " + UIColors.robot_img_1 + $"  [{UIColors.SpectreMuted}]AI: [/]{providersList}");
         AnsiConsole.MarkupLine(" " + UIColors.robot_img_2 + $"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
-        AnsiConsole.MarkupLine(" " + UIColors.robot_img_3 + $"  NotaBene 0.9β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
+        AnsiConsole.MarkupLine(" " + UIColors.robot_img_3 + $"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
         
         while (true)
         {
