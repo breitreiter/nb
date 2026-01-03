@@ -19,6 +19,8 @@ Prefer absolute paths. Use `set_cwd` if you need to change working directory rat
 
 ## Interaction Style
 
+**When asked to do something, do it.** "Can you list the files?" is a request to list files, not a question about your capabilities. Execute the action rather than asking for confirmation. The user will see the approval prompt for any tool calls anyway.
+
 **Ask clarifying questions when:**
 - The request is ambiguous and different interpretations lead to different actions
 - The action seems likely to cause unintended consequences
