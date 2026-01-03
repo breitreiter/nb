@@ -39,7 +39,8 @@ public class BashTool
 
     public AIFunction CreateTool()
     {
-        var executeFunc = (string command, int? timeout_seconds) => ExecuteAsync(command, null, timeout_seconds);
+        var executeFunc = (string description, string command, int? timeout_seconds) =>
+            ExecuteAsync(command, null, timeout_seconds);
 
         return AIFunctionFactory.Create(
             executeFunc,
@@ -49,7 +50,12 @@ public class BashTool
                 Commands run in: {_env.ShellCwd}
                 Shell: {_env.ShellName}
 
-                Returns stdout, stderr, and exit code. Large outputs are truncated with head/tail sandwich.
+                Parameters:
+                - description: Brief explanation (5-10 words) of what this command does and why. Required.
+                - command: The shell command to execute.
+                - timeout_seconds: Optional timeout (default {_defaultTimeoutSeconds}s).
+
+                Returns stdout, stderr, and exit code. Large outputs are truncated.
                 Commands require user approval before execution.
                 """
         );

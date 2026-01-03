@@ -180,8 +180,9 @@ public class ConversationManager
                             // Check if this is a bash tool (custom approval UX)
                             else if (functionCall.Name == "bash" && _bashTool != null)
                             {
+                                var description = functionCall.Arguments?["description"]?.ToString() ?? "";
                                 var command = functionCall.Arguments?["command"]?.ToString() ?? "";
-                                var result = await HandleBashToolCall(functionCall.CallId, command);
+                                var result = await HandleBashToolCall(functionCall.CallId, command, description);
                                 allToolResults.Add(result);
                             }
                             // Check if this is set_cwd (no approval needed)
@@ -372,7 +373,7 @@ public class ConversationManager
         AnsiConsole.WriteLine(markdown);
     }
 
-    private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command)
+    private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command, string description)
     {
         try
         {
@@ -386,11 +387,17 @@ public class ConversationManager
                 return await ExecuteBashCommand(callId, command);
             }
 
+            // Show model's description of intent (if provided)
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]{Markup.Escape(description)}[/]");
+            }
+
             // Show approval prompt with command classification
-            var categoryColor = classified.IsDangerous ? UIColors.SpectreError : UIColors.SpectreInfo;
+            var categoryColor = classified.IsDangerous ? UIColors.SpectreError : UIColors.SpectreWarning;
             var warningIndicator = classified.IsDangerous ? " ⚠️" : "";
 
-            AnsiConsole.MarkupLine($"[{categoryColor}]{classified.Category}{warningIndicator}[/]: {Markup.Escape(classified.DisplayText)}");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{classified.Category}:[/] {Markup.Escape(classified.DisplayText)}");
 
             if (classified.IsDangerous && classified.DangerReason != null)
             {
