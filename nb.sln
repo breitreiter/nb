@@ -17,8 +17,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.OpenAIProvider
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.GeminiProvider", "Providers\Gemini\nb.Providers.GeminiProvider.csproj", "{A4B5C6D7-E8F9-0123-4567-89ABCDEF0123}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Providers", "Providers", "{C27C7AF2-88D1-4D36-BC01-A12236B47EF3}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.MockProvider", "Providers\Mock\nb.Providers.MockProvider.csproj", "{2BB00562-A2BF-4B0E-AC09-BD6DBBE375BC}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Tests", "nb.Tests\nb.Tests.csproj", "{40253E9B-9F37-4985-8275-AC7F4C1E4391}"
@@ -68,8 +66,5 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
-		{2BB00562-A2BF-4B0E-AC09-BD6DBBE375BC} = {C27C7AF2-88D1-4D36-BC01-A12236B47EF3}
 	EndGlobalSection
 EndGlobal
