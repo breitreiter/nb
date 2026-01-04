@@ -1,184 +1,81 @@
 # Automated Testing for nb
 
-Status: Planned
+Status: Partially Implemented
 
 ## Overview
 
-As nb grows in complexity—with pluggable AI providers, MCP integration, shell command execution, and conversation management—manual testing becomes insufficient. This document outlines a testing strategy that catches regressions without requiring extensive mocking infrastructure or slowing down development.
-
-**Goals:**
+Testing strategy optimized for a solo developer with AI-assisted workflow. Goals:
 - Catch regressions before they reach users
 - Enable confident refactoring
-- Keep tests fast enough to run on every build
-- Avoid over-mocking that makes tests brittle
+- Keep tests simple enough that one person can maintain them
+- Support AI-first development (Claude Code can run tests, interpret failures, iterate)
 
-## Key Insight: Single-Shot Mode Enables Automation
-
-Unlike interactive CLI apps that require complex stdin/stdout orchestration, nb's single-shot mode makes integration testing straightforward:
-
-```bash
-# Run a prompt, get output, exit
-./nb "what files are in the current directory"
-
-# Pre-approve shell commands for deterministic execution
-./nb --approve "ls" "list the files here"
-```
-
-This means we can:
-- **Run nb as a subprocess** and capture stdout/stderr
-- **Pre-approve commands** via `--approve` flags for deterministic test runs
-- **Verify output** contains expected content
-- **Check exit codes** for success/failure scenarios
-- **Test conversation persistence** by running multiple single-shot commands in sequence
-
-Single-shot mode + `--approve` = fully automatable integration tests without simulating user input.
+**Key insight:** nb's single-shot mode + `--approve` flag makes integration testing trivial without complex test infrastructure.
 
 ## Testing Layers
 
-### Layer 1: Unit Tests (Fast, Isolated)
+Two layers only. Skip "component tests" - for a project this size, the distinction adds complexity without value.
 
-Pure logic with no external dependencies. These run in milliseconds.
+### Layer 1: Unit Tests (xUnit)
 
-**Good candidates:**
-- `CommandClassifier` - classify shell commands (read/write/delete/run)
-- `ApprovalPatterns` - pattern matching for --approve flag
-- Output truncation logic (sandwich strategy in BashTool)
-- Conversation history serialization/deserialization
-- Command parsing (extracting /commands from input)
-- File extension detection in FileContentExtractor
+Pure logic with no external dependencies. Run in milliseconds via `dotnet test`.
 
-**Framework:** xUnit (already common in .NET ecosystem)
+**What to test:**
+- Pure functions with edge cases (CommandClassifier, ApprovalPatterns)
+- Parsing/serialization logic (if bugs occur)
+- Anything that broke before (regression tests)
 
-**Example:**
-```csharp
-public class CommandClassifierTests
-{
-    [Theory]
-    [InlineData("ls -la", CommandType.Read)]
-    [InlineData("cat file.txt", CommandType.Read)]
-    [InlineData("echo 'hello' > file.txt", CommandType.Write)]
-    [InlineData("rm -rf node_modules", CommandType.Delete)]
-    [InlineData("npm install", CommandType.Run)]
-    public void ClassifiesCommandsCorrectly(string command, CommandType expected)
-    {
-        var result = CommandClassifier.Classify(command);
-        Assert.Equal(expected, result);
-    }
-}
+**What NOT to test:**
+- Orchestration code (ConversationManager) - test via e2e
+- Provider wrappers - they just call SDKs
+- Spectre.Console rendering - trust the library
+- Config binding - trust Microsoft.Extensions.Configuration
+
+**Current coverage:**
+- ✅ `CommandClassifier` - command categories, danger patterns, multi-line
+- ✅ `ApprovalPatterns` - exact match, globs, whitespace handling
+
+**Future candidates (add when touched or broken):**
+- `BashTool` sandwich truncation (extract pure function, test it)
+- Conversation history JSON serialization
+
+### Layer 2: Integration Tests (Bash)
+
+End-to-end flows using the actual executable. Located in `evals/run.sh`.
+
+**Why bash over C#:**
+- Readable by anyone
+- No test infrastructure to maintain
+- Tests real behavior, not mocked approximations
+- Easy to add new tests (copy-paste a function call)
+
+**Test categories:**
+
+```bash
+# Sanity tests - arg parsing, command interception
+run_test_contains "--system with missing file errors" 1 "not found" "$NB" --system /nonexistent "test"
+run_test_contains "? shows help" 0 "exit" "$NB" "?"
+
+# Mock provider tests - deterministic, no API calls
+run_test_contains "mock returns response" 0 "OK" "$NB" "any prompt"
+run_test_contains "MOCK:response instruction" 0 "custom" "$NB" "MOCK:response=custom"
+
+# LLM evals - behavioral tests with real models (optional, expensive)
+run_llm_eval "answers math without tools" "What is 2+2?" "should answer 4 without bash"
 ```
 
-### Layer 2: Component Tests (Medium Speed)
-
-Test components in isolation with minimal fakes. Focus on boundaries.
-
-**Good candidates:**
-- `ProviderManager` - provider discovery and loading (use test provider DLLs)
-- `McpManager` - MCP client lifecycle (use mcp-tester server)
-- `ShellEnvironment` - environment detection (real but read-only)
-- `ConfigurationService` - config loading with test appsettings files
-
-**Approach:** Use real implementations where safe, test doubles only at true boundaries (network, filesystem writes, LLM calls).
-
-### Layer 3: Integration Tests (Slower, High Confidence)
-
-End-to-end flows using the actual executable. These catch issues that unit tests miss.
-
-**Approach:** Run `./nb` as a subprocess with crafted inputs and verify outputs.
-
-**Test harness:**
-```csharp
-public class NbTestHarness
-{
-    private readonly string _workDir;
-    private readonly string _nbPath;
-
-    public async Task<NbResult> RunAsync(string prompt, params string[] approvePatterns)
-    {
-        var args = new List<string>();
-        foreach (var pattern in approvePatterns)
-            args.AddRange(new[] { "--approve", pattern });
-        args.Add(prompt);
-
-        var process = Process.Start(new ProcessStartInfo
-        {
-            FileName = _nbPath,
-            Arguments = string.Join(" ", args),
-            WorkingDirectory = _workDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        });
-
-        // Capture output, handle timeout, return structured result
-    }
-}
+**Running tests:**
+```bash
+./evals/run.sh              # Full suite
+./evals/run.sh --skip-llm   # Skip expensive LLM tests (for CI)
 ```
 
-**Key scenarios:**
-- Single-shot mode executes and exits
-- Conversation history persists between runs
-- `/clear` resets history
-- `/insert` loads file content
-- Shell commands execute with approval
-- `--approve` flag pre-authorizes commands
+## MockProvider
 
-### Layer 4: LLM Integration Tests (Optional, Expensive)
-
-Tests that actually call an LLM. Run manually or in CI with budget limits.
-
-**Purpose:** Verify tool calling works end-to-end with real models.
-
-**Approach:**
-- Use cheapest available model
-- Small, deterministic prompts ("What is 2+2?")
-- Verify response structure, not content
-- Run sparingly (nightly, pre-release)
-
-## Project Structure
-
-```
-nb/
-├── nb.csproj                    # Main project
-├── nb.Tests/                    # Test project
-│   ├── nb.Tests.csproj
-│   ├── Unit/
-│   │   ├── CommandClassifierTests.cs
-│   │   ├── ApprovalPatternsTests.cs
-│   │   └── OutputTruncationTests.cs
-│   ├── Component/
-│   │   ├── ProviderManagerTests.cs
-│   │   └── McpManagerTests.cs
-│   ├── Integration/
-│   │   ├── NbTestHarness.cs
-│   │   ├── SingleShotModeTests.cs
-│   │   └── ConversationHistoryTests.cs
-│   └── Fixtures/
-│       ├── test-appsettings.json
-│       └── test-conversation.json
-```
-
-## Test Configuration
-
-Tests need isolated configuration to avoid touching user's real settings.
-
-```csharp
-public class TestFixture : IDisposable
-{
-    public string WorkDir { get; }
-    public string ConfigPath { get; }
-
-    public TestFixture()
-    {
-        WorkDir = Path.Combine(Path.GetTempPath(), $"nb-test-{Guid.NewGuid()}");
-        Directory.CreateDirectory(WorkDir);
-
-        // Copy test config
-        File.Copy("Fixtures/test-appsettings.json",
-                  Path.Combine(WorkDir, "appsettings.json"));
-    }
-
-    public void Dispose() => Directory.Delete(WorkDir, recursive: true);
-}
-```
+The Mock provider enables deterministic integration tests without API calls:
+- Returns "OK" by default
+- Responds to `MOCK:response=<text>` prefix for controlled responses
+- No API key required
 
 ## CI Integration
 
@@ -195,84 +92,60 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-
-      - name: Build
-        run: dotnet build
-
-      - name: Unit Tests
-        run: dotnet test --filter "Category=Unit"
-
-      - name: Component Tests
-        run: dotnet test --filter "Category=Component"
-
-      - name: Integration Tests
-        run: dotnet test --filter "Category=Integration"
+      - run: dotnet build
+      - run: dotnet test
+      - run: ./evals/run.sh --skip-llm
 ```
 
-## What NOT to Test
+## AI-First Testing
 
-Avoid tests that provide low value or high maintenance burden:
+For Claude Code workflow:
 
-- **Don't mock IChatClient deeply** - LLM responses are unpredictable; test the structure of your calls, not the responses
-- **Don't test Spectre.Console rendering** - trust the library
-- **Don't test configuration binding** - trust Microsoft.Extensions.Configuration
-- **Don't test happy-path-only** - edge cases and error handling are where bugs hide
+1. **Fast feedback** - `dotnet test` runs in seconds, bash tests in seconds
+2. **Clear failures** - xUnit and bash output show exactly what broke
+3. **Behavior over implementation** - tests verify "command X is classified as dangerous" not "method Y calls Z", so Claude can refactor freely
+4. **MockProvider** - deterministic e2e tests without API costs
 
-## Implementation Phases
+**Pattern:**
+```
+User: "Add feature X"
+Claude: *implements*
+Claude: *runs dotnet test && ./evals/run.sh --skip-llm*
+Claude: "Tests pass, here's the change"
+```
 
-### Phase 1: Foundation
-- Create nb.Tests project with xUnit
-- Add unit tests for CommandClassifier and ApprovalPatterns
-- Set up CI pipeline running on every push
-- **Ship this first** - immediate value, low effort
+## What NOT to Build
 
-### Phase 2: Component Tests
-- Add ProviderManager tests with test provider
-- Add McpManager tests using mcp-tester
-- Test ShellEnvironment detection
+- ❌ C# test harness for integration tests (bash is simpler)
+- ❌ Test fixtures, factories, builders (over-engineering)
+- ❌ Mocks for IChatClient (LLM responses are unpredictable)
+- ❌ Coverage targets (20% of critical paths beats 80% of trivial code)
+- ❌ Separate "component test" layer (not enough value for complexity)
 
-### Phase 3: Integration Tests
-- Build NbTestHarness
-- Add single-shot mode tests
-- Add conversation history tests
-- Add command tests (/clear, /insert, etc.)
+## Adding Tests
 
-### Phase 4: Polish
-- Code coverage reporting
-- Test categorization and filtering
-- Performance benchmarks for hot paths
+**When adding a new feature:**
+1. If it has pure logic with edge cases → add unit test
+2. If it's user-facing behavior → add bash integration test
+3. If it's orchestration/glue code → test via e2e, don't unit test
 
-## Edge Cases to Cover
+**When fixing a bug:**
+1. Add a test that reproduces the bug first
+2. Fix the bug
+3. Test passes → done
 
-**Shell execution:**
-- Command timeout handling
-- Output truncation thresholds
-- Dangerous command detection
-- Working directory changes
+**When refactoring:**
+1. Run existing tests
+2. If they pass, you're probably fine
+3. If critical code has no tests, add them before refactoring
 
-**Provider loading:**
-- Missing provider DLL
-- Provider throws during initialization
-- Provider returns null client
+## Implementation Checklist
 
-**MCP integration:**
-- Server process crashes
-- Tool returns error
-- Prompt has missing arguments
-
-**Conversation history:**
-- Corrupted JSON file
-- Missing history file (first run)
-- History from incompatible version
-
-## Testing Checklist
-
-- [ ] Create nb.Tests project
-- [ ] Add CommandClassifier unit tests
-- [ ] Add ApprovalPatterns unit tests
-- [ ] Add output truncation tests
-- [ ] Set up GitHub Actions workflow
-- [ ] Add ProviderManager component tests
-- [ ] Build integration test harness
-- [ ] Add single-shot mode integration tests
-- [ ] Add conversation history integration tests
+- [x] Create nb.Tests project
+- [x] CommandClassifier unit tests
+- [x] ApprovalPatterns unit tests
+- [x] Basic integration tests (evals/run.sh)
+- [x] MockProvider for deterministic e2e
+- [ ] GitHub Actions CI
+- [ ] Truncation logic unit tests (when BashTool changes)
+- [ ] History serialization tests (if corruption bug occurs)
