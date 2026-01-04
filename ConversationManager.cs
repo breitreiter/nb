@@ -10,7 +10,7 @@ namespace nb;
 
 public class ConversationManager
 {
-    private const int MAX_TOOL_CALLS_PER_MESSAGE = 3;
+    private const int MAX_TOOL_CALLS_PER_MESSAGE = 10;
 
     private IChatClient _client;
     private readonly McpManager _mcpManager;
@@ -137,7 +137,9 @@ public class ConversationManager
                 // Check if we've exceeded max tool calls
                 if (_toolCallCount >= MAX_TOOL_CALLS_PER_MESSAGE)
                 {
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, "I've reached the maximum number of tool calls for this message. Let me provide a response with the information I have."));
+                    var limitMessage = "I've reached the maximum number of tool calls for this message. Let me provide a response with the information I have.";
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, limitMessage));
+                    RenderMarkdown(limitMessage);
                     return;
                 }
 
