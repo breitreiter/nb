@@ -21,6 +21,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Providers", "Providers", "{
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.MockProvider", "Providers\Mock\nb.Providers.MockProvider.csproj", "{2BB00562-A2BF-4B0E-AC09-BD6DBBE375BC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Tests", "nb.Tests\nb.Tests.csproj", "{40253E9B-9F37-4985-8275-AC7F4C1E4391}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -59,6 +61,10 @@ Global
 		{2BB00562-A2BF-4B0E-AC09-BD6DBBE375BC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2BB00562-A2BF-4B0E-AC09-BD6DBBE375BC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2BB00562-A2BF-4B0E-AC09-BD6DBBE375BC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{40253E9B-9F37-4985-8275-AC7F4C1E4391}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{40253E9B-9F37-4985-8275-AC7F4C1E4391}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{40253E9B-9F37-4985-8275-AC7F4C1E4391}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{40253E9B-9F37-4985-8275-AC7F4C1E4391}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

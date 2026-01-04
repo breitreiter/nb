@@ -22,6 +22,9 @@
 
   <ItemGroup>
     <Compile Remove="mcp-servers/**" />
+    <Compile Remove="nb.Tests\**" />
+    <EmbeddedResource Remove="nb.Tests\**" />
+    <None Remove="nb.Tests\**" />
     <Compile Remove="nb-builds\**" />
     <Compile Remove="Providers\Anthropic\**" />
     <Compile Remove="Providers\AzureOpenAI\**" />
