@@ -22,6 +22,7 @@ public class Program
     private static ShellEnvironment _shellEnvironment = null!;
     private static BashTool _bashTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
+    private static string? _systemPromptOverride = null;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -51,7 +52,24 @@ public class Program
         }
     }
 
-    private static string[] ParseApproveFlags(string[] args)
+    private static string LoadSystemPrompt()
+    {
+        // If --system flag was provided, load from that path
+        if (!string.IsNullOrEmpty(_systemPromptOverride))
+        {
+            if (!File.Exists(_systemPromptOverride))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: System prompt file not found: {Markup.Escape(_systemPromptOverride)}[/]");
+                Environment.Exit(1);
+            }
+            return File.ReadAllText(_systemPromptOverride);
+        }
+
+        // Otherwise use default from ConfigurationService
+        return _configurationService.GetSystemPrompt();
+    }
+
+    private static string[] ParseFlags(string[] args)
     {
         var remainingArgs = new List<string>();
 
@@ -60,6 +78,10 @@ public class Program
             if (args[i] == "--approve" && i + 1 < args.Length)
             {
                 _approvalPatterns.Add(args[++i]);
+            }
+            else if (args[i] == "--system" && i + 1 < args.Length)
+            {
+                _systemPromptOverride = args[++i];
             }
             else
             {
@@ -72,8 +94,8 @@ public class Program
 
     public static async Task Main(string[] args)
     {
-        // Parse --approve flags before processing other args
-        var remainingArgs = ParseApproveFlags(args);
+        // Parse flags (--approve, --system) before processing other args
+        var remainingArgs = ParseFlags(args);
 
         var config = _configurationService.GetConfiguration();
 
@@ -97,23 +119,23 @@ public class Program
         // Determine execution mode first to control banner display
         var isInteractiveMode = remainingArgs.Length == 0;
         await _mcpManager.InitializeAsync(showBanners: isInteractiveMode);
-        
+
         // Load fake tools (notifications will be shown after integration)
         var fakeToolResult = await _fakeToolManager.LoadFakeToolsAsync();
-        
+
         // Perform integration to determine overrides
         if (fakeToolResult.Success && fakeToolResult.ToolsLoaded > 0)
         {
             var mcpTools = _mcpManager.GetTools();
             _fakeToolManager.IntegrateWithMcpTools(mcpTools);
         }
-        
+
         // Initialize conversation manager with dependencies
         _conversationManager = new ConversationManager(
             _client, _mcpManager, _fakeToolManager, _bashTool, _approvalPatterns, activeProviderName);
 
         // Build enhanced system prompt with environment context
-        var basePrompt = _configurationService.GetSystemPrompt();
+        var basePrompt = LoadSystemPrompt();
         var envSection = _shellEnvironment.BuildSystemPromptSection();
         var fullPrompt = $"{basePrompt}\n\n{envSection}";
         _conversationManager.InitializeWithSystemPrompt(fullPrompt);

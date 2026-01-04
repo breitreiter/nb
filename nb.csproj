@@ -28,12 +28,14 @@
     <Compile Remove="Providers\nb.Providers.Abstractions\**" />
     <Compile Remove="Providers\OpenAI\**" />
     <Compile Remove="Providers\Gemini\**" />
+    <Compile Remove="Providers\Mock\**" />
     <EmbeddedResource Remove="nb-builds\**" />
     <EmbeddedResource Remove="Providers\Anthropic\**" />
     <EmbeddedResource Remove="Providers\AzureOpenAI\**" />
     <EmbeddedResource Remove="Providers\nb.Providers.Abstractions\**" />
     <EmbeddedResource Remove="Providers\OpenAI\**" />
     <EmbeddedResource Remove="Providers\Gemini\**" />
+    <EmbeddedResource Remove="Providers\Mock\**" />
     <None Remove="mcp-servers/**" />
     <None Remove="nb-builds\**" />
     <None Remove="Providers\Anthropic\**" />
@@ -41,6 +43,7 @@
     <None Remove="Providers\nb.Providers.Abstractions\**" />
     <None Remove="Providers\OpenAI\**" />
     <None Remove="Providers\Gemini\**" />
+    <None Remove="Providers\Mock\**" />
   </ItemGroup>
 
   <ItemGroup>
