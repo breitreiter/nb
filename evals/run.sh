@@ -166,6 +166,80 @@ restore_config
 echo ""
 
 # ----------------------------------------
+# Layer 3: LLM Eval Tests (uses real provider, LLM-as-judge)
+# ----------------------------------------
+
+# Check if --skip-llm flag was passed
+SKIP_LLM=false
+for arg in "$@"; do
+    if [[ "$arg" == "--skip-llm" ]]; then
+        SKIP_LLM=true
+    fi
+done
+
+if [[ "$SKIP_LLM" == "true" ]]; then
+    echo -e "${DIM}--- LLM Eval Tests (skipped via --skip-llm) ---${NC}"
+    echo ""
+else
+    echo "--- LLM Eval Tests ---"
+    echo ""
+
+    # Run an LLM eval test
+    # Args: test_name prompt criteria
+    run_llm_eval() {
+        local name="$1"
+        local prompt="$2"
+        local criteria="$3"
+
+        echo -e "${DIM}  Running: $name...${NC}"
+
+        # Run nb with the test prompt, capture output
+        local transcript
+        transcript=$(cd "$NB_DIR" && "$NB" "$prompt" < /dev/null 2>&1) || true
+
+        # Build eval prompt
+        local eval_prompt="Criteria: $criteria
+
+Transcript:
+User: $prompt
+Assistant: $transcript
+
+Did the assistant meet the criteria?"
+
+        # Run judge
+        local verdict
+        verdict=$(cd "$NB_DIR" && "$NB" --system "$SCRIPT_DIR/judge.md" "$eval_prompt" < /dev/null 2>&1) || true
+
+        # Check for PASS (can appear anywhere in the verdict)
+        if [[ "$verdict" == *"PASS:"* ]] || [[ "$verdict" == *"PASS "* ]]; then
+            echo -e "${GREEN}PASS${NC}: $name"
+            PASSED=$((PASSED + 1))
+            return 0
+        elif [[ "$verdict" == *"FAIL:"* ]] || [[ "$verdict" == *"FAIL "* ]]; then
+            echo -e "${RED}FAIL${NC}: $name"
+            echo -e "${DIM}  Transcript: ${transcript:0:200}${NC}"
+            echo -e "${DIM}  Verdict: ${verdict:0:300}${NC}"
+            FAILED=$((FAILED + 1))
+            return 1
+        else
+            echo -e "${YELLOW}UNCLEAR${NC}: $name (no PASS/FAIL in verdict)"
+            echo -e "${DIM}  Verdict: ${verdict:0:300}${NC}"
+            FAILED=$((FAILED + 1))
+            return 1
+        fi
+    }
+
+    # Test: Model should answer simple math directly without using tools
+    run_llm_eval \
+        "answers math without tools" \
+        "What is 2+2? Reply with just the number." \
+        "The model should answer with the number 4 without calling any tools like bash"
+
+fi
+
+echo ""
+
+# ----------------------------------------
 # Summary
 # ----------------------------------------
 echo "========================================"
