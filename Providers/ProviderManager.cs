@@ -9,7 +9,7 @@ namespace nb.Providers;
 public class ProviderManager
 {
     private readonly List<IChatClientProvider> _providers = new();
-    private readonly string _providersDirectory = "providers";
+    private readonly string _providersDirectory = Path.Combine(AppContext.BaseDirectory, "providers");
 
     public ProviderManager()
     {

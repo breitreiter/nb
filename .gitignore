@@ -15,3 +15,4 @@ artifacts/
 *.suo
 *.userosscache
 *.sln.docstates
+.nb_conversation_history.json
