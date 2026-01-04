@@ -17,6 +17,10 @@ public class MockProvider : IChatClientProvider
     }
 }
 
+/// <summary>
+/// Mock chat client for testing. Supports MOCK:response=text in user messages
+/// to control the response.
+/// </summary>
 public class MockChatClient : IChatClient
 {
     private readonly string _defaultResponse;

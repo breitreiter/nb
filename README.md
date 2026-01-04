@@ -185,8 +185,11 @@ nb includes four built-in AI providers and supports extensibility for additional
 - **OpenAI** - Direct OpenAI API integration
 - **Anthropic** - Claude models with function calling support
 - **Google Gemini** - Google's generative AI models
+- **Mock** - Testing provider that requires no API key
 
 All providers are automatically compiled into the `bin/{Config}/net8.0/providers/` directory during build.
+
+The Mock provider returns "OK" by default, or the value of the `Response` config key. You can also control responses inline by prefixing your message with `MOCK:response=<text>`.
 
 ### Provider Extensibility
 
