@@ -101,6 +101,9 @@ public class CommandClassifierTests
     [InlineData("chmod 777 /tmp/file", true, "permission changes")]
     [InlineData("ls -la", false, null)]
     [InlineData("cat file.txt", false, null)]
+    [InlineData("find . 2>/dev/null", false, null)]  // /dev/null is safe
+    [InlineData("echo test > /dev/null", false, null)]  // /dev/null is safe
+    [InlineData("dd if=/dev/zero of=/dev/sda", true, "disk operations")]  // /dev/sda is dangerous
     public void Classify_DangerousPatterns_SetsIsDangerousCorrectly(string command, bool expectedDangerous, string? expectedReason)
     {
         var result = CommandClassifier.Classify(command);

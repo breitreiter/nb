@@ -36,7 +36,7 @@ public static partial class CommandClassifier
         @"\bwget\b.*\|\s*bash",
         @"\bmkfs\b",
         @"\bfdisk\b",
-        @">\s*/dev/",
+        @">\s*/dev/(?!null)",  // exclude /dev/null which is harmless
         @">\s*/etc/",
         @">\s*/usr/",
         @">\s*/bin/",
@@ -92,11 +92,13 @@ public static partial class CommandClassifier
         // Write operations (echo/cat > file)
         if (IsWriteRedirect(trimmed, out var writePath))
         {
+            // /dev/null is harmless - it's just discarding output
+            var isDevNull = writePath?.Equals("/dev/null", StringComparison.OrdinalIgnoreCase) ?? false;
             return new ClassifiedCommand(
                 CommandCategory.Write,
                 writePath ?? trimmed,
-                true, // Writes are always dangerous
-                dangerReason ?? "writes to file");
+                !isDevNull && !isDangerous ? true : isDangerous,  // Writes are dangerous unless to /dev/null
+                isDevNull ? null : (dangerReason ?? "writes to file"));
         }
 
         // Append operations (>> file)
