@@ -37,7 +37,7 @@ public class ConfigurationService
     private static IConfiguration LoadConfiguration()
     {
         var config = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
+            .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .Build();
 
@@ -48,9 +48,7 @@ public class ConfigurationService
     {
         try
         {
-            var executablePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-            var executableDirectory = Path.GetDirectoryName(executablePath) ?? Directory.GetCurrentDirectory();
-            var systemPromptPath = Path.Combine(executableDirectory, "system.md");
+            var systemPromptPath = Path.Combine(AppContext.BaseDirectory, "system.md");
             
             if (File.Exists(systemPromptPath))
             {
