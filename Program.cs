@@ -21,6 +21,7 @@ public class Program
     private static PromptProcessor _promptProcessor = null!;
     private static ShellEnvironment _shellEnvironment = null!;
     private static BashTool _bashTool = null!;
+    private static WriteFileTool _writeFileTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static string? _systemPromptOverride = null;
 
@@ -105,6 +106,7 @@ public class Program
         // Initialize shell environment
         _shellEnvironment = ShellEnvironment.Detect();
         _bashTool = new BashTool(_shellEnvironment);
+        _writeFileTool = new WriteFileTool(_shellEnvironment);
 
         // Initialize chat client using provider system
         var activeProviderName = config["ActiveProvider"] ?? string.Empty;
@@ -132,7 +134,7 @@ public class Program
 
         // Initialize conversation manager with dependencies
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _approvalPatterns, activeProviderName);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _writeFileTool, _approvalPatterns, activeProviderName);
 
         // Build enhanced system prompt with environment context
         var basePrompt = LoadSystemPrompt();

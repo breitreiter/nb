@@ -16,6 +16,7 @@ public class ConversationManager
     private readonly McpManager _mcpManager;
     private readonly FakeToolManager _fakeToolManager;
     private readonly BashTool? _bashTool;
+    private readonly WriteFileTool? _writeFileTool;
     private readonly ApprovalPatterns _approvalPatterns;
     private readonly List<AIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
@@ -27,6 +28,7 @@ public class ConversationManager
         McpManager mcpManager,
         FakeToolManager fakeToolManager,
         BashTool? bashTool,
+        WriteFileTool? writeFileTool,
         ApprovalPatterns approvalPatterns,
         string providerName = "")
     {
@@ -34,6 +36,7 @@ public class ConversationManager
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
         _bashTool = bashTool;
+        _writeFileTool = writeFileTool;
         _approvalPatterns = approvalPatterns;
         _currentProviderName = providerName;
     }
@@ -105,6 +108,11 @@ public class ConversationManager
             {
                 mcpTools.Add(_bashTool.CreateTool());
                 mcpTools.Add(_bashTool.CreateSetCwdTool());
+            }
+
+            if (_writeFileTool != null)
+            {
+                mcpTools.Add(_writeFileTool.CreateTool());
             }
 
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
@@ -185,6 +193,14 @@ public class ConversationManager
                                 var description = functionCall.Arguments?["description"]?.ToString() ?? "";
                                 var command = functionCall.Arguments?["command"]?.ToString() ?? "";
                                 var result = await HandleBashToolCall(functionCall.CallId, command, description);
+                                allToolResults.Add(result);
+                            }
+                            // Check if this is write_file (custom approval UX)
+                            else if (functionCall.Name == "write_file" && _writeFileTool != null)
+                            {
+                                var path = functionCall.Arguments?["path"]?.ToString() ?? "";
+                                var content = functionCall.Arguments?["content"]?.ToString() ?? "";
+                                var result = await HandleWriteFileToolCall(functionCall.CallId, path, content);
                                 allToolResults.Add(result);
                             }
                             // Check if this is set_cwd (no approval needed)
@@ -509,6 +525,76 @@ public class ConversationManager
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
             return new FunctionResultContent(callId, $"Error executing command: {ex.Message}");
+        }
+    }
+
+    private Task<FunctionResultContent> HandleWriteFileToolCall(string callId, string path, string content)
+    {
+        try
+        {
+            // Resolve path for display
+            var fullPath = _writeFileTool?.ResolvePath(path) ?? path;
+
+            var lineCount = content.Split('\n').Length;
+            var byteCount = System.Text.Encoding.UTF8.GetByteCount(content);
+
+            // Show approval prompt
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Write:[/] {Markup.Escape(fullPath)}");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {lineCount} lines, {byteCount} bytes[/]");
+
+            // Flush any pending input
+            while (Console.KeyAvailable)
+            {
+                Console.ReadKey(intercept: true);
+            }
+
+            while (true)
+            {
+                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N/?]][/] ");
+                var key = Console.ReadKey().KeyChar;
+                Console.WriteLine();
+
+                if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
+                {
+                    // Rejected (default is No for writes)
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write rejected[/]");
+                    return Task.FromResult(new FunctionResultContent(callId, "Error: User rejected file write. Permission denied."));
+                }
+                else if (key == '?')
+                {
+                    // Show content preview
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Content preview:[/]");
+                    var preview = content.Length > 500 ? content[..500] + "\n... (truncated)" : content;
+                    AnsiConsole.WriteLine(preview);
+                    continue;
+                }
+                else if (key == 'y' || key == 'Y')
+                {
+                    // Approved - execute write
+                    if (_writeFileTool == null)
+                    {
+                        return Task.FromResult(new FunctionResultContent(callId, "Error: Write file tool not initialized"));
+                    }
+
+                    var result = _writeFileTool.WriteFile(path, content);
+
+                    if (result.Success)
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {result.BytesWritten} bytes[/]");
+                        return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {result.BytesWritten} bytes to {result.Path}"));
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
+                        return Task.FromResult(new FunctionResultContent(callId, $"Error writing file: {result.Error}"));
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write error: {Markup.Escape(ex.Message)}[/]");
+            return Task.FromResult(new FunctionResultContent(callId, $"Error during file write: {ex.Message}"));
         }
     }
 
