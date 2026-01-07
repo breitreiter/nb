@@ -24,6 +24,7 @@ public class Program
     private static WriteFileTool _writeFileTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static string? _systemPromptOverride = null;
+    private static bool _noBash = false;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -84,6 +85,10 @@ public class Program
             {
                 _systemPromptOverride = args[++i];
             }
+            else if (args[i] == "--nobash")
+            {
+                _noBash = true;
+            }
             else
             {
                 remainingArgs.Add(args[i]);
@@ -103,10 +108,13 @@ public class Program
         // Load theme
         UIColors.LoadTheme();
 
-        // Initialize shell environment
+        // Initialize shell environment (unless --nobash)
         _shellEnvironment = ShellEnvironment.Detect();
-        _bashTool = new BashTool(_shellEnvironment);
-        _writeFileTool = new WriteFileTool(_shellEnvironment);
+        if (!_noBash)
+        {
+            _bashTool = new BashTool(_shellEnvironment);
+            _writeFileTool = new WriteFileTool(_shellEnvironment);
+        }
 
         // Initialize chat client using provider system
         var activeProviderName = config["ActiveProvider"] ?? string.Empty;
@@ -136,10 +144,11 @@ public class Program
         _conversationManager = new ConversationManager(
             _client, _mcpManager, _fakeToolManager, _bashTool, _writeFileTool, _approvalPatterns, activeProviderName);
 
-        // Build enhanced system prompt with environment context
+        // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
-        var envSection = _shellEnvironment.BuildSystemPromptSection();
-        var fullPrompt = $"{basePrompt}\n\n{envSection}";
+        var fullPrompt = _noBash
+            ? basePrompt
+            : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
         _conversationManager.InitializeWithSystemPrompt(fullPrompt);
 
         // Load conversation history from previous sessions

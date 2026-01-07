@@ -229,10 +229,19 @@ public class ConversationManager
                             else if (_fakeToolManager.GetFakeTool(functionCall.Name) is {} fakeTool)
                             {
                                 // Handle fake tool - no approval needed
-                                var argumentsJson = JsonSerializer.Serialize(functionCall.Arguments);
+                                // Extract nested "parameters" if present (from IDictionary schema)
+                                var displayArgs = functionCall.Arguments;
+                                if (displayArgs?.Count == 1 &&
+                                    displayArgs.TryGetValue("parameters", out var nested) &&
+                                    nested is JsonElement nestedElement)
+                                {
+                                    displayArgs = JsonSerializer.Deserialize<Dictionary<string, object?>>(nestedElement.GetRawText());
+                                }
+                                var argumentsJson = JsonSerializer.Serialize(displayArgs, new JsonSerializerOptions { WriteIndented = false });
+
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {argumentsJson}[/]");
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {fakeTool.Response}[/]");
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {Markup.Escape(argumentsJson)}[/]");
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(fakeTool.Response)}[/]");
 
                                 allToolResults.Add(new FunctionResultContent(functionCall.CallId, fakeTool.Response));
                             }

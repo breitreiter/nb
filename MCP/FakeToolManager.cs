@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 using YamlDotNet.Serialization;
@@ -26,7 +28,7 @@ public class FakeToolManager
                 .Build();
 
             var config = deserializer.Deserialize<FakeToolConfig>(yamlContent);
-            
+
             if (config?.FakeTools == null)
             {
                 return new FakeToolLoadResult { Success = true, ToolsLoaded = 0, ToolsOverridden = 0 };
@@ -35,10 +37,10 @@ public class FakeToolManager
             _fakeTools.Clear();
             _fakeTools.AddRange(config.FakeTools);
 
-            return new FakeToolLoadResult 
-            { 
-                Success = true, 
-                ToolsLoaded = _fakeTools.Count, 
+            return new FakeToolLoadResult
+            {
+                Success = true,
+                ToolsLoaded = _fakeTools.Count,
                 ToolsOverridden = 0 // Will be calculated during integration
             };
         }
@@ -86,14 +88,27 @@ public class FakeToolManager
 
     private static AIFunction CreateAIFunctionFromFakeTool(FakeTool fakeTool)
     {
-        return AIFunctionFactory.Create(
-            name: fakeTool.Name,
-            description: fakeTool.Description,
-            method: (Dictionary<string, object?> parameters) =>
+        // Build description with parameter documentation
+        var description = new StringBuilder(fakeTool.Description);
+
+        if (fakeTool.Parameters.Count > 0)
+        {
+            description.AppendLine();
+            description.AppendLine();
+            description.AppendLine("Parameters:");
+            foreach (var param in fakeTool.Parameters)
             {
-                // This will be handled by the ConversationManager
-                return fakeTool.Response;
+                var requiredStr = param.Required ? " (required)" : "";
+                description.AppendLine($"- {param.Name}: {param.Type}{requiredStr} - {param.Description}");
             }
+        }
+
+        // Accept a generic dictionary to capture all arguments
+        // The actual invocation is handled by ConversationManager
+        return AIFunctionFactory.Create(
+            (IDictionary<string, object?> parameters) => fakeTool.Response,
+            name: fakeTool.Name,
+            description: description.ToString()
         );
     }
 }
