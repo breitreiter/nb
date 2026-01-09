@@ -195,9 +195,15 @@ The Mock provider returns "OK" by default, or the value of the `Response` config
 
 nb uses a pluggable provider architecture built on Microsoft.Extensions.AI. The repo includes 4 common providers, but you can roll your own.
 
-1. You'll need to create your own project, includind a class which implements the `IChatClientProvider` interface from nb.Providers.Abstractions. That interface requires you to supply an instance of `IChatClient` from Microsoft.Extensions.AI, plus some basic tooling for configuration.
-2. Copy your built assembly to a new subdirectory under `providers/`
-3. If necessary, add any required configuration to appsettings.json. Since you had to DIY the configuration in step 1, you should know what you need to add.
+1. Create a new project and add the NuGet package:
+   ```bash
+   dotnet add package nb.Providers.Abstractions
+   ```
+2. Implement the `IChatClientProvider` interface, which requires you to supply an instance of `IChatClient` from Microsoft.Extensions.AI plus some basic configuration tooling.
+3. Build and copy your assembly to a new subdirectory under `providers/`
+4. Add any required configuration to appsettings.json.
+
+See the [nb.Providers.Abstractions](https://www.nuget.org/packages/nb.Providers.Abstractions) package for full documentation and examples.
 
 ## License
 
