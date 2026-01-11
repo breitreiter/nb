@@ -124,6 +124,20 @@ nb --approve "ls" --approve "cat *" "analyze this project"
 
 Patterns support globs (`cat *` matches `cat file.txt`, `cat /etc/hosts`, etc.).
 
+### Command-Line Flags
+
+| Flag | Description |
+|------|-------------|
+| `--approve <pattern>` | Pre-approve shell commands matching the glob pattern |
+| `--system <path>` | Load system prompt from a custom file |
+| `--nobash` | Disable shell tools (bash, write_file, set_cwd) |
+| `--verbose` | Log tool call inputs and outputs (useful for debugging) |
+
+Example combining flags:
+```bash
+nb --verbose --nobash --system eval-prompt.txt "run the evaluation"
+```
+
 ### Provider Switching
 Switch between AI providers during a conversation to leverage different models' strengths:
 ```bash
