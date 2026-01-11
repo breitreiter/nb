@@ -18,6 +18,7 @@ public class ConversationManager
     private readonly BashTool? _bashTool;
     private readonly WriteFileTool? _writeFileTool;
     private readonly ApprovalPatterns _approvalPatterns;
+    private readonly bool _verbose;
     private readonly List<AIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
     private int _toolCallCount = 0;
@@ -30,7 +31,8 @@ public class ConversationManager
         BashTool? bashTool,
         WriteFileTool? writeFileTool,
         ApprovalPatterns approvalPatterns,
-        string providerName = "")
+        string providerName = "",
+        bool verbose = false)
     {
         _client = client;
         _mcpManager = mcpManager;
@@ -39,6 +41,7 @@ public class ConversationManager
         _writeFileTool = writeFileTool;
         _approvalPatterns = approvalPatterns;
         _currentProviderName = providerName;
+        _verbose = verbose;
     }
 
     public void SwitchProvider(IChatClient newClient, string providerName)
@@ -185,6 +188,7 @@ public class ConversationManager
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
 
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                    LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                 }
                             }
                             // Check if this is a bash tool (custom approval UX)
@@ -194,6 +198,7 @@ public class ConversationManager
                                 var command = functionCall.Arguments?["command"]?.ToString() ?? "";
                                 var result = await HandleBashToolCall(functionCall.CallId, command, description);
                                 allToolResults.Add(result);
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
                             }
                             // Check if this is write_file (custom approval UX)
                             else if (functionCall.Name == "write_file" && _writeFileTool != null)
@@ -202,6 +207,7 @@ public class ConversationManager
                                 var content = functionCall.Arguments?["content"]?.ToString() ?? "";
                                 var result = await HandleWriteFileToolCall(functionCall.CallId, path, content);
                                 allToolResults.Add(result);
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
                             }
                             // Check if this is set_cwd (no approval needed)
                             else if (functionCall.Name == "set_cwd" && _bashTool != null)
@@ -223,6 +229,7 @@ public class ConversationManager
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
 
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• {resultString}[/]");
+                                    LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                 }
                             }
                             // Check if this is a fake tool (always auto-approve)
@@ -244,6 +251,7 @@ public class ConversationManager
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(fakeTool.Response)}[/]");
 
                                 allToolResults.Add(new FunctionResultContent(functionCall.CallId, fakeTool.Response));
+                                LogToolCall(functionCall.Name, functionCall.Arguments, fakeTool.Response);
                             }
                             else
                             {
@@ -299,6 +307,7 @@ public class ConversationManager
                                         allToolResults.Add(new FunctionResultContent(functionCall.CallId, rejectionMessage));
 
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool call rejected, notifying model[/]");
+                                        LogToolCall(functionCall.Name, functionCall.Arguments, rejectionMessage);
                                         _toolCallCount++;
                                         continue; // Skip to next tool call
                                     }
@@ -318,6 +327,7 @@ public class ConversationManager
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
 
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                    LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                 }
                             }
 
@@ -681,6 +691,19 @@ public class ConversationManager
         // Extract text content from Microsoft.Extensions.AI ChatMessage
         var textContent = message.Contents?.OfType<TextContent>().FirstOrDefault();
         return textContent?.Text ?? "";
+    }
+
+    private void LogToolCall(string toolName, IDictionary<string, object?>? arguments, string result)
+    {
+        if (!_verbose) return;
+
+        var argsJson = arguments != null
+            ? JsonSerializer.Serialize(arguments, new JsonSerializerOptions { WriteIndented = false })
+            : "{}";
+
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]┌─ Tool: {Markup.Escape(toolName)}[/]");
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]│ Input: {Markup.Escape(argsJson)}[/]");
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]└ Output: {Markup.Escape(result)}[/]");
     }
 
     public void ClearConversationHistory()

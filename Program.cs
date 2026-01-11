@@ -25,6 +25,7 @@ public class Program
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static string? _systemPromptOverride = null;
     private static bool _noBash = false;
+    private static bool _verbose = false;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -89,6 +90,10 @@ public class Program
             {
                 _noBash = true;
             }
+            else if (args[i] == "--verbose")
+            {
+                _verbose = true;
+            }
             else
             {
                 remainingArgs.Add(args[i]);
@@ -142,7 +147,7 @@ public class Program
 
         // Initialize conversation manager with dependencies
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _writeFileTool, _approvalPatterns, activeProviderName);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _writeFileTool, _approvalPatterns, activeProviderName, _verbose);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
