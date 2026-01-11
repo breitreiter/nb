@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
@@ -693,17 +694,26 @@ public class ConversationManager
         return textContent?.Text ?? "";
     }
 
+    private static readonly JsonSerializerOptions _verboseJsonOptions = new()
+    {
+        WriteIndented = false,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
     private void LogToolCall(string toolName, IDictionary<string, object?>? arguments, string result)
     {
         if (!_verbose) return;
 
         var argsJson = arguments != null
-            ? JsonSerializer.Serialize(arguments, new JsonSerializerOptions { WriteIndented = false })
+            ? JsonSerializer.Serialize(arguments, _verboseJsonOptions)
             : "{}";
+
+        // Unescape Unicode sequences for readability (e.g., \u0022 -> ")
+        var displayResult = System.Text.RegularExpressions.Regex.Unescape(result);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]┌─ Tool: {Markup.Escape(toolName)}[/]");
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]│ Input: {Markup.Escape(argsJson)}[/]");
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]└ Output: {Markup.Escape(result)}[/]");
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]└ Output: {Markup.Escape(displayResult)}[/]");
     }
 
     public void ClearConversationHistory()
