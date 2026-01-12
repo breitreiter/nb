@@ -184,11 +184,10 @@ public class ConversationManager
                                         }
                                     }
 
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                     var result = await resourceTool.InvokeAsync(arguments);
                                     var resultString = result?.ToString() ?? string.Empty;
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
-
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                     LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                 }
                             }
@@ -225,11 +224,11 @@ public class ConversationManager
                                         }
                                     }
 
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                     var result = await bashSetCwdTool.InvokeAsync(arguments);
                                     var resultString = result?.ToString() ?? string.Empty;
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
-
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• {resultString}[/]");
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {resultString}[/]");
                                     LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                 }
                             }
@@ -323,11 +322,10 @@ public class ConversationManager
                                         }
                                     }
 
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                     var result = await mcpTool.InvokeAsync(arguments);
                                     var resultString = result?.ToString() ?? string.Empty;
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
-
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                     LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                 }
                             }
