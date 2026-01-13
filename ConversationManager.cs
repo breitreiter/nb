@@ -190,6 +190,12 @@ public class ConversationManager
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                 }
+                                else
+                                {
+                                    var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                }
                             }
                             // Check if this is a bash tool (custom approval UX)
                             else if (functionCall.Name == "bash" && _bashTool != null)
@@ -230,6 +236,12 @@ public class ConversationManager
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {resultString}[/]");
                                     LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                }
+                                else
+                                {
+                                    var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                 }
                             }
                             // Check if this is a fake tool (always auto-approve)
@@ -327,6 +339,12 @@ public class ConversationManager
                                     var resultString = result?.ToString() ?? string.Empty;
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                }
+                                else
+                                {
+                                    var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                 }
                             }
 
