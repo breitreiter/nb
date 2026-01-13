@@ -16,3 +16,4 @@ artifacts/
 *.userosscache
 *.sln.docstates
 .nb_conversation_history.json
+TODO.md
