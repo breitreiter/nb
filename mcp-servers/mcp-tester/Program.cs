@@ -175,3 +175,33 @@ public static class TestTools
     [McpServerTool, Description("Returns the current date and time.")]
     public static string CurrentTime() => DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 }
+
+/// <summary>
+/// Tools that intentionally misbehave for testing client resilience.
+/// </summary>
+[McpServerToolType]
+public static class ChaosTools
+{
+    [McpServerTool, Description("Throws an exception. Use to test error handling.")]
+    public static string ThrowError(string message) => throw new InvalidOperationException($"Intentional error: {message}");
+
+    [McpServerTool, Description("Hangs forever. Use to test timeout handling. WARNING: Will block until killed.")]
+    public static string HangForever()
+    {
+        Thread.Sleep(Timeout.Infinite);
+        return "This will never be reached";
+    }
+
+    [McpServerTool, Description("Responds after a delay. Use to test slow response handling.")]
+    public static string SlowResponse(int delaySeconds)
+    {
+        Thread.Sleep(TimeSpan.FromSeconds(Math.Min(delaySeconds, 300))); // Cap at 5 minutes
+        return $"Responded after {delaySeconds} second delay";
+    }
+
+    [McpServerTool, Description("Returns null. Use to test null response handling.")]
+    public static string? ReturnNull() => null;
+
+    [McpServerTool, Description("Returns an empty string. Use to test empty response handling.")]
+    public static string ReturnEmpty() => string.Empty;
+}
