@@ -125,9 +125,20 @@ public class McpManager : IDisposable
                     // Add tools to always-allow list if configured (namespace them)
                     if (serverConfig.AlwaysAllow != null)
                     {
-                        foreach (var toolName in serverConfig.AlwaysAllow)
+                        if (serverConfig.AlwaysAllow.Contains("*"))
                         {
-                            _alwaysAllowTools.Add($"{serverName}_{toolName}");
+                            // Wildcard: allow all tools from this server
+                            foreach (var tool in tools)
+                            {
+                                _alwaysAllowTools.Add($"{serverName}_{tool.Name}");
+                            }
+                        }
+                        else
+                        {
+                            foreach (var toolName in serverConfig.AlwaysAllow)
+                            {
+                                _alwaysAllowTools.Add($"{serverName}_{toolName}");
+                            }
                         }
                     }
 
