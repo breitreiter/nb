@@ -12,6 +12,7 @@ namespace nb;
 public class ConversationManager
 {
     private const int MAX_TOOL_CALLS_PER_MESSAGE = 10;
+    private static readonly TimeSpan McpToolTimeout = TimeSpan.FromSeconds(60);
 
     private IChatClient _client;
     private readonly McpManager _mcpManager;
@@ -185,10 +186,19 @@ public class ConversationManager
                                     }
 
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
-                                    var result = await resourceTool.InvokeAsync(arguments);
-                                    var resultString = result?.ToString() ?? string.Empty;
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                    try
+                                    {
+                                        var result = await resourceTool.InvokeAsync(arguments).AsTask().WaitAsync(McpToolTimeout);
+                                        var resultString = result?.ToString() ?? string.Empty;
+                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                        LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                    }
+                                    catch (TimeoutException)
+                                    {
+                                        var errorMsg = $"Error: Tool '{functionCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
+                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                    }
                                 }
                                 else
                                 {
@@ -335,10 +345,19 @@ public class ConversationManager
                                     }
 
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
-                                    var result = await mcpTool.InvokeAsync(arguments);
-                                    var resultString = result?.ToString() ?? string.Empty;
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                    try
+                                    {
+                                        var result = await mcpTool.InvokeAsync(arguments).AsTask().WaitAsync(McpToolTimeout);
+                                        var resultString = result?.ToString() ?? string.Empty;
+                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                        LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                    }
+                                    catch (TimeoutException)
+                                    {
+                                        var errorMsg = $"Error: Tool '{functionCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
+                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                    }
                                 }
                                 else
                                 {
