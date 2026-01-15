@@ -155,6 +155,26 @@ List and invoke prompts from connected MCP servers:
 ```
 Prompts may request arguments interactively before execution.
 
+### MCP Configuration
+Configure MCP servers in `mcp.json`:
+```json
+{
+  "servers": {
+    "my-server": {
+      "type": "stdio",
+      "command": "my-mcp-server",
+      "args": ["--some-flag"],
+      "alwaysAllow": ["tool1", "tool2"]
+    }
+  }
+}
+```
+
+The `alwaysAllow` array specifies tools that skip approval prompts. Use `["*"]` to auto-approve all tools from a server (useful for automation):
+```json
+"alwaysAllow": ["*"]
+```
+
 ### Built-in MCP Server
 The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools and dynamically generated prompts from markdown files.
 
