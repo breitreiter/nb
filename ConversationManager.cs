@@ -660,7 +660,13 @@ public class ConversationManager
             // Convert conversation history to a serializable format
             var serializableHistory = _conversationHistory.Select(msg => new
             {
-                Type = msg.GetType().Name,
+                Type = msg.Role.Value switch
+                {
+                    "user" => "UserChatMessage",
+                    "assistant" => "AssistantChatMessage",
+                    "system" => "SystemChatMessage",
+                    _ => msg.Role.Value
+                },
                 Content = ExtractMessageContent(msg)
             }).ToArray();
 
