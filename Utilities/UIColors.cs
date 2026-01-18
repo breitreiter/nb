@@ -112,14 +112,15 @@ public static class UIColors
 
     private static string[] LoadRobotImage()
     {
-        var bmpPath = Path.Combine(AppContext.BaseDirectory, "Resources", "robot-logo.bmp");
-        if (File.Exists(bmpPath))
+        var assembly = typeof(UIColors).Assembly;
+        using var stream = assembly.GetManifestResourceStream("nb.Resources.robot-logo.bmp");
+        if (stream != null)
         {
-            var image = PxImage.Load(bmpPath);
+            var image = PxImage.Load(stream);
             return image.GetAnsiLines();
         }
 
-        // Fallback if bitmap not found
+        // Fallback if resource not found
         return ["[grey58]▄▄▄▄▄[/]", "[grey50]▀▀▄▀▀[/]", "[grey58]▄▄▄▄▄[/]"];
     }
 }
