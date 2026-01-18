@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using PxSharp;
 
 namespace nb.Utilities;
 
@@ -101,9 +102,24 @@ public static class UIColors
     public const string NativeReset = "\u001b[0m";
 
     /*
-     * Robot friend
+     * Robot friend - loaded from bitmap
      */
-    public const string robot_img_1 = "[grey58 on grey66]▄[/][chartreuse2_1 on grey66]▄[/][grey58 on grey66]▄[/][chartreuse2_1 on grey66]▄[/][grey58 on grey66]▄[/]";
-    public const string robot_img_2 = "[grey50]▀▀[/][grey23 on grey50]▄[/][grey50]▀▀[/]";
-    public const string robot_img_3 = "[grey58 on grey66]▄[/][blue on grey66]▄▄▄[/][grey58 on grey66]▄[/]";
+    private static readonly Lazy<string[]> _robotLines = new(() => LoadRobotImage());
+
+    public static string robot_img_1 => _robotLines.Value[0];
+    public static string robot_img_2 => _robotLines.Value[1];
+    public static string robot_img_3 => _robotLines.Value[2];
+
+    private static string[] LoadRobotImage()
+    {
+        var bmpPath = Path.Combine(AppContext.BaseDirectory, "Resources", "robot-logo.bmp");
+        if (File.Exists(bmpPath))
+        {
+            var image = PxImage.Load(bmpPath);
+            return image.GetAnsiLines();
+        }
+
+        // Fallback if bitmap not found
+        return ["[grey58]▄▄▄▄▄[/]", "[grey50]▀▀▄▀▀[/]", "[grey58]▄▄▄▄▄[/]"];
+    }
 }

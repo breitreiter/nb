@@ -208,9 +208,12 @@ public class Program
             ? string.Join(", ", mcpServers.Select(s => $"[{UIColors.SpectreMuted}]{s}[/]"))
             : "[dim]none[/]";
 
-        AnsiConsole.MarkupLine(" " + UIColors.robot_img_1 + $"  [{UIColors.SpectreMuted}]AI: [/]{providersList}");
-        AnsiConsole.MarkupLine(" " + UIColors.robot_img_2 + $"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
-        AnsiConsole.MarkupLine(" " + UIColors.robot_img_3 + $"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
+        Console.Write(" " + UIColors.robot_img_1);
+        AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]AI: [/]{providersList}");
+        Console.Write(" " + UIColors.robot_img_2);
+        AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
+        Console.Write(" " + UIColors.robot_img_3);
+        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
         
         while (true)
         {
