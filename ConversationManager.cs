@@ -1,7 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
-using Spectre.Console;
 using nb.MCP;
 using nb.Shell;
 using nb.Utilities;
@@ -50,7 +49,7 @@ public class ConversationManager
     {
         _client = newClient;
         _currentProviderName = providerName;
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓ Switched to provider: {providerName}[/]");
+        Console.WriteLine($"Switched to provider: {providerName}");
     }
 
     public string GetCurrentProvider() => _currentProviderName;
@@ -185,7 +184,7 @@ public class ConversationManager
                                         }
                                     }
 
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                    Console.WriteLine($"• calling {functionCall.Name}");
                                     try
                                     {
                                         var result = await resourceTool.InvokeAsync(arguments).AsTask().WaitAsync(McpToolTimeout);
@@ -197,14 +196,14 @@ public class ConversationManager
                                     {
                                         var errorMsg = $"Error: Tool '{functionCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
                                         allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
-                                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                        Console.WriteLine(errorMsg);
                                     }
                                 }
                                 else
                                 {
                                     var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                    Console.WriteLine(errorMsg);
                                 }
                             }
                             // Check if this is a bash tool (custom approval UX)
@@ -240,18 +239,18 @@ public class ConversationManager
                                         }
                                     }
 
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                    Console.WriteLine($"• calling {functionCall.Name}");
                                     var result = await bashSetCwdTool.InvokeAsync(arguments);
                                     var resultString = result?.ToString() ?? string.Empty;
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {resultString}[/]");
+                                    Console.WriteLine($"  -> {resultString}");
                                     LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                 }
                                 else
                                 {
                                     var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                    Console.WriteLine(errorMsg);
                                 }
                             }
                             // Check if this is a fake tool (always auto-approve)
@@ -268,9 +267,9 @@ public class ConversationManager
                                 }
                                 var argumentsJson = JsonSerializer.Serialize(displayArgs, new JsonSerializerOptions { WriteIndented = false });
 
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {Markup.Escape(argumentsJson)}[/]");
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(fakeTool.Response)}[/]");
+                                Console.WriteLine($"Fake tool invoked: {functionCall.Name}");
+                                Console.WriteLine($"   Parameters: {argumentsJson}");
+                                Console.WriteLine($"   -> {fakeTool.Response}");
 
                                 allToolResults.Add(new FunctionResultContent(functionCall.CallId, fakeTool.Response));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, fakeTool.Response);
@@ -291,7 +290,7 @@ public class ConversationManager
 
                                         while (true)
                                         {
-                                            AnsiConsole.MarkupLine($"[{UIColors.SpectreUserPrompt}]Allow tool call: {functionCall.Name}? (Y/n/?)[/]");
+                                            Console.WriteLine($"Allow tool call: {functionCall.Name}? (Y/n/?)");
                                             var key = Console.ReadKey().KeyChar;
 
                                             if (key == 'n')
@@ -301,9 +300,11 @@ public class ConversationManager
                                             }
                                             else if (key == '?' )
                                             {
-                                                AnsiConsole.MarkupLine($"[dim]Arguments:[/]");
-                                                AnsiConsole.MarkupLine($"[dim]{argumentsJson}[/]");
-                                                approved = AnsiConsole.Confirm("Allow this call?", defaultValue: true);
+                                                Console.WriteLine("Arguments:");
+                                                Console.WriteLine(argumentsJson);
+                                                Console.Write("Allow this call? [Y/n] ");
+                                                var confirm = Console.ReadLine()?.Trim().ToLowerInvariant();
+                                                approved = string.IsNullOrEmpty(confirm) || confirm.StartsWith('y');
                                                 break;
                                             }
                                             else if (key == '\r' || key == 'y')
@@ -316,19 +317,17 @@ public class ConversationManager
 
                                     if (!approved)
                                     {
-                                        var reason = AnsiConsole.Prompt(
-                                            new TextPrompt<string>("Reason for rejection [dim](optional)[/]:")
-                                                .DefaultValue("User declined")
-                                                .AllowEmpty()
-                                        );
+                                        Console.Write("Reason for rejection (optional): ");
+                                        var reason = Console.ReadLine() ?? "";
+                                        if (string.IsNullOrWhiteSpace(reason)) reason = "User declined";
 
-                                        var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
+                                        var rejectionMessage = reason == "User declined"
                                             ? "Error: User rejected this tool call. Permission denied. Do not retry this action."
                                             : $"Error: User rejected this tool call. Reason: {reason}. Please consider an alternative approach based on the user's feedback.";
 
                                         allToolResults.Add(new FunctionResultContent(functionCall.CallId, rejectionMessage));
 
-                                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool call rejected, notifying model[/]");
+                                        Console.WriteLine("Tool call rejected, notifying model");
                                         LogToolCall(functionCall.Name, functionCall.Arguments, rejectionMessage);
                                         _toolCallCount++;
                                         continue; // Skip to next tool call
@@ -344,7 +343,7 @@ public class ConversationManager
                                         }
                                     }
 
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                    Console.WriteLine($"• calling {functionCall.Name}");
                                     try
                                     {
                                         var result = await mcpTool.InvokeAsync(arguments).AsTask().WaitAsync(McpToolTimeout);
@@ -356,14 +355,14 @@ public class ConversationManager
                                     {
                                         var errorMsg = $"Error: Tool '{functionCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
                                         allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
-                                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                        Console.WriteLine(errorMsg);
                                     }
                                 }
                                 else
                                 {
                                     var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                    Console.WriteLine(errorMsg);
                                 }
                             }
 
@@ -402,7 +401,7 @@ public class ConversationManager
         {
             // Stop spinner on error
             _stopSpinner = true;
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Error: {ex.Message}");
         }
         finally
         {
@@ -443,7 +442,7 @@ public class ConversationManager
 
     private static void RenderMarkdown(string markdown)
     {
-        AnsiConsole.WriteLine(markdown);
+        Console.WriteLine(markdown);
     }
 
     private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command, string description)
@@ -456,25 +455,22 @@ public class ConversationManager
             // Check if pre-approved via --approve flag
             if (_approvalPatterns.IsApproved(command))
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• bash (pre-approved): {Markup.Escape(classified.DisplayText)}[/]");
+                Console.WriteLine($"• bash (pre-approved): {classified.DisplayText}");
                 return await ExecuteBashCommand(callId, command);
             }
 
             // Show model's description of intent (if provided)
             if (!string.IsNullOrWhiteSpace(description))
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]{Markup.Escape(description)}[/]");
+                Console.WriteLine(description);
             }
 
             // Show approval prompt with command classification
-            var categoryColor = classified.IsDangerous ? UIColors.SpectreError : UIColors.SpectreWarning;
-            var warningIndicator = classified.IsDangerous ? " ⚠️" : "";
-
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{classified.Category}:[/] {Markup.Escape(classified.DisplayText)}");
+            Console.WriteLine($"{classified.Category}: {classified.DisplayText}");
 
             if (classified.IsDangerous && classified.DangerReason != null)
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: {classified.DangerReason}[/]");
+                Console.WriteLine($"  Warning: {classified.DangerReason}");
             }
 
             // Default based on danger level
@@ -489,31 +485,29 @@ public class ConversationManager
 
             while (true)
             {
-                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? {options}[/] ");
+                Console.Write($"Execute? {options} ");
                 var key = Console.ReadKey().KeyChar;
                 Console.WriteLine();
 
                 if (key == 'n' || key == 'N' || (!defaultYes && (key == '\r' || key == '\n')))
                 {
                     // Rejected
-                    var reason = AnsiConsole.Prompt(
-                        new TextPrompt<string>($"[{UIColors.SpectreMuted}]Reason (optional):[/]")
-                            .DefaultValue("User declined")
-                            .AllowEmpty()
-                    );
+                    Console.Write("Reason (optional): ");
+                    var reason = Console.ReadLine() ?? "";
+                    if (string.IsNullOrWhiteSpace(reason)) reason = "User declined";
 
-                    var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
+                    var rejectionMessage = reason == "User declined"
                         ? "Error: User rejected this command. Permission denied."
                         : $"Error: User rejected this command. Reason: {reason}";
 
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Command rejected[/]");
+                    Console.WriteLine("Command rejected");
                     return new FunctionResultContent(callId, rejectionMessage);
                 }
                 else if (key == '?')
                 {
                     // Show full command
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Full command:[/]");
-                    AnsiConsole.WriteLine(command);
+                    Console.WriteLine("Full command:");
+                    Console.WriteLine(command);
                     continue;
                 }
                 else if (key == 'y' || key == 'Y' || (defaultYes && (key == '\r' || key == '\n')))
@@ -526,7 +520,7 @@ public class ConversationManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Approval error: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Approval error: {ex.Message}");
             return new FunctionResultContent(callId, $"Error during command approval: {ex.Message}");
         }
     }
@@ -570,15 +564,14 @@ public class ConversationManager
             var outputStr = output.ToString().Trim();
 
             // Show brief status to user
-            var statusColor = result.ExitCode == 0 ? UIColors.SpectreSuccess : UIColors.SpectreWarning;
-            var statusIcon = result.ExitCode == 0 ? "✓" : "✗";
-            AnsiConsole.MarkupLine($"[{statusColor}]{statusIcon}[/] [{UIColors.SpectreMuted}]exit {result.ExitCode}[/]");
+            var statusIcon = result.ExitCode == 0 ? "ok" : "fail";
+            Console.WriteLine($"[{statusIcon}] exit {result.ExitCode}");
 
             return new FunctionResultContent(callId, outputStr);
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Error: {ex.Message}");
             return new FunctionResultContent(callId, $"Error executing command: {ex.Message}");
         }
     }
@@ -594,8 +587,8 @@ public class ConversationManager
             var byteCount = System.Text.Encoding.UTF8.GetByteCount(content);
 
             // Show approval prompt
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Write:[/] {Markup.Escape(fullPath)}");
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {lineCount} lines, {byteCount} bytes[/]");
+            Console.WriteLine($"Write: {fullPath}");
+            Console.WriteLine($"  {lineCount} lines, {byteCount} bytes");
 
             // Flush any pending input
             while (Console.KeyAvailable)
@@ -605,22 +598,22 @@ public class ConversationManager
 
             while (true)
             {
-                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N/?]][/] ");
+                Console.Write("Execute? [y/N/?] ");
                 var key = Console.ReadKey().KeyChar;
                 Console.WriteLine();
 
                 if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
                 {
                     // Rejected (default is No for writes)
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write rejected[/]");
+                    Console.WriteLine("Write rejected");
                     return Task.FromResult(new FunctionResultContent(callId, "Error: User rejected file write. Permission denied."));
                 }
                 else if (key == '?')
                 {
                     // Show content preview
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Content preview:[/]");
+                    Console.WriteLine("Content preview:");
                     var preview = content.Length > 500 ? content[..500] + "\n... (truncated)" : content;
-                    AnsiConsole.WriteLine(preview);
+                    Console.WriteLine(preview);
                     continue;
                 }
                 else if (key == 'y' || key == 'Y')
@@ -635,12 +628,12 @@ public class ConversationManager
 
                     if (result.Success)
                     {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {result.BytesWritten} bytes[/]");
+                        Console.WriteLine($"[ok] wrote {result.BytesWritten} bytes");
                         return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {result.BytesWritten} bytes to {result.Path}"));
                     }
                     else
                     {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
+                        Console.WriteLine($"[fail] {result.Error ?? "Unknown error"}");
                         return Task.FromResult(new FunctionResultContent(callId, $"Error writing file: {result.Error}"));
                     }
                 }
@@ -648,7 +641,7 @@ public class ConversationManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write error: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Write error: {ex.Message}");
             return Task.FromResult(new FunctionResultContent(callId, $"Error during file write: {ex.Message}"));
         }
     }
@@ -675,7 +668,7 @@ public class ConversationManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Could not save conversation history: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Warning: Could not save conversation history: {ex.Message}");
         }
     }
 
@@ -724,7 +717,7 @@ public class ConversationManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Could not load conversation history: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Warning: Could not load conversation history: {ex.Message}");
         }
     }
 
@@ -752,9 +745,9 @@ public class ConversationManager
         // Unescape Unicode sequences for readability (e.g., \u0022 -> ")
         var displayResult = System.Text.RegularExpressions.Regex.Unescape(result);
 
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]┌─ Tool: {Markup.Escape(toolName)}[/]");
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]│ Input: {Markup.Escape(argsJson)}[/]");
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]└ Output: {Markup.Escape(displayResult)}[/]");
+        Console.WriteLine($"--- Tool: {toolName}");
+        Console.WriteLine($"  Input: {argsJson}");
+        Console.WriteLine($"  Output: {displayResult}");
     }
 
     public void ClearConversationHistory()
@@ -768,6 +761,6 @@ public class ConversationManager
             _conversationHistory.Add(systemMessage);
         }
         
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Conversation history cleared[/]");
+        Console.WriteLine("Conversation history cleared");
     }
 }

@@ -1,0 +1,24 @@
+NotaBene 1.0                   [Ctrl+T] Toggle Tools Log [Ctrl+C] Cancel Request
+
+
+
+
+
+
+                                  ▐ ▄ ▄▄▄▄· 
+                                 •█▌▐█▐█ ▀█▪
+                                 ▐█▐▐▌▐█▀▀█▄
+                                 ██▐█▌██▄▪▐█
+                                 ▀▀ █▪·▀▀▀▀ 
+                                 
+                                Probably fine!
+
+
+
+
+NotaBene 1.0
+AI: Anthropic, OpenAI, AzureOpenAI, Gemini
+MCP: none 
+exit to quit ? for help
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+> 

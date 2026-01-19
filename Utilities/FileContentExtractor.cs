@@ -1,7 +1,6 @@
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
-using Spectre.Console;
 
 namespace nb.Utilities;
 
@@ -20,7 +19,7 @@ public class FileContentExtractor
         {
             if (!File.Exists(filePath))
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]File not found: {filePath}[/]");
+                Console.WriteLine($"File not found: {filePath}");
                 return string.Empty;
             }
 
@@ -51,7 +50,7 @@ public class FileContentExtractor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error reading file: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Error reading file: {ex.Message}");
             return string.Empty;
         }
     }
@@ -86,7 +85,7 @@ public class FileContentExtractor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading image: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Error loading image: {ex.Message}");
             throw;
         }
     }
@@ -111,7 +110,7 @@ public class FileContentExtractor
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error extracting PDF text: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Error extracting PDF text: {ex.Message}");
             return string.Empty;
         }
     }

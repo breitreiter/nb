@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Configuration;
-using Spectre.Console;
 
 namespace nb.Utilities;
 
@@ -56,13 +55,13 @@ public class ConfigurationService
             }
             else
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: system.md file not found. Using default system prompt.[/]");
+                Console.WriteLine("Warning: system.md file not found. Using default system prompt.");
                 return "You are a helpful AI assistant.";
             }
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading system prompt: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Error loading system prompt: {ex.Message}");
             return "You are a helpful AI assistant.";
         }
     }

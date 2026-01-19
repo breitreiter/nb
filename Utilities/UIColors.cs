@@ -1,10 +1,12 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using PxSharp;
 
 namespace nb.Utilities;
 
 /// <summary>
 /// Centralized color scheme for consistent UI styling across the application.
+/// Colors are stored as hex codes (e.g., "#E06C75") for portability across
+/// different rendering backends (ANSI, Terminal.Gui, etc.)
 /// </summary>
 public static class UIColors
 {
@@ -36,26 +38,26 @@ public static class UIColors
         }
     }
 
-    // Spectre.Console markup colors - dynamic based on theme
-    public static string SpectreSuccess => _theme.Success;
-    public static string SpectreError => _theme.Error;
-    public static string SpectreWarning => _theme.Warning;
-    public static string SpectreInfo => _theme.Info;
-    public static string SpectreMuted => _theme.Muted;
-    public static string SpectreAccent => _theme.Accent;
-    public static string SpectreUserPrompt => _theme.UserPrompt;
-    public static string SpectreFakeTool => _theme.FakeTool;
+    // Semantic colors - hex format for portability
+    public static string Success => _theme.Success;
+    public static string Error => _theme.Error;
+    public static string Warning => _theme.Warning;
+    public static string Info => _theme.Info;
+    public static string Muted => _theme.Muted;
+    public static string Accent => _theme.Accent;
+    public static string UserPrompt => _theme.UserPrompt;
+    public static string FakeTool => _theme.FakeTool;
 
     private static Theme GetDefaultTheme() => new()
     {
-        Success = "deepskyblue4_1",
-        Error = "red",
-        Warning = "yellow",
-        Info = "white",
-        Muted = "grey",
-        Accent = "cadetblue_1",
-        UserPrompt = "greenyellow",
-        FakeTool = "mediumpurple2"
+        Success = "#005F87",    // Deep sky blue
+        Error = "#E06C75",      // Soft red
+        Warning = "#E5C07B",    // Warm yellow
+        Info = "#ABB2BF",       // Light gray (not pure white)
+        Muted = "#5C6370",      // Medium gray
+        Accent = "#56B6C2",     // Cyan/teal
+        UserPrompt = "#98C379", // Green
+        FakeTool = "#C678DD"    // Purple
     };
 
     private class Theme
@@ -71,35 +73,37 @@ public static class UIColors
     }
 
 
-    /* Native Console markup colors
-     * Spectre is a great library, but there are a few things it handles poorly,
-     * like double-width characters and some terminal-specific features. This 
-     * means we sometimes need to fall back to using native console writes.
-     *
-     * \u001b - The escape character (ESC)
-     * [ - Start of the control sequence
-     * 33 - The color code 
-     * m - End marker for color commands
-     * 
-     * Standard ANSI color codes:
-     * 30 = Black
-     * 31 = Red
-     * 32 = Green
-     * 33 = Yellow
-     * 34 = Blue
-     * 35 = Magenta
-     * 36 = Cyan
-     * 37 = White
-     * 90-97 = Bright versions (90=bright black/grey, 91=bright red, etc.)
-     * 
-     * Special codes:
-     * 0 = Reset all formatting
-     * 1 = Bold
-     * 4 = Underline
-     */
-    public const string NativeMuted = "\u001b[90m";
-    public const string NativeUserInput = "\u001b[92m";
-    public const string NativeReset = "\u001b[0m";
+    // ANSI escape code helpers
+    public const string AnsiReset = "\u001b[0m";
+
+    /// <summary>
+    /// Converts a hex color (e.g., "#E06C75") to an ANSI 24-bit foreground escape sequence.
+    /// </summary>
+    public static string ToAnsiFg(string hexColor)
+    {
+        var (r, g, b) = ParseHex(hexColor);
+        return $"\u001b[38;2;{r};{g};{b}m";
+    }
+
+    /// <summary>
+    /// Converts a hex color to an ANSI 24-bit background escape sequence.
+    /// </summary>
+    public static string ToAnsiBg(string hexColor)
+    {
+        var (r, g, b) = ParseHex(hexColor);
+        return $"\u001b[48;2;{r};{g};{b}m";
+    }
+
+    private static (int r, int g, int b) ParseHex(string hex)
+    {
+        hex = hex.TrimStart('#');
+        if (hex.Length != 6) return (128, 128, 128); // fallback gray
+        return (
+            Convert.ToInt32(hex[..2], 16),
+            Convert.ToInt32(hex[2..4], 16),
+            Convert.ToInt32(hex[4..6], 16)
+        );
+    }
 
     /*
      * Robot friend - loaded from bitmap

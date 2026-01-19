@@ -1,4 +1,3 @@
-using Spectre.Console;
 using nb.MCP;
 using nb.Utilities;
 
@@ -100,7 +99,7 @@ public class CommandProcessor
         var filePath = userInput.Substring(8).Trim();
         if (string.IsNullOrEmpty(filePath))
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Please specify a file path: /insert <filepath>[/]");
+            Console.WriteLine("Please specify a file path: /insert <filepath>");
             return CommandResult.Continue();
         }
 
@@ -117,13 +116,13 @@ public class CommandProcessor
             try
             {
                 var (description, imageData) = await _fileExtractor.ExtractImageAsync(filePath);
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Image from {fileName} added to conversation context[/]");
+                Console.WriteLine($"Image from {fileName} added to conversation context");
                 _conversationManager.AddImageToConversationHistory(description, imageData, GetImageMimeType(filePath));
                 return CommandResult.Continue();
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to load image: {Markup.Escape(ex.Message)}[/]");
+                Console.WriteLine($"Failed to load image: {ex.Message}");
                 return CommandResult.Continue();
             }
         }
@@ -132,7 +131,7 @@ public class CommandProcessor
         var fileContent = await _fileExtractor.ExtractFileContentAsync(filePath);
         if (!string.IsNullOrEmpty(fileContent))
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]File content from {fileName} added to conversation context[/]");
+            Console.WriteLine($"File content from {fileName} added to conversation context");
             var modifiedInput = $"Here is the content from file '{fileName}':\n\n{fileContent}";
             return CommandResult.AddToHistory(modifiedInput);
         }
@@ -145,7 +144,7 @@ public class CommandProcessor
         var promptName = userInput.Substring(8).Trim();
         if (string.IsNullOrEmpty(promptName))
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Please specify a prompt name: /prompt <name>[/]");
+            Console.WriteLine("Please specify a prompt name: /prompt <name>");
             return CommandResult.Continue();
         }
 
@@ -171,7 +170,7 @@ public class CommandProcessor
         var providerName = userInput.Substring(10).Trim();
         if (string.IsNullOrEmpty(providerName))
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Please specify a provider name: /provider <name>[/]");
+            Console.WriteLine("Please specify a provider name: /provider <name>");
             return;
         }
 
@@ -180,7 +179,7 @@ public class CommandProcessor
 
         if (newClient == null)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to switch to provider '{providerName}'[/]");
+            Console.WriteLine($"Failed to switch to provider '{providerName}'");
             return;
         }
 
@@ -189,15 +188,15 @@ public class CommandProcessor
 
     private void DisplayHelp()
     {
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Available commands:[/]");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]exit[/] - Quit the application");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/clear[/] - Clear conversation history");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/insert <filepath>[/] - Insert file content into conversation context (PDF, text, or images: JPG, PNG)");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/prompts[/] - List available MCP prompts");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/prompt <name>[/] - Invoke an MCP prompt");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/providers[/] - List all available providers");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/provider <name>[/] - Switch to a different provider");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]?[/] - Show this help");
+        Console.WriteLine("Available commands:");
+        Console.WriteLine("  exit                  - Quit the application");
+        Console.WriteLine("  /clear                - Clear conversation history");
+        Console.WriteLine("  /insert <filepath>    - Insert file content (PDF, text, images)");
+        Console.WriteLine("  /prompts              - List available MCP prompts");
+        Console.WriteLine("  /prompt <name>        - Invoke an MCP prompt");
+        Console.WriteLine("  /providers            - List all available providers");
+        Console.WriteLine("  /provider <name>      - Switch to a different provider");
+        Console.WriteLine("  ?                     - Show this help");
     }
     
     private string GetImageMimeType(string filePath)

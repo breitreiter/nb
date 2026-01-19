@@ -1,0 +1,47 @@
+NotaBene 1.0                   [Ctrl+T] Toggle Tools Log [Ctrl+C] Cancel Request
+
+
+You: Can you search for recent           [12:33:42] bash
+developments in quantum computing error  command: cat system_metrics.json
+correction?                              exit_code: 0
+                                         duration: 0.03s
+Assistant: I'll search for that          ✓ complete
+information.
+                                         [12:34:56] web_search
+[12:34:21] web_search: quantum           query: "quantum computing error 
+computing error correction 2025          correction 2025"
+                                         results: 8 sources
+Based on recent findings, there have     duration: 1.2s
+been significant breakthroughs in        ✓ complete
+surface code implementations. The 
+primary challenge remains maintaining    [12:35:12] web_fetch
+qubit coherence times while scaling to   url: https://arxiv.org/abs/2501.12847
+larger systems. Recent work at Google    size: 847 KB
+and IBM has demonstrated error rates     duration: 0.8s
+below the threshold needed for quantum   ⚡ executing...
+advantage in specific applications.
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+> 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+✓ complete
+
+[12:35:18] web_search
+query: "quantum error correction energy costs"
+results: 12 sources
+duration: 1.4s

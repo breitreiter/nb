@@ -1,0 +1,25 @@
+[12:33:42] bash
+command: cat system_metrics.json
+
+exit_code: 0
+duration: 0.03s
+✓ complete
+
+[12:34:56] web_search
+query: "quantum computing error correction 2025"
+results: 8 sources
+duration: 1.2s
+✓ complete
+
+[12:35:12] web_fetch
+url: https://arxiv.org/abs/2501.12847
+size: 847 KB
+duration: 0.8s 
+✓ complete
+
+[12:35:18] web_search
+query: "quantum error correction energy costs"
+results: 12 sources
+duration: 1.4s
+⚡ executing...
+▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁

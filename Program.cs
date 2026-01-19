@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.AI;
-using Spectre.Console;
+using Microsoft.Extensions.AI;
 using nb.Providers;
 using nb.MCP;
 using nb.Shell;
@@ -62,7 +61,7 @@ public class Program
         {
             if (!File.Exists(_systemPromptOverride))
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: System prompt file not found: {Markup.Escape(_systemPromptOverride)}[/]");
+                ConsoleHelper.WriteError($"Error: System prompt file not found: {_systemPromptOverride}");
                 Environment.Exit(1);
             }
             return File.ReadAllText(_systemPromptOverride);
@@ -126,7 +125,7 @@ public class Program
         _client = _providerManager.TryCreateChatClient(config)!;
         if (_client == null)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to initialize chat client. Please check your configuration.[/]");
+            Console.WriteLine("Failed to initialize chat client. Please check your configuration.");
             _providerManager.ShowProviderStatus(config);
             Environment.Exit(1);
         }
@@ -200,34 +199,32 @@ public class Program
         var configuredProviders = _providerManager.GetConfiguredProviders(config);
         var currentProvider = _conversationManager.GetCurrentProvider();
         var providersList = string.Join(", ", configuredProviders.Select(p =>
-            p == currentProvider ? $"[{UIColors.SpectreInfo}]{p}[/]" : $"[{UIColors.SpectreMuted}]{p}[/]"));
+            p == currentProvider ? $"*{p}*" : p));
 
         // Get connected MCP servers
         var mcpServers = _mcpManager.GetConnectedServerNames();
         var mcpList = mcpServers.Count > 0
-            ? string.Join(", ", mcpServers.Select(s => $"[{UIColors.SpectreMuted}]{s}[/]"))
-            : "[dim]none[/]";
+            ? string.Join(", ", mcpServers)
+            : "none";
 
         Console.Write(" " + UIColors.robot_img_1);
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]AI: [/]{providersList}");
+        Console.WriteLine($"  AI: {providersList}");
         Console.Write(" " + UIColors.robot_img_2);
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
+        Console.WriteLine($"  MCP: {mcpList}");
         Console.Write(" " + UIColors.robot_img_3);
-        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
+        Console.WriteLine($"  NotaBene 0.9.1b | 'exit' to quit, '?' for help");
         
         while (true)
         {
             // Add visual separator before user input
-            string divider = string.Concat(Enumerable.Repeat("🞌", Console.WindowWidth));
-            Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
+            string divider = new string('-', Math.Min(Console.WindowWidth, 80));
+            Console.WriteLine(divider);
 
-            AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]You:[/] ");
-            Console.Write(UIColors.NativeUserInput);
+            Console.Write("You: ");
             var userInput = Console.ReadLine();
-            Console.Write(UIColors.NativeReset);
-            
+
             // Add visual separator after user input
-            Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
+            Console.WriteLine(divider);
 
             if (string.IsNullOrWhiteSpace(userInput))
                 continue;

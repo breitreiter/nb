@@ -1,8 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
-using Spectre.Console;
-using nb.Utilities;
 using ModelContextProtocol.Protocol;
 
 namespace nb.MCP;
@@ -179,7 +177,7 @@ public class McpManager : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP error: {serverName} - {Markup.Escape(ex.Message)}[/]");
+                    Console.WriteLine($"MCP error: {serverName} - {ex.Message}");
                 }
             }
         }

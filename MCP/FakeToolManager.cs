@@ -1,10 +1,8 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
-using Spectre.Console;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
-using nb.Utilities;
 
 namespace nb.MCP;
 
@@ -46,7 +44,7 @@ public class FakeToolManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: Failed to load fake tools: {Markup.Escape(ex.Message)}[/]");
+            Console.WriteLine($"Warning: Failed to load fake tools: {ex.Message}");
             return new FakeToolLoadResult { Success = false, ToolsLoaded = 0, ToolsOverridden = 0 };
         }
     }
