@@ -57,7 +57,7 @@ public class CommandClassifierTests
 
     // Move operations
     [Theory]
-    [InlineData("mv old.txt new.txt", CommandCategory.Move, "old.txt → new.txt")]
+    [InlineData("mv old.txt new.txt", CommandCategory.Move, "old.txt -> new.txt")]
     public void Classify_MoveCommands_ReturnsMoveCategory(string command, CommandCategory expectedCategory, string expectedDisplay)
     {
         var result = CommandClassifier.Classify(command);
@@ -69,7 +69,7 @@ public class CommandClassifierTests
 
     // Copy operations
     [Theory]
-    [InlineData("cp src.txt dst.txt", CommandCategory.Copy, "src.txt → dst.txt")]
+    [InlineData("cp src.txt dst.txt", CommandCategory.Copy, "src.txt -> dst.txt")]
     public void Classify_CopyCommands_ReturnsCopyCategory(string command, CommandCategory expectedCategory, string expectedDisplay)
     {
         var result = CommandClassifier.Classify(command);

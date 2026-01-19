@@ -184,7 +184,7 @@ public class ConversationManager
                                         }
                                     }
 
-                                    Console.WriteLine($"• calling {functionCall.Name}");
+                                    Console.WriteLine($"calling {functionCall.Name}");
                                     try
                                     {
                                         var result = await resourceTool.InvokeAsync(arguments).AsTask().WaitAsync(McpToolTimeout);
@@ -239,7 +239,7 @@ public class ConversationManager
                                         }
                                     }
 
-                                    Console.WriteLine($"• calling {functionCall.Name}");
+                                    Console.WriteLine($"calling {functionCall.Name}");
                                     var result = await bashSetCwdTool.InvokeAsync(arguments);
                                     var resultString = result?.ToString() ?? string.Empty;
                                     allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
@@ -343,7 +343,7 @@ public class ConversationManager
                                         }
                                     }
 
-                                    Console.WriteLine($"• calling {functionCall.Name}");
+                                    Console.WriteLine($"calling {functionCall.Name}");
                                     try
                                     {
                                         var result = await mcpTool.InvokeAsync(arguments).AsTask().WaitAsync(McpToolTimeout);
@@ -413,26 +413,21 @@ public class ConversationManager
 
     private void ShowSpinner()
     {
-        // Skip spinner if stdout is redirected (e.g., piped to file)
+        // Skip if stdout is redirected (e.g., piped to file)
         if (Console.IsOutputRedirected)
             return;
-            
-        var spinnerChars = new char[] { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' };
-        int index = 0;
-        
+
         try
         {
-            Console.CursorVisible = false;
-            
+            Console.Write("Thinking...");
+
             while (!_stopSpinner)
             {
-                Console.Write($"\r{spinnerChars[index]} Thinking...");
-                index = (index + 1) % spinnerChars.Length;
                 Thread.Sleep(100);
             }
-            
-            Console.Write("\r                    \r"); // Clear the spinner line
-            Console.CursorVisible = true;
+
+            // Clear the line
+            Console.Write("\r            \r");
         }
         catch
         {
@@ -455,7 +450,7 @@ public class ConversationManager
             // Check if pre-approved via --approve flag
             if (_approvalPatterns.IsApproved(command))
             {
-                Console.WriteLine($"• bash (pre-approved): {classified.DisplayText}");
+                Console.WriteLine($"bash (pre-approved): {classified.DisplayText}");
                 return await ExecuteBashCommand(callId, command);
             }
 

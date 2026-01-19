@@ -124,7 +124,7 @@ public static class UIColors
             return image.GetAnsiLines();
         }
 
-        // Fallback if resource not found
-        return ["[grey58]▄▄▄▄▄[/]", "[grey50]▀▀▄▀▀[/]", "[grey58]▄▄▄▄▄[/]"];
+        // Fallback if resource not found (plain ASCII)
+        return ["[nb]", "   ", "[nb]"];
     }
 }

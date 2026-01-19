@@ -1,12 +1,26 @@
 # nb Terminal Integration Proposal
 
-Status: Implemented
+Status: Needs Work
 
 ## Overview
 
 Add a native shell execution tool to nb that provides filesystem and shell access. This enables use cases like AI-assisted troubleshooting, where the model can run diagnostic commands and analyze results without tedious copy-paste loops.
 
 Implemented as a native tool (not MCP) so nb has full control over approval UX - specifically, showing the actual command to be executed rather than just a tool name.
+
+## Shortcomings and Opportunities for Improvement
+
+Right now, the command approval process is pretty clunky. It was borrowed uncritically from MCP approvals, where it was adequate to handle occasional calls to tools.
+
+This is falling apart now, because:
+- In terminal-connected conversations, it's not unusual for a single conversation turn to include 4-8 tool calls. Approving each of these is tedious.
+- The UX for calls and approvals is not great. Each call is four lines: intent, literal shell command, approval, exit code. This is hard to scan and creates huge blocks of noise in the conversation history. All the information is valuable, but the presentation needs love.
+- Currently we eat the output of the command. This is fine when the user doesn't care or understand what the model is doing. However, if the user wishes to be an active participant, there is no way to know what information the model is acting on.
+
+In a GUI, we could use tricks like progressive disclosure to selectively show/hide this information. We would also have access to typographical treatments to establish information hierarchies. In the console world, we have:
+- Font color. On the plus side, CLI users are a bit more open to vibrant colors, so color can actually be pretty powerful here.
+- Indentation and box-drawing characters. Given the tight viewport we're working with, we need to use these features very cautiously. 
+- Ephemeral content. This includes classic backspace-animation, but also more sophisticated ncurses-style presentations.
 
 ## System Prompt Context
 

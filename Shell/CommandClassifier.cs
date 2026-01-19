@@ -133,7 +133,7 @@ public static partial class CommandClassifier
                 var dst = parts[^1];
                 return new ClassifiedCommand(
                     CommandCategory.Move,
-                    $"{src} → {dst}",
+                    $"{src} -> {dst}",
                     true,
                     dangerReason ?? "moves files");
             }
@@ -149,7 +149,7 @@ public static partial class CommandClassifier
                 var dst = parts[^1];
                 return new ClassifiedCommand(
                     CommandCategory.Copy,
-                    $"{src} → {dst}",
+                    $"{src} -> {dst}",
                     isDangerous,
                     dangerReason);
             }
