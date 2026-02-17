@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.AI;
+﻿using System.Text.Json;
+using Microsoft.Extensions.AI;
 using Spectre.Console;
 using nb.Providers;
 using nb.MCP;
@@ -26,6 +27,8 @@ public class Program
     private static string? _systemPromptOverride = null;
     private static bool _noBash = false;
     private static bool _verbose = false;
+    private static bool _dumpTools = false;
+    private static bool _showHelp = false;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -94,6 +97,14 @@ public class Program
             {
                 _verbose = true;
             }
+            else if (args[i] == "--dump-tools")
+            {
+                _dumpTools = true;
+            }
+            else if (args[i] == "--help" || args[i] == "-h")
+            {
+                _showHelp = true;
+            }
             else
             {
                 remainingArgs.Add(args[i]);
@@ -107,6 +118,37 @@ public class Program
     {
         // Parse flags (--approve, --system) before processing other args
         var remainingArgs = ParseFlags(args);
+
+        if (_showHelp)
+        {
+            Console.WriteLine("Usage: nb [options] [prompt]");
+            Console.WriteLine();
+            Console.WriteLine("Options:");
+            Console.WriteLine("  --help, -h              Show this help message");
+            Console.WriteLine("  --system <file>         Load system prompt from file");
+            Console.WriteLine("  --approve <pattern>     Pre-approve shell commands matching pattern");
+            Console.WriteLine("  --nobash                Disable shell tool");
+            Console.WriteLine("  --verbose               Enable verbose output");
+            Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
+            Console.WriteLine();
+            Console.WriteLine("With no arguments, starts interactive mode.");
+            Console.WriteLine("With a prompt argument, runs in single-shot mode.");
+            Console.WriteLine("Stdin is accepted and included as context.");
+            return;
+        }
+
+        // --dump-tools: connect to MCP servers, write manifest, exit
+        if (_dumpTools)
+        {
+            await _mcpManager.InitializeAsync(showBanners: false);
+            var manifest = _mcpManager.BuildToolManifest();
+            var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
+            var outputPath = Path.Combine(Directory.GetCurrentDirectory(), "mcp-tools.json");
+            await File.WriteAllTextAsync(outputPath, json);
+            Console.Error.WriteLine(outputPath);
+            _mcpManager.Dispose();
+            return;
+        }
 
         var config = _configurationService.GetConfiguration();
 

@@ -14,6 +14,7 @@ public class McpManager : IDisposable
     private readonly List<McpClientPrompt> _mcpPrompts = new();
     private readonly List<ResourceInfo> _mcpResources = new();
     private readonly List<string> _connectedServerNames = new();
+    private readonly Dictionary<string, List<AIFunction>> _toolsByServer = new();
     private readonly HashSet<string> _alwaysAllowTools = new();
 
     public async Task InitializeAsync(bool showBanners = true)
@@ -115,6 +116,7 @@ public class McpManager : IDisposable
 
                     // Get tools from this client and namespace them
                     var tools = await client.ListToolsAsync();
+                    _toolsByServer[serverName] = new List<AIFunction>(tools);
                     foreach (var tool in tools)
                     {
                         // Namespace the tool: serverName.toolName (dot separator for OpenAI compatibility)
@@ -212,6 +214,31 @@ public class McpManager : IDisposable
     public IReadOnlyList<ResourceInfo> GetResources()
     {
         return _mcpResources.AsReadOnly();
+    }
+
+    public object BuildToolManifest()
+    {
+        var servers = new Dictionary<string, object>();
+        foreach (var (serverName, tools) in _toolsByServer)
+        {
+            servers[serverName] = new
+            {
+                tools = tools.Select(t =>
+                {
+                    var entry = new Dictionary<string, object>
+                    {
+                        ["name"] = t.Name,
+                        ["description"] = t.Description ?? ""
+                    };
+                    if (t.JsonSchema.ValueKind != JsonValueKind.Undefined)
+                    {
+                        entry["inputSchema"] = t.JsonSchema;
+                    }
+                    return entry;
+                }).ToArray()
+            };
+        }
+        return new { servers };
     }
 
     public async Task<string> ReadResourceAsync(string uri)

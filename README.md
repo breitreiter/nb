@@ -132,6 +132,7 @@ Patterns support globs (`cat *` matches `cat file.txt`, `cat /etc/hosts`, etc.).
 | `--system <path>` | Load system prompt from a custom file |
 | `--nobash` | Disable shell tools (bash, write_file, set_cwd) |
 | `--verbose` | Log tool call inputs and outputs (useful for debugging) |
+| `--dump-tools` | Write MCP tool manifest to `mcp-tools.json` and exit |
 
 Example combining flags:
 ```bash

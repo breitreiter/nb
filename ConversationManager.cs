@@ -657,18 +657,65 @@ public class ConversationManager
     {
         try
         {
-            // Convert conversation history to a serializable format
-            var serializableHistory = _conversationHistory.Select(msg => new
+            var serializableHistory = new List<object>();
+
+            foreach (var msg in _conversationHistory)
             {
-                Type = msg.Role.Value switch
+                var type = msg.Role.Value switch
                 {
                     "user" => "UserChatMessage",
                     "assistant" => "AssistantChatMessage",
                     "system" => "SystemChatMessage",
+                    "tool" => "ToolChatMessage",
                     _ => msg.Role.Value
-                },
-                Content = ExtractMessageContent(msg)
-            }).ToArray();
+                };
+
+                if (type == "AssistantChatMessage")
+                {
+                    var toolCalls = msg.Contents?.OfType<FunctionCallContent>().ToList();
+                    if (toolCalls != null && toolCalls.Count > 0)
+                    {
+                        serializableHistory.Add(new
+                        {
+                            Type = type,
+                            Content = ExtractMessageContent(msg),
+                            ToolCalls = toolCalls.Select(tc => new
+                            {
+                                tc.CallId,
+                                tc.Name,
+                                Arguments = tc.Arguments != null
+                                    ? new Dictionary<string, object?>(tc.Arguments)
+                                    : null
+                            }).ToList()
+                        });
+                        continue;
+                    }
+                }
+                else if (type == "ToolChatMessage")
+                {
+                    var toolResults = msg.Contents?.OfType<FunctionResultContent>().ToList();
+                    if (toolResults != null && toolResults.Count > 0)
+                    {
+                        serializableHistory.Add(new
+                        {
+                            Type = type,
+                            Content = "",
+                            ToolResults = toolResults.Select(tr => new
+                            {
+                                tr.CallId,
+                                Result = tr.Result?.ToString() ?? ""
+                            }).ToList()
+                        });
+                        continue;
+                    }
+                }
+
+                serializableHistory.Add(new
+                {
+                    Type = type,
+                    Content = ExtractMessageContent(msg)
+                });
+            }
 
             var json = JsonSerializer.Serialize(serializableHistory, new JsonSerializerOptions { WriteIndented = true });
             await File.WriteAllTextAsync(filePath, json);
@@ -692,7 +739,7 @@ public class ConversationManager
             // Clear existing history except system message (keep the first message if it's System role)
             var systemMessage = _conversationHistory.FirstOrDefault(msg => msg.Role == ChatRole.System);
             _conversationHistory.Clear();
-            
+
             if (systemMessage != null)
             {
                 _conversationHistory.Add(systemMessage);
@@ -704,22 +751,76 @@ public class ConversationManager
                 foreach (var item in historyData)
                 {
                     var type = item.GetProperty("Type").GetString();
-                    var content = item.GetProperty("Content").GetString();
+                    var content = item.TryGetProperty("Content", out var contentProp) ? contentProp.GetString() : "";
 
-                if (string.IsNullOrEmpty(content) || type == "SystemChatMessage")
-                    continue; // Skip empty content or system messages (already handled)
+                    if (type == "SystemChatMessage")
+                        continue; // Skip system messages (already handled)
 
-                switch (type)
-                {
-                    case "UserChatMessage":
-                        _conversationHistory.Add(new AIChatMessage(ChatRole.User, content));
-                        break;
-                    case "AssistantChatMessage":
-                        _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, content));
-                        break;
-                    // Note: We skip ToolChatMessage as they're complex and transient
+                    switch (type)
+                    {
+                        case "UserChatMessage":
+                            if (!string.IsNullOrEmpty(content))
+                                _conversationHistory.Add(new AIChatMessage(ChatRole.User, content));
+                            break;
+
+                        case "AssistantChatMessage":
+                            if (item.TryGetProperty("ToolCalls", out var toolCallsProp) && toolCallsProp.ValueKind == JsonValueKind.Array)
+                            {
+                                var contents = new List<AIContent>();
+                                if (!string.IsNullOrEmpty(content))
+                                    contents.Add(new TextContent(content));
+
+                                foreach (var tc in toolCallsProp.EnumerateArray())
+                                {
+                                    var callId = tc.GetProperty("CallId").GetString() ?? "";
+                                    var name = tc.GetProperty("Name").GetString() ?? "";
+                                    IDictionary<string, object?>? arguments = null;
+
+                                    if (tc.TryGetProperty("Arguments", out var argsProp) && argsProp.ValueKind == JsonValueKind.Object)
+                                    {
+                                        arguments = new Dictionary<string, object?>();
+                                        foreach (var kvp in argsProp.EnumerateObject())
+                                        {
+                                            arguments[kvp.Name] = kvp.Value.ValueKind switch
+                                            {
+                                                JsonValueKind.String => kvp.Value.GetString(),
+                                                JsonValueKind.Number => kvp.Value.GetRawText(),
+                                                JsonValueKind.True => true,
+                                                JsonValueKind.False => false,
+                                                JsonValueKind.Null => null,
+                                                _ => kvp.Value.GetRawText()
+                                            };
+                                        }
+                                    }
+
+                                    contents.Add(new FunctionCallContent(callId, name, arguments));
+                                }
+
+                                _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, contents));
+                            }
+                            else if (!string.IsNullOrEmpty(content))
+                            {
+                                _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, content));
+                            }
+                            break;
+
+                        case "ToolChatMessage":
+                            if (item.TryGetProperty("ToolResults", out var toolResultsProp) && toolResultsProp.ValueKind == JsonValueKind.Array)
+                            {
+                                var resultContents = new List<AIContent>();
+                                foreach (var tr in toolResultsProp.EnumerateArray())
+                                {
+                                    var callId = tr.GetProperty("CallId").GetString() ?? "";
+                                    var result = tr.GetProperty("Result").GetString() ?? "";
+                                    resultContents.Add(new FunctionResultContent(callId, result));
+                                }
+
+                                if (resultContents.Count > 0)
+                                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, resultContents));
+                            }
+                            break;
+                    }
                 }
-            }
             }
         }
         catch (Exception ex)
