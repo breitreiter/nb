@@ -37,7 +37,7 @@ public class CommandProcessor
     {
         var command = userInput.Trim().ToLowerInvariant();
 
-        if (command == "exit")
+        if (command == "exit" || command == "/quit")
         {
             return CommandResult.Exit();
         }
