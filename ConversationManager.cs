@@ -269,8 +269,11 @@ public class ConversationManager
                                 var argumentsJson = JsonSerializer.Serialize(displayArgs, new JsonSerializerOptions { WriteIndented = false });
 
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {Markup.Escape(argumentsJson)}[/]");
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(fakeTool.Response)}[/]");
+                                if (!_verbose)
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {Markup.Escape(argumentsJson)}[/]");
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(fakeTool.Response)}[/]");
+                                }
 
                                 allToolResults.Add(new FunctionResultContent(functionCall.CallId, fakeTool.Response));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, fakeTool.Response);
