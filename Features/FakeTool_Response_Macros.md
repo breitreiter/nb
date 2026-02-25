@@ -103,11 +103,11 @@ allToolResults.Add(new FunctionResultContent(functionCall.CallId, expandedRespon
 The display/logging should also show the expanded response, not the template.
 
 ### Parsing Approach
-Simple regex: `\{\{\$(\w+)(?:\(([^)]*)\))?\}\}` captures:
-- Group 1: macro name (e.g., `guid`, `int`, `param.username`, `counter`)
+Simple regex: `\{\{\$(\w+(?:\.\w+)*)(?:\(([^)]*)\))?\}\}` captures:
+- Group 1: macro name including dotted path (e.g., `guid`, `int`, `param.username`, `counter`)
 - Group 2: optional args (e.g., `1,100`, `tickets`, `pending,processing,queued`)
 
-For `$param.X`, split on `.` — group 1 is `param` and the rest is the parameter path.
+For `$param.X`, split group 1 on `.` — first segment is `param`, the rest is the parameter path.
 
 ### No New Dependencies
 All macros use `System.Guid`, `System.Random`, `DateTime.UtcNow` — nothing external needed.

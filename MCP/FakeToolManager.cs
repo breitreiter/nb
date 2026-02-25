@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 using YamlDotNet.Serialization;
@@ -10,8 +11,11 @@ namespace nb.MCP;
 
 public class FakeToolManager
 {
+    private static readonly Regex MacroRegex = new(@"\{\{\$(\w+(?:\.\w+)*)(?:\(([^)]*)\))?\}\}", RegexOptions.Compiled);
+
     private readonly List<FakeTool> _fakeTools = new();
     private readonly List<string> _overriddenTools = new();
+    private readonly Dictionary<string, int> _counters = new();
 
     public async Task<FakeToolLoadResult> LoadFakeToolsAsync(string filePath = "fake-tools.yaml")
     {
@@ -84,6 +88,73 @@ public class FakeToolManager
     public FakeTool? GetFakeTool(string name)
     {
         return _fakeTools.FirstOrDefault(t => t.Name == name);
+    }
+
+    public string ExpandMacros(string template, IDictionary<string, object?>? arguments)
+    {
+        return MacroRegex.Replace(template, match =>
+        {
+            var name = match.Groups[1].Value;
+            var args = match.Groups[2].Success ? match.Groups[2].Value : null;
+
+            // Handle dotted names - first segment is the macro type
+            var segments = name.Split('.', 2);
+            var macroType = segments[0];
+
+            return macroType switch
+            {
+                "guid" => Guid.NewGuid().ToString(),
+                "timestamp" => DateTime.UtcNow.ToString("o"),
+                "int" => ExpandInt(args),
+                "counter" => ExpandCounter(name),
+                "param" => ExpandParam(segments.Length > 1 ? segments[1] : args, arguments),
+                "choice" => ExpandChoice(args),
+                "random_string" => ExpandRandomString(args),
+                _ => match.Value // Leave unrecognized macros as literal text
+            };
+        });
+    }
+
+    private static string ExpandInt(string? args)
+    {
+        if (args != null)
+        {
+            var parts = args.Split(',', 2);
+            if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out var min) && int.TryParse(parts[1].Trim(), out var max))
+                return Random.Shared.Next(min, max).ToString();
+        }
+        return Random.Shared.Next().ToString();
+    }
+
+    private string ExpandCounter(string name)
+    {
+        _counters.TryGetValue(name, out var current);
+        _counters[name] = ++current;
+        return current.ToString();
+    }
+
+    private static string ExpandParam(string? paramName, IDictionary<string, object?>? arguments)
+    {
+        if (paramName == null || arguments == null)
+            return "";
+        return arguments.TryGetValue(paramName, out var value) ? value?.ToString() ?? "" : "";
+    }
+
+    private static string ExpandChoice(string? args)
+    {
+        if (args == null) return "";
+        var choices = args.Split(',');
+        return choices[Random.Shared.Next(choices.Length)].Trim();
+    }
+
+    private static string ExpandRandomString(string? args)
+    {
+        var length = 8;
+        if (args != null && int.TryParse(args.Trim(), out var parsed))
+            length = parsed;
+
+        const string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        return new string(Enumerable.Range(0, length).Select(_ => chars[Random.Shared.Next(chars.Length)]).ToArray());
     }
 
     private static AIFunction CreateAIFunctionFromFakeTool(FakeTool fakeTool)

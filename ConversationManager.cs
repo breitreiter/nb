@@ -271,15 +271,17 @@ public class ConversationManager
                                 }
                                 var argumentsJson = JsonSerializer.Serialize(displayArgs, new JsonSerializerOptions { WriteIndented = false });
 
+                                var expandedResponse = _fakeToolManager.ExpandMacros(fakeTool.Response, displayArgs);
+
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
                                 if (!_verbose)
                                 {
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {Markup.Escape(argumentsJson)}[/]");
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(fakeTool.Response)}[/]");
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(expandedResponse)}[/]");
                                 }
 
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, fakeTool.Response));
-                                LogToolCall(functionCall.Name, functionCall.Arguments, fakeTool.Response);
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, expandedResponse));
+                                LogToolCall(functionCall.Name, functionCall.Arguments, expandedResponse);
                             }
                             else
                             {
