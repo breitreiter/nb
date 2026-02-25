@@ -1,6 +1,6 @@
 # Fake Tool Response Macros
 
-**Status:** Proposed
+**Status:** Implemented
 **Problem:** Fake tool responses are static strings. When a model calls `CreateThing()` twice, it gets the same ID back both times, causing confusion and angry loops. Responses need just enough dynamism to keep the model happy without building a real backend.
 
 ## Macro Syntax

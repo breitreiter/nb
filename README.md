@@ -180,9 +180,29 @@ The `alwaysAllow` array specifies tools that skip approval prompts. Use `["*"]` 
 The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools and dynamically generated prompts from markdown files.
 
 ### Fake Tools
-nb will read fake-tools.yaml and treat those definitions as normal tools. When the model requests a fake tool, nb will return the static response configured in the yaml file. Refer to fake-tools.example.yaml for the expected format.
+nb will read `fake-tools.yaml` and treat those definitions as normal tools. When the model requests a fake tool, nb will return the configured response. Refer to `fake-tools.example.yaml` for the expected format.
 
 Fake tool definitions will override MCP definitions. This is by design, to allow you to fake destructive actions or quickly tune tool descriptions for alignment testing.
+
+#### Response Macros
+Responses support macros for dynamic values, so each invocation produces fresh data instead of identical static strings:
+
+| Macro | Description | Example |
+|-------|-------------|---------|
+| `{{$guid}}` | Random UUID | `a3b1c2d4-...` |
+| `{{$timestamp}}` | Current UTC time (ISO 8601) | `2026-02-25T14:30:00Z` |
+| `{{$int}}` | Random integer | `483291` |
+| `{{$int(1,100)}}` | Random integer in range | `42` |
+| `{{$counter.name}}` | Auto-incrementing counter | `1`, `2`, `3`... |
+| `{{$param.fieldname}}` | Echo back a tool argument | value of `fieldname` |
+| `{{$choice(a,b,c)}}` | Random pick from list | `b` |
+| `{{$random_string}}` | Random alphanumeric (8 chars) | `xK9mPq2r` |
+| `{{$random_string(16)}}` | Random alphanumeric (custom length) | `xK9mPq2rT5nLw8yZ` |
+
+Example response template:
+```yaml
+response: '{"id": "{{$guid}}", "status": "{{$choice(pending,active,completed)}}", "created_at": "{{$timestamp}}"}'
+```
 
 ## Theming
 
