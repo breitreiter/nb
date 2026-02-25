@@ -73,7 +73,7 @@ The application supports these built-in commands (intercepted before LLM):
 - New commands should follow the existing pattern using `CommandResult` return types
 - Configuration is loaded from `appsettings.json`
 - MCP clients are initialized on startup and disposed on exit
-- Tool calling safety: Max 3 tool calls per message to prevent infinite loops
+- Tool calling safety: Configurable max tool calls per message via `MaxToolCalls` in appsettings.json (default: 25)
 - **Directory-Based History**: Automatically persisted to `.nb_conversation_history.json` in current working directory
 - **Project Context**: Each directory maintains its own conversation history, perfect for project-specific AI assistance
 - **Multimodal Support**: Image insertion (JPG, PNG) with DataContent handling for vision-capable models

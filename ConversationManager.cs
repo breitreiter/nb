@@ -11,7 +11,7 @@ namespace nb;
 
 public class ConversationManager
 {
-    private const int MAX_TOOL_CALLS_PER_MESSAGE = 10;
+    private const int DEFAULT_MAX_TOOL_CALLS = 25;
     private static readonly TimeSpan McpToolTimeout = TimeSpan.FromSeconds(60);
 
     private IChatClient _client;
@@ -21,6 +21,7 @@ public class ConversationManager
     private readonly WriteFileTool? _writeFileTool;
     private readonly ApprovalPatterns _approvalPatterns;
     private readonly bool _verbose;
+    private readonly int _maxToolCalls;
     private readonly List<AIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
     private int _toolCallCount = 0;
@@ -34,7 +35,8 @@ public class ConversationManager
         WriteFileTool? writeFileTool,
         ApprovalPatterns approvalPatterns,
         string providerName = "",
-        bool verbose = false)
+        bool verbose = false,
+        int maxToolCalls = DEFAULT_MAX_TOOL_CALLS)
     {
         _client = client;
         _mcpManager = mcpManager;
@@ -44,6 +46,7 @@ public class ConversationManager
         _approvalPatterns = approvalPatterns;
         _currentProviderName = providerName;
         _verbose = verbose;
+        _maxToolCalls = maxToolCalls;
     }
 
     public void SwitchProvider(IChatClient newClient, string providerName)
@@ -148,7 +151,7 @@ public class ConversationManager
             if (hasToolCalls)
             {
                 // Check if we've exceeded max tool calls
-                if (_toolCallCount >= MAX_TOOL_CALLS_PER_MESSAGE)
+                if (_toolCallCount >= _maxToolCalls)
                 {
                     var limitMessage = "I've reached the maximum number of tool calls for this message. Let me provide a response with the information I have.";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, limitMessage));

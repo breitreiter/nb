@@ -188,8 +188,9 @@ public class Program
         }
 
         // Initialize conversation manager with dependencies
+        var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _writeFileTool, _approvalPatterns, activeProviderName, _verbose);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _writeFileTool, _approvalPatterns, activeProviderName, _verbose, maxToolCalls);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
