@@ -18,9 +18,14 @@ public class ConversationManager
     private readonly McpManager _mcpManager;
     private readonly FakeToolManager _fakeToolManager;
     private readonly BashTool? _bashTool;
+    private readonly ReadFileTool? _readFileTool;
     private readonly WriteFileTool? _writeFileTool;
+    private readonly EditFileTool? _editFileTool;
+    private readonly FindFilesTool? _findFilesTool;
+    private readonly GrepTool? _grepTool;
     private readonly ApprovalPatterns _approvalPatterns;
     private readonly bool _verbose;
+    private readonly bool _trustMode;
     private readonly int _maxToolCalls;
     private readonly List<AIChatMessage> _conversationHistory = new();
     private bool _stopSpinner = false;
@@ -32,21 +37,31 @@ public class ConversationManager
         McpManager mcpManager,
         FakeToolManager fakeToolManager,
         BashTool? bashTool,
+        ReadFileTool? readFileTool,
         WriteFileTool? writeFileTool,
+        EditFileTool? editFileTool,
+        FindFilesTool? findFilesTool,
+        GrepTool? grepTool,
         ApprovalPatterns approvalPatterns,
         string providerName = "",
         bool verbose = false,
+        bool trustMode = false,
         int maxToolCalls = DEFAULT_MAX_TOOL_CALLS)
     {
         _client = client;
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
         _bashTool = bashTool;
+        _readFileTool = readFileTool;
         _writeFileTool = writeFileTool;
+        _editFileTool = editFileTool;
+        _findFilesTool = findFilesTool;
+        _grepTool = grepTool;
         _approvalPatterns = approvalPatterns;
         _currentProviderName = providerName;
         _verbose = verbose;
-        _maxToolCalls = maxToolCalls;
+        _trustMode = trustMode;
+        _maxToolCalls = trustMode ? Math.Max(maxToolCalls, 50) : maxToolCalls;
     }
 
     public void SwitchProvider(IChatClient newClient, string providerName)
@@ -118,9 +133,29 @@ public class ConversationManager
                 mcpTools.Add(_bashTool.CreateSetCwdTool());
             }
 
+            if (_readFileTool != null)
+            {
+                mcpTools.Add(_readFileTool.CreateTool());
+            }
+
             if (_writeFileTool != null)
             {
                 mcpTools.Add(_writeFileTool.CreateTool());
+            }
+
+            if (_editFileTool != null)
+            {
+                mcpTools.Add(_editFileTool.CreateTool());
+            }
+
+            if (_findFilesTool != null)
+            {
+                mcpTools.Add(_findFilesTool.CreateTool());
+            }
+
+            if (_grepTool != null)
+            {
+                mcpTools.Add(_grepTool.CreateTool());
             }
 
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
@@ -218,6 +253,106 @@ public class ConversationManager
                                 var result = await HandleBashToolCall(functionCall.CallId, command, description);
                                 allToolResults.Add(result);
                                 LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
+                            }
+                            // Check if this is read_file (no approval needed)
+                            else if (functionCall.Name == "read_file" && _readFileTool != null)
+                            {
+                                var path = functionCall.Arguments?["path"]?.ToString() ?? "";
+                                int? readOffset = functionCall.Arguments?.ContainsKey("offset") == true && functionCall.Arguments["offset"] != null
+                                    ? Convert.ToInt32(functionCall.Arguments["offset"])
+                                    : null;
+                                int? readLimit = functionCall.Arguments?.ContainsKey("limit") == true && functionCall.Arguments["limit"] != null
+                                    ? Convert.ToInt32(functionCall.Arguments["limit"])
+                                    : null;
+
+                                var fullPath = _readFileTool.ResolvePath(path);
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• reading {Markup.Escape(fullPath)}[/]");
+
+                                var readResult = _readFileTool.ReadFile(path, readOffset, readLimit);
+                                string resultString;
+                                if (readResult.Success)
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {readResult.LinesReturned} lines ({readResult.TotalLines} total)[/]");
+                                    resultString = readResult.Content ?? "";
+                                }
+                                else
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(readResult.Error ?? "Unknown error")}[/]");
+                                    resultString = $"Error: {readResult.Error}";
+                                }
+
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                            }
+                            // Check if this is edit_file (custom approval UX)
+                            else if (functionCall.Name == "edit_file" && _editFileTool != null)
+                            {
+                                var path = functionCall.Arguments?["path"]?.ToString() ?? "";
+                                var oldString = functionCall.Arguments?["old_string"]?.ToString() ?? "";
+                                var newString = functionCall.Arguments?["new_string"]?.ToString() ?? "";
+                                var replaceAll = functionCall.Arguments?.ContainsKey("replace_all") == true
+                                    && functionCall.Arguments["replace_all"]?.ToString()?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+                                var result = HandleEditFileToolCall(functionCall.CallId, path, oldString, newString, replaceAll);
+                                allToolResults.Add(result);
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
+                            }
+                            // Check if this is find_files (no approval needed, read-only)
+                            else if (functionCall.Name == "find_files" && _findFilesTool != null)
+                            {
+                                var pattern = functionCall.Arguments?["pattern"]?.ToString() ?? "";
+                                var findPath = functionCall.Arguments?.ContainsKey("path") == true ? functionCall.Arguments["path"]?.ToString() : null;
+                                int? findMax = functionCall.Arguments?.ContainsKey("max_results") == true && functionCall.Arguments["max_results"] != null
+                                    ? Convert.ToInt32(functionCall.Arguments["max_results"])
+                                    : null;
+
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• find_files: {Markup.Escape(pattern)}[/]");
+
+                                var findResult = _findFilesTool.FindFiles(pattern, findPath, findMax);
+                                string resultString;
+                                if (findResult.Success)
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {findResult.Files.Length} files ({findResult.TotalMatches} total)[/]");
+                                    resultString = findResult.Output ?? "";
+                                }
+                                else
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(findResult.Error ?? "Unknown error")}[/]");
+                                    resultString = $"Error: {findResult.Error}";
+                                }
+
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                            }
+                            // Check if this is grep (no approval needed, read-only)
+                            else if (functionCall.Name == "grep" && _grepTool != null)
+                            {
+                                var grepPattern = functionCall.Arguments?["pattern"]?.ToString() ?? "";
+                                var grepPath = functionCall.Arguments?.ContainsKey("path") == true ? functionCall.Arguments["path"]?.ToString() : null;
+                                var filePatternArg = functionCall.Arguments?.ContainsKey("file_pattern") == true ? functionCall.Arguments["file_pattern"]?.ToString() : null;
+                                bool? caseInsensitive = functionCall.Arguments?.ContainsKey("case_insensitive") == true && functionCall.Arguments["case_insensitive"] != null
+                                    ? functionCall.Arguments["case_insensitive"]?.ToString()?.Equals("true", StringComparison.OrdinalIgnoreCase)
+                                    : null;
+                                int? grepMax = functionCall.Arguments?.ContainsKey("max_results") == true && functionCall.Arguments["max_results"] != null
+                                    ? Convert.ToInt32(functionCall.Arguments["max_results"])
+                                    : null;
+
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• grep: {Markup.Escape(grepPattern)}{(filePatternArg != null ? $" ({Markup.Escape(filePatternArg)})" : "")}[/]");
+
+                                var grepResult = _grepTool.Grep(grepPattern, grepPath, filePatternArg, caseInsensitive, grepMax);
+                                string resultString;
+                                if (grepResult.Success)
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {grepResult.Matches.Length} matches ({grepResult.TotalMatches} total)[/]");
+                                    resultString = grepResult.Output ?? "";
+                                }
+                                else
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(grepResult.Error ?? "Unknown error")}[/]");
+                                    resultString = $"Error: {grepResult.Error}";
+                                }
+
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                             }
                             // Check if this is write_file (custom approval UX)
                             else if (functionCall.Name == "write_file" && _writeFileTool != null)
@@ -468,6 +603,18 @@ public class ConversationManager
                 return await ExecuteBashCommand(callId, command);
             }
 
+            // Check trust mode: auto-approve non-dangerous commands within sandbox
+            if (_trustMode && !classified.IsDangerous && _bashTool != null)
+            {
+                var cwd = _bashTool.GetCwd();
+                var isTrusted = IsBashCommandTrusted(classified, cwd);
+                if (isTrusted)
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• auto: bash {Markup.Escape(classified.DisplayText)}[/]");
+                    return await ExecuteBashCommand(callId, command);
+                }
+            }
+
             // Show model's description of intent (if provided)
             if (!string.IsNullOrWhiteSpace(description))
             {
@@ -539,6 +686,43 @@ public class ConversationManager
         }
     }
 
+    private static bool IsBashCommandTrusted(ClassifiedCommand classified, string cwd)
+    {
+        // Only auto-approve certain categories
+        if (classified.Category is not (CommandCategory.Read or CommandCategory.Write or CommandCategory.Copy or CommandCategory.Run))
+            return false;
+
+        // For Run commands with no specific path (e.g. "dotnet build", "git status"), trust them
+        // For commands with identifiable paths, check sandbox
+        var displayText = classified.DisplayText;
+
+        // If it's a Run category, the display text is the full command - these are typically
+        // in-cwd commands like "dotnet build", "npm install", "git status" etc.
+        if (classified.Category == CommandCategory.Run)
+            return true; // Non-dangerous Run commands are already filtered by the caller
+
+        // For Read/Write/Copy with a path in display text, check the sandbox
+        if (!string.IsNullOrEmpty(displayText) && displayText != classified.DisplayText)
+            return TrustSandbox.IsPathTrustedRelative(displayText, cwd);
+
+        // For Read with a path
+        if (classified.Category == CommandCategory.Read)
+            return TrustSandbox.IsPathTrustedRelative(displayText, cwd);
+
+        // For Write with a path
+        if (classified.Category == CommandCategory.Write)
+            return TrustSandbox.IsPathTrustedRelative(displayText, cwd);
+
+        // For Copy, the display text is "src → dst"
+        if (classified.Category == CommandCategory.Copy && displayText.Contains(" → "))
+        {
+            var parts = displayText.Split(" → ");
+            return parts.All(p => TrustSandbox.IsPathTrustedRelative(p.Trim(), cwd));
+        }
+
+        return true;
+    }
+
     private async Task<FunctionResultContent> ExecuteBashCommand(string callId, string command)
     {
         if (_bashTool == null)
@@ -601,6 +785,27 @@ public class ConversationManager
             var lineCount = content.Split('\n').Length;
             var byteCount = System.Text.Encoding.UTF8.GetByteCount(content);
 
+            // Trust mode: auto-approve writes within sandbox
+            if (_trustMode && _bashTool != null && TrustSandbox.IsPathTrustedRelative(path, _bashTool.GetCwd()))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• auto: write {Markup.Escape(fullPath)} ({lineCount} lines)[/]");
+
+                if (_writeFileTool == null)
+                    return Task.FromResult(new FunctionResultContent(callId, "Error: Write file tool not initialized"));
+
+                var writeResult = _writeFileTool.WriteFile(path, content);
+                if (writeResult.Success)
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {writeResult.BytesWritten} bytes[/]");
+                    return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {writeResult.BytesWritten} bytes to {writeResult.Path}"));
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(writeResult.Error ?? "Unknown error")}[/]");
+                    return Task.FromResult(new FunctionResultContent(callId, $"Error writing file: {writeResult.Error}"));
+                }
+            }
+
             // Show approval prompt
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Write:[/] {Markup.Escape(fullPath)}");
             AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {lineCount} lines, {byteCount} bytes[/]");
@@ -658,6 +863,93 @@ public class ConversationManager
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write error: {Markup.Escape(ex.Message)}[/]");
             return Task.FromResult(new FunctionResultContent(callId, $"Error during file write: {ex.Message}"));
+        }
+    }
+
+    private FunctionResultContent HandleEditFileToolCall(string callId, string path, string oldString, string newString, bool replaceAll)
+    {
+        try
+        {
+            var fullPath = _editFileTool?.ResolvePath(path) ?? path;
+
+            // Trust mode: auto-approve edits within sandbox
+            if (_trustMode && _bashTool != null && TrustSandbox.IsPathTrustedRelative(path, _bashTool.GetCwd()))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• auto: edit {Markup.Escape(fullPath)}[/]");
+
+                if (_editFileTool == null)
+                    return new FunctionResultContent(callId, "Error: Edit file tool not initialized");
+
+                var editResult = _editFileTool.EditFile(path, oldString, newString, replaceAll);
+                if (editResult.Success)
+                {
+                    var msg = editResult.Replacements == 1
+                        ? $"Successfully edited {editResult.Path} (1 replacement)"
+                        : $"Successfully edited {editResult.Path} ({editResult.Replacements} replacements)";
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
+                    return new FunctionResultContent(callId, msg);
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(editResult.Error ?? "Unknown error")}[/]");
+                    return new FunctionResultContent(callId, $"Error: {editResult.Error}");
+                }
+            }
+
+            // Show approval prompt with diff preview
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Edit:[/] {Markup.Escape(fullPath)}");
+
+            var oldPreview = oldString.Length > 200 ? oldString[..200] + "..." : oldString;
+            var newPreview = newString.Length > 200 ? newString[..200] + "..." : newString;
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  - {Markup.Escape(oldPreview)}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]  + {Markup.Escape(newPreview)}[/]");
+            if (replaceAll)
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  (replace all occurrences)[/]");
+
+            // Flush any pending input
+            while (Console.KeyAvailable)
+            {
+                Console.ReadKey(intercept: true);
+            }
+
+            while (true)
+            {
+                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N]][/] ");
+                var key = Console.ReadKey().KeyChar;
+                Console.WriteLine();
+
+                if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Edit rejected[/]");
+                    return new FunctionResultContent(callId, "Error: User rejected file edit. Permission denied.");
+                }
+                else if (key == 'y' || key == 'Y')
+                {
+                    if (_editFileTool == null)
+                        return new FunctionResultContent(callId, "Error: Edit file tool not initialized");
+
+                    var result = _editFileTool.EditFile(path, oldString, newString, replaceAll);
+
+                    if (result.Success)
+                    {
+                        var msg = result.Replacements == 1
+                            ? $"Successfully edited {result.Path} (1 replacement)"
+                            : $"Successfully edited {result.Path} ({result.Replacements} replacements)";
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
+                        return new FunctionResultContent(callId, msg);
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
+                        return new FunctionResultContent(callId, $"Error: {result.Error}");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Edit error: {Markup.Escape(ex.Message)}[/]");
+            return new FunctionResultContent(callId, $"Error during file edit: {ex.Message}");
         }
     }
 

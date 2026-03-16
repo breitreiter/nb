@@ -37,6 +37,8 @@ public class BashTool
         _sandwichTailLines = sandwichTailLines;
     }
 
+    public string GetCwd() => _env.ShellCwd;
+
     public AIFunction CreateTool()
     {
         var executeFunc = (string description, string command, int? timeout_seconds) =>

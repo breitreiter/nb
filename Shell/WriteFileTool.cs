@@ -20,14 +20,15 @@ public class WriteFileTool
             writeFunc,
             name: "write_file",
             description: $"""
-                Write content to a file. Creates the file if it doesn't exist, overwrites if it does.
+                Create a new file or completely rewrite an existing file.
                 Paths are relative to: {_env.ShellCwd}
 
                 Parameters:
                 - path: File path (absolute or relative to working directory)
-                - content: The content to write to the file
+                - content: The full content to write to the file
 
-                Use this instead of bash heredocs or echo redirects for writing files.
+                Use this for creating new files or complete rewrites.
+                For targeted edits to existing files, use edit_file instead.
                 File writes require user approval.
                 """
         );

@@ -22,13 +22,18 @@ public class Program
     private static PromptProcessor _promptProcessor = null!;
     private static ShellEnvironment _shellEnvironment = null!;
     private static BashTool _bashTool = null!;
+    private static ReadFileTool _readFileTool = null!;
     private static WriteFileTool _writeFileTool = null!;
+    private static EditFileTool _editFileTool = null!;
+    private static FindFilesTool _findFilesTool = null!;
+    private static GrepTool _grepTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static string? _systemPromptOverride = null;
     private static bool _noBash = false;
     private static bool _verbose = false;
     private static bool _dumpTools = false;
     private static bool _showHelp = false;
+    private static bool _trustMode = false;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -97,6 +102,10 @@ public class Program
             {
                 _verbose = true;
             }
+            else if (args[i] == "--trust")
+            {
+                _trustMode = true;
+            }
             else if (args[i] == "--dump-tools")
             {
                 _dumpTools = true;
@@ -127,6 +136,7 @@ public class Program
             Console.WriteLine("  --help, -h              Show this help message");
             Console.WriteLine("  --system <file>         Load system prompt from file");
             Console.WriteLine("  --approve <pattern>     Pre-approve shell commands matching pattern");
+            Console.WriteLine("  --trust                 Auto-approve file tools and safe bash commands within cwd");
             Console.WriteLine("  --nobash                Disable shell tool");
             Console.WriteLine("  --verbose               Enable verbose output");
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
@@ -160,7 +170,19 @@ public class Program
         if (!_noBash)
         {
             _bashTool = new BashTool(_shellEnvironment);
+            _readFileTool = new ReadFileTool(_shellEnvironment);
             _writeFileTool = new WriteFileTool(_shellEnvironment);
+            _editFileTool = new EditFileTool(_shellEnvironment);
+            _findFilesTool = new FindFilesTool(_shellEnvironment);
+            _grepTool = new GrepTool(_shellEnvironment);
+        }
+
+        // Check for trust mode from config
+        if (!_trustMode)
+        {
+            var trustSetting = config["Trust"];
+            if (trustSetting?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+                _trustMode = true;
         }
 
         // Initialize chat client using provider system
@@ -190,7 +212,7 @@ public class Program
         // Initialize conversation manager with dependencies
         var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _writeFileTool, _approvalPatterns, activeProviderName, _verbose, maxToolCalls);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
@@ -198,6 +220,12 @@ public class Program
             ? basePrompt
             : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
         _conversationManager.InitializeWithSystemPrompt(fullPrompt);
+
+        // Show trust mode banner
+        if (_trustMode)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Trust mode active[/] [{UIColors.SpectreMuted}]— auto-approving within {Markup.Escape(_shellEnvironment.ShellCwd)}[/]");
+        }
 
         // Load conversation history from previous sessions
         await _conversationManager.LoadConversationHistoryAsync();

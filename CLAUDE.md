@@ -55,7 +55,7 @@ The application supports two execution modes:
 - `AzureOpenAIProvider.cs` - Built-in Azure OpenAI provider implementation
 - `McpManager.cs` - Manages MCP client connections
 - `ConfigurationService.cs` - Configuration management
-- `Shell/` - Native bash tool implementation for shell command execution
+- `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust sandbox)
 - `providers/` - Directory for external AI provider plugins (DLLs)
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
@@ -142,6 +142,42 @@ Native tool that gives the model shell access with custom approval UX.
 **Two-directory model:**
 - `launchDirectory` - where nb started, where history lives (immutable)
 - `shellCwd` - where commands execute, can change via `set_cwd` tool
+
+## Native File Tools
+Cross-platform file tools that don't require shell access. All read-only tools auto-execute with no approval.
+
+**Files:**
+- `Shell/ReadFileTool.cs` - Read file contents with line numbers
+- `Shell/WriteFileTool.cs` - Create or overwrite files (requires approval unless --trust)
+- `Shell/EditFileTool.cs` - Targeted string replacement in files (requires approval unless --trust)
+- `Shell/FindFilesTool.cs` - Glob-based file discovery using `Microsoft.Extensions.FileSystemGlobbing`
+- `Shell/GrepTool.cs` - Regex content search across files
+
+**Auto-skipped directories:** `.git`, `node_modules`, `bin`, `obj`, `.vs`, `__pycache__`, `.venv`, `venv`, `.idea`, `dist`, `build`, `.next`, `.nuget`
+
+## Trust Mode (`--trust`)
+Auto-approves file tools and non-dangerous bash commands **within the working directory sandbox**.
+
+**Activation:** `--trust` CLI flag or `"Trust": true` in appsettings.json
+
+**Path sandboxing:** Only auto-approves operations targeting:
+- The shell cwd and subdirectories
+- System temp directories (`/tmp`, `TEMP`/`TMP` on Windows)
+
+**What gets auto-approved:**
+- `write_file` / `edit_file` targeting paths within sandbox
+- `bash` commands classified as non-dangerous with paths in sandbox
+- `bash` Run commands with no extractable path (e.g. `dotnet build`, `git status`)
+
+**What still prompts:**
+- Dangerous bash commands (rm -rf, sudo, etc.) — always prompt
+- File operations targeting paths outside the sandbox
+- MCP tools (use their own `alwaysAllow` mechanism)
+
+**Other effects:** Bumps effective MaxToolCalls to 50 (minimum)
+
+**Files:**
+- `Shell/TrustSandbox.cs` - Static `IsPathTrusted` / `IsPathTrustedRelative` methods
 
 ## Coding Conventions
 - Follow existing C# conventions in the codebase
