@@ -28,6 +28,7 @@ public class Program
     private static FindFilesTool _findFilesTool = null!;
     private static GrepTool _grepTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
+    private static SkillManager _skillManager = null!;
     private static string? _systemPromptOverride = null;
     private static bool _noBash = false;
     private static bool _verbose = false;
@@ -230,10 +231,14 @@ public class Program
         // Load conversation history from previous sessions
         await _conversationManager.LoadConversationHistoryAsync();
 
+        // Initialize skills
+        _skillManager = new SkillManager();
+        _skillManager.LoadAllSkills();
+
         // Initialize refactored services
         _fileExtractor = new FileContentExtractor();
         _promptProcessor = new PromptProcessor(_mcpManager);
-        _commandProcessor = new CommandProcessor(_fileExtractor, _promptProcessor, _conversationManager, _configurationService, _providerManager);
+        _commandProcessor = new CommandProcessor(_fileExtractor, _promptProcessor, _conversationManager, _configurationService, _providerManager, _skillManager);
 
         // Check if stdin is being piped
         string? stdinContent = null;
@@ -284,7 +289,9 @@ public class Program
         Console.Write(" " + UIColors.robot_img_2);
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
         Console.Write(" " + UIColors.robot_img_3);
-        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
+        var skillCount = _skillManager.Skills.Count;
+        var skillInfo = skillCount > 0 ? $" [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreMuted}]Skills: {skillCount}[/]" : "";
+        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]{skillInfo}");
         
         while (true)
         {
@@ -315,10 +322,26 @@ public class Program
                     // Check if this was a non-command that should go to LLM
                     if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "?" && userInput.Trim() != "exit")
                     {
+                        // Auto-match skills if none active
+                        if (_skillManager.ActiveSkillName == null)
+                        {
+                            var matches = _skillManager.FindMatchingSkills(userInput);
+                            if (matches.Count > 0)
+                            {
+                                var top = matches[0];
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Skill match:[/] [{UIColors.SpectreInfo}]{Markup.Escape(top.Skill.Name)}[/] — {Markup.Escape(top.Skill.Description)}");
+                                if (AnsiConsole.Confirm("Load skill?", defaultValue: true))
+                                {
+                                    _skillManager.LoadSkill(top.Skill.Name);
+                                    _conversationManager.SetSkillSystemMessage(_skillManager.GetSkillBody(top.Skill.Name));
+                                }
+                            }
+                        }
+
                         await _conversationManager.SendMessageAsync(userInput);
                     }
                     break;
-                
+
                 case CommandAction.AddToHistory:
                     _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
                     break;

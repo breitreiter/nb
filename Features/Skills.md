@@ -1,6 +1,109 @@
 # Skill Selection & Execution for nb
 
-Status: Planned
+Status: Phase 1 Implemented
+
+---
+
+## Revision: Streamlined Phase 1 (2026-03-16)
+
+Simplified proposal that defers code execution and LLM-dependent installation in favor of shipping a useful instructions-only skill system quickly. Everything in the original design below remains valid as a future phase — this revision just narrows what ships first.
+
+### What changed from the original design
+
+| Aspect | Original | Streamlined Phase 1 |
+|--------|----------|---------------------|
+| **Keyword source** | LLM-generated `keywords.json` sidecar at install time | Hand-written `keywords` field in SKILL.md frontmatter |
+| **File count per skill** | SKILL.md + keywords.json + optional manifest.json | Single SKILL.md (frontmatter holds all metadata) |
+| **Body convention** | Unspecified | Suggested Fabric-compatible sections: IDENTITY AND PURPOSE / STEPS / OUTPUT INSTRUCTIONS |
+| **Skill types** | Instructions-only, C# (AssemblyLoadContext), Python (Docker) | Instructions-only |
+| **Installation** | `nb skill install foo.zip` → extract + LLM keyword gen | Copy directory to `~/.nb/skills/` (manual or simple command) |
+| **Matching** | Same | Same (keyword/phrase scoring, threshold, user confirmation) |
+| **Runtime flow** | Same | Same |
+
+### SKILL.md format
+
+```markdown
+---
+name: code-review
+description: Review code for bugs, style issues, and improvements
+keywords: review, code review, check code, audit, lint, quality
+phrases: review this code, check for bugs, code quality
+---
+
+# IDENTITY and PURPOSE
+
+You are an expert code reviewer. You analyze code for bugs, security
+issues, style problems, and potential improvements.
+
+# STEPS
+
+1. Read the code provided by the user
+2. Check for correctness issues and potential bugs
+3. Evaluate error handling and edge cases
+4. Assess readability and naming
+5. Note any security concerns
+
+# OUTPUT INSTRUCTIONS
+
+- Lead with critical issues (bugs, security) before style nits
+- Reference specific line numbers when possible
+- Suggest concrete fixes, not just descriptions of problems
+- Keep it concise — skip praise, focus on actionable feedback
+```
+
+**Frontmatter fields:**
+- `name` (required) — skill identifier, used in `/skill <name>`
+- `description` (required) — one-line summary, shown in `/skills` list
+- `keywords` (required) — comma-separated single words for matching (1pt each)
+- `phrases` (optional) — comma-separated multi-word phrases for matching (2pt each)
+
+**Body convention (suggested, not enforced):**
+Follows [Fabric's pattern format](https://github.com/danielmiessler/fabric) so community patterns can be dropped in with minimal adaptation. The three-section structure (IDENTITY, STEPS, OUTPUT) is a convention — any markdown body works.
+
+### Directory structure
+
+```
+~/.nb/skills/
+├── code-review/
+│   └── SKILL.md
+├── git-commit/
+│   └── SKILL.md
+└── explain-error/
+    └── SKILL.md
+```
+
+### Injection point
+
+When a skill is loaded, its body (everything below the frontmatter) is injected as a system-role message appended after the base system prompt, before the API call. This keeps it out of the persistent system prompt and allows load/unload per-conversation.
+
+For models that don't support multiple system messages, fall back to injecting as a user message with framing: `[The following skill has been loaded to assist with this task: ...]`
+
+### Commands
+
+- `/skills` — list installed skills with descriptions
+- `/skill <name>` — manually load a skill (bypasses keyword matching)
+- `/skill off` — unload the current skill for this conversation
+
+### What's deferred to later phases
+
+- LLM-generated keywords (Phase 1.5 — use the keyword generation prompt from the original design below)
+- `nb skill install <url|zip>` with extraction and keyword gen
+- C# skill execution via AssemblyLoadContext
+- Python skill execution via Docker
+- Skill manifests with runtime configuration
+- Vector/semantic matching
+- Session-level "always load" memory
+
+### Implementation scope
+
+- `SkillManager.cs` (~200 lines) — load skills from `~/.nb/skills/`, parse frontmatter, keyword matching
+- A few lines in `ConversationManager.cs` — inject active skill as system message
+- Commands in `CommandProcessor.cs` — `/skills`, `/skill <name>`, `/skill off`
+- Matching hook in `Program.cs` or `ConversationManager` — score user input before sending
+
+---
+
+## Original Design
 
 ## Overview
 

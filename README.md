@@ -9,6 +9,8 @@ A feature-rich AI CLI.
 - **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
 - **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
 - **Terminal Integration**: Native shell access with approval UX. Models can execute commands, with dangerous operations requiring explicit confirmation.
+- **Native File Tools**: Cross-platform `read_file`, `write_file`, `edit_file`, `find_files`, and `grep` — read-only tools run without approval.
+- **Trust Mode**: `--trust` auto-approves file tools and safe shell commands within the working directory sandbox.
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
 - **MCP Server Integration** for extensible tools, prompts, and resources
 
@@ -79,6 +81,8 @@ In interactive mode, you can use these commands:
 - `/provider <name>` - Switch to a different AI provider (e.g., `/provider Anthropic`)
 - `/prompts` - List available MCP prompts from connected servers
 - `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
+- `/skills` - List installed skills
+- `/skill <name|off>` - Load or unload a skill
 - `?` - Show help with all commands
 
 ### Single-Shot Mode
@@ -124,13 +128,43 @@ nb --approve "ls" --approve "cat *" "analyze this project"
 
 Patterns support globs (`cat *` matches `cat file.txt`, `cat /etc/hosts`, etc.).
 
+### File Tools
+
+Models have native file tools that work cross-platform without the shell:
+
+| Tool | Description | Approval |
+|------|-------------|----------|
+| `read_file` | Read file contents with line numbers | Auto |
+| `write_file` | Create or overwrite files | Required |
+| `edit_file` | Targeted string replacement | Required |
+| `find_files` | Glob-based file discovery | Auto |
+| `grep` | Regex content search | Auto |
+
+Read-only tools (`read_file`, `find_files`, `grep`) execute immediately. Write tools require approval unless trust mode is active.
+
+### Trust Mode
+
+Auto-approve file tools and non-dangerous shell commands within the working directory:
+
+```bash
+nb --trust "refactor the auth module"
+```
+
+Or enable permanently in `appsettings.json`:
+```json
+{ "Trust": true }
+```
+
+**Sandboxed**: only operations targeting the cwd (and system temp dirs) are auto-approved. Dangerous commands (`rm -rf`, `sudo`, etc.) always prompt. Also bumps the max tool calls per message to 50.
+
 ### Command-Line Flags
 
 | Flag | Description |
 |------|-------------|
 | `--approve <pattern>` | Pre-approve shell commands matching the glob pattern |
+| `--trust` | Auto-approve file tools and safe bash commands within cwd |
 | `--system <path>` | Load system prompt from a custom file |
-| `--nobash` | Disable shell tools (bash, write_file, set_cwd) |
+| `--nobash` | Disable all shell and file tools |
 | `--verbose` | Log tool call inputs and outputs (useful for debugging) |
 | `--dump-tools` | Write MCP tool manifest to `mcp-tools.json` and exit |
 
@@ -155,6 +189,23 @@ List and invoke prompts from connected MCP servers:
 /prompt weather-report      # Invoke a specific prompt
 ```
 Prompts may request arguments interactively before execution.
+
+### Skills
+
+Skills are instruction packages that inject domain-specific guidance into context on demand. Install skills to `~/.nb/skills/<name>/SKILL.md`:
+
+```markdown
+---
+name: code-review
+description: Review code for bugs, style issues, and improvements
+keywords: review, code review, audit, lint, quality
+phrases: review this code, check for bugs
+---
+
+You are an expert code reviewer...
+```
+
+Load manually with `/skill code-review`, or nb will suggest a match when your input scores against a skill's keywords (1pt each) and phrases (2pt each). `/skill off` unloads.
 
 ### MCP Configuration
 Configure MCP servers in `mcp.json`:

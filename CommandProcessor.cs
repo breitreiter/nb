@@ -23,14 +23,16 @@ public class CommandProcessor
     private readonly ConversationManager _conversationManager;
     private readonly ConfigurationService _configService;
     private readonly Providers.ProviderManager _providerManager;
+    private readonly SkillManager _skillManager;
 
-    public CommandProcessor(FileContentExtractor fileExtractor, PromptProcessor promptProcessor, ConversationManager conversationManager, ConfigurationService configService, Providers.ProviderManager providerManager)
+    public CommandProcessor(FileContentExtractor fileExtractor, PromptProcessor promptProcessor, ConversationManager conversationManager, ConfigurationService configService, Providers.ProviderManager providerManager, SkillManager skillManager)
     {
         _fileExtractor = fileExtractor;
         _promptProcessor = promptProcessor;
         _conversationManager = conversationManager;
         _configService = configService;
         _providerManager = providerManager;
+        _skillManager = skillManager;
     }
 
     public async Task<CommandResult> ProcessCommandAsync(string userInput)
@@ -75,6 +77,18 @@ public class CommandProcessor
         if (command.StartsWith("/provider "))
         {
             HandleSwitchProviderCommand(userInput);
+            return CommandResult.Continue();
+        }
+
+        if (command == "/skills")
+        {
+            DisplaySkills();
+            return CommandResult.Continue();
+        }
+
+        if (command.StartsWith("/skill "))
+        {
+            HandleSkillCommand(userInput);
             return CommandResult.Continue();
         }
 
@@ -187,6 +201,54 @@ public class CommandProcessor
         _conversationManager.SwitchProvider(newClient, providerName);
     }
 
+    private void DisplaySkills()
+    {
+        var skills = _skillManager.Skills;
+        if (skills.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No skills installed. Add skills to ~/.nb/skills/[/]");
+            return;
+        }
+
+        var activeName = _skillManager.ActiveSkillName;
+        foreach (var skill in skills)
+        {
+            var marker = skill.Name.Equals(activeName, StringComparison.OrdinalIgnoreCase)
+                ? $" [{UIColors.SpectreSuccess}](active)[/]"
+                : "";
+            AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]{Markup.Escape(skill.Name)}[/] — [{UIColors.SpectreMuted}]{Markup.Escape(skill.Description)}[/]{marker}");
+        }
+    }
+
+    private void HandleSkillCommand(string userInput)
+    {
+        var arg = userInput.Substring(7).Trim();
+        if (string.IsNullOrEmpty(arg))
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Usage: /skill <name|off>[/]");
+            return;
+        }
+
+        if (arg.Equals("off", StringComparison.OrdinalIgnoreCase))
+        {
+            _skillManager.UnloadSkill();
+            _conversationManager.SetSkillSystemMessage(null);
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Skill unloaded[/]");
+            return;
+        }
+
+        if (_skillManager.LoadSkill(arg))
+        {
+            var body = _skillManager.GetSkillBody(arg);
+            _conversationManager.SetSkillSystemMessage(body);
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Loaded skill: {Markup.Escape(_skillManager.ActiveSkillName!)}[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Skill not found: {Markup.Escape(arg)}[/]");
+        }
+    }
+
     private void DisplayHelp()
     {
         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Available commands:[/]");
@@ -197,6 +259,8 @@ public class CommandProcessor
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/prompt <name>[/] - Invoke an MCP prompt");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/providers[/] - List all available providers");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/provider <name>[/] - Switch to a different provider");
+        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/skills[/] - List installed skills");
+        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/skill <name|off>[/] - Load or unload a skill");
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]?[/] - Show this help");
     }
     

@@ -1160,15 +1160,35 @@ public class ConversationManager
 
     public void ClearConversationHistory()
     {
-        // Keep only the system message (first message if it's System role)
-        var systemMessage = _conversationHistory.FirstOrDefault(msg => msg.Role == ChatRole.System);
+        // Preserve all leading system messages (base prompt + skill)
+        var systemMessages = _conversationHistory.TakeWhile(m => m.Role == ChatRole.System).ToList();
         _conversationHistory.Clear();
-        
-        if (systemMessage != null)
-        {
-            _conversationHistory.Add(systemMessage);
-        }
-        
+        _conversationHistory.AddRange(systemMessages);
+
         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Conversation history cleared[/]");
+    }
+
+    public void SetSkillSystemMessage(string? skillContent)
+    {
+        const string marker = "[Skill Instructions]";
+
+        // Find existing skill message at index 1
+        bool hasSkillSlot = _conversationHistory.Count > 1
+            && _conversationHistory[1].Role == ChatRole.System
+            && _conversationHistory[1].Text?.StartsWith(marker) == true;
+
+        if (skillContent == null)
+        {
+            if (hasSkillSlot)
+                _conversationHistory.RemoveAt(1);
+        }
+        else
+        {
+            var message = new AIChatMessage(ChatRole.System, $"{marker}\n{skillContent}");
+            if (hasSkillSlot)
+                _conversationHistory[1] = message;
+            else
+                _conversationHistory.Insert(1, message);
+        }
     }
 }
