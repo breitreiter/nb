@@ -23,8 +23,8 @@ public class FindFilesTool
 
     public AIFunction CreateTool()
     {
-        var findFunc = (string pattern, string? path, int? max_results) =>
-            FindFiles(pattern, path, max_results);
+        var findFunc = (string pattern, string path, int? max_results) =>
+            FindFiles(pattern, string.IsNullOrEmpty(path) ? null : path, max_results);
 
         return AIFunctionFactory.Create(
             findFunc,
@@ -35,7 +35,7 @@ public class FindFilesTool
 
                 Parameters:
                 - pattern: Glob pattern (e.g. "**/*.cs", "src/**/*.ts", "*.json")
-                - path: Directory to search in (absolute or relative to working directory). Defaults to working directory.
+                - path: Directory to search in (absolute or relative to working directory). Empty string or omit for working directory.
                 - max_results: Maximum number of results to return (default: {DefaultMaxResults})
 
                 Automatically skips: {string.Join(", ", SkipDirectories)}

@@ -27,8 +27,8 @@ public class GrepTool
 
     public AIFunction CreateTool()
     {
-        var grepFunc = (string pattern, string? path, string? file_pattern, bool? case_insensitive, int? max_results) =>
-            Grep(pattern, path, file_pattern, case_insensitive, max_results);
+        var grepFunc = (string pattern, string path, string file_pattern, bool? case_insensitive, int? max_results) =>
+            Grep(pattern, string.IsNullOrEmpty(path) ? null : path, string.IsNullOrEmpty(file_pattern) ? null : file_pattern, case_insensitive, max_results);
 
         return AIFunctionFactory.Create(
             grepFunc,
@@ -39,8 +39,8 @@ public class GrepTool
 
                 Parameters:
                 - pattern: Regular expression to search for
-                - path: Directory or file to search (absolute or relative to working directory). Defaults to working directory.
-                - file_pattern: Glob filter for files to search (e.g. "*.cs", "*.ts"). Defaults to all files.
+                - path: Directory or file to search (absolute or relative to working directory). Empty string for working directory.
+                - file_pattern: Glob filter for files to search (e.g. "*.cs", "*.ts"). Empty string for all files.
                 - case_insensitive: If true, perform case-insensitive search (default: false)
                 - max_results: Maximum number of matching lines to return (default: {DefaultMaxResults})
 
