@@ -259,10 +259,10 @@ public class ConversationManager
                             {
                                 var path = functionCall.Arguments?["path"]?.ToString() ?? "";
                                 int? readOffset = functionCall.Arguments?.ContainsKey("offset") == true && functionCall.Arguments["offset"] != null
-                                    ? Convert.ToInt32(functionCall.Arguments["offset"])
+                                    ? int.Parse(functionCall.Arguments["offset"]!.ToString()!)
                                     : null;
                                 int? readLimit = functionCall.Arguments?.ContainsKey("limit") == true && functionCall.Arguments["limit"] != null
-                                    ? Convert.ToInt32(functionCall.Arguments["limit"])
+                                    ? int.Parse(functionCall.Arguments["limit"]!.ToString()!)
                                     : null;
 
                                 var fullPath = _readFileTool.ResolvePath(path);
@@ -302,7 +302,7 @@ public class ConversationManager
                                 var pattern = functionCall.Arguments?["pattern"]?.ToString() ?? "";
                                 var findPath = functionCall.Arguments?.ContainsKey("path") == true ? functionCall.Arguments["path"]?.ToString() : null;
                                 int? findMax = functionCall.Arguments?.ContainsKey("max_results") == true && functionCall.Arguments["max_results"] != null
-                                    ? Convert.ToInt32(functionCall.Arguments["max_results"])
+                                    ? int.Parse(functionCall.Arguments["max_results"]!.ToString()!)
                                     : null;
 
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• find_files: {Markup.Escape(pattern)}[/]");
@@ -333,7 +333,7 @@ public class ConversationManager
                                     ? functionCall.Arguments["case_insensitive"]?.ToString()?.Equals("true", StringComparison.OrdinalIgnoreCase)
                                     : null;
                                 int? grepMax = functionCall.Arguments?.ContainsKey("max_results") == true && functionCall.Arguments["max_results"] != null
-                                    ? Convert.ToInt32(functionCall.Arguments["max_results"])
+                                    ? int.Parse(functionCall.Arguments["max_results"]!.ToString()!)
                                     : null;
 
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• grep: {Markup.Escape(grepPattern)}{(filePatternArg != null ? $" ({Markup.Escape(filePatternArg)})" : "")}[/]");
@@ -515,7 +515,10 @@ public class ConversationManager
                         }
                         catch (Exception ex)
                         {
-                            allToolResults.Add(new FunctionResultContent(functionCall.CallId, $"Error: {ex.Message}"));
+                            var errorMsg = $"Error: {ex.Message}";
+                            allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool error ({Markup.Escape(functionCall.Name)}): {Markup.Escape(ex.Message)}[/]");
+                            LogToolCall(functionCall.Name, functionCall.Arguments, errorMsg);
                         }
                     }
                 }
