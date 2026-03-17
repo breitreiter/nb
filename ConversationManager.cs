@@ -265,8 +265,7 @@ public class ConversationManager
                                     ? int.Parse(functionCall.Arguments["limit"]!.ToString()!)
                                     : null;
 
-                                var fullPath = _readFileTool.ResolvePath(path);
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• reading {Markup.Escape(fullPath)}[/]");
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• reading {Markup.Escape(path)}[/]");
 
                                 var readResult = _readFileTool.ReadFile(path, readOffset, readLimit);
                                 string resultString;

@@ -93,7 +93,7 @@ public class ShellEnvironment
             : "none";
 
         var windowsNote = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)
-            ? "\nThe bash tool uses PowerShell on this system. Prefer native file tools (read_file, write_file, edit_file, find_files, grep) over shell commands."
+            ? "\nThe bash tool uses PowerShell on this system. Avoid PowerShell-specific syntax — write cross-platform commands or use python for complex logic. Prefer native file tools (read_file, write_file, edit_file, find_files, grep) over shell commands."
             : "";
 
         return $"""
@@ -112,7 +112,8 @@ Not found: {missingList}
 
 ## Bash Tool
 You have access to a `bash` tool to execute shell commands. Each command requires user approval unless pre-approved via --approve flag.
-Commands execute in: {ShellCwd}{windowsNote}
+Commands execute in: {ShellCwd}
+For complex data processing or multi-step logic, prefer python over long shell pipelines.{windowsNote}
 """;
     }
 

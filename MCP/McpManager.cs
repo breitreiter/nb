@@ -309,7 +309,9 @@ public class McpManager : IDisposable
         var json = File.ReadAllText(mcpConfigPath);
         var options = new JsonSerializerOptions
         {
-            PropertyNameCaseInsensitive = true
+            PropertyNameCaseInsensitive = true,
+            ReadCommentHandling = JsonCommentHandling.Skip,
+            AllowTrailingCommas = true
         };
         return JsonSerializer.Deserialize<McpConfig>(json, options) ?? new McpConfig();
     }
