@@ -26,6 +26,7 @@ public class Program
     private static EditFileTool _editFileTool = null!;
     private static FindFilesTool _findFilesTool = null!;
     private static GrepTool _grepTool = null!;
+    private static ListDirTool _listDirTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static KitManager _kitManager = new KitManager();
     private static NbLineEditor _lineEditor = new NbLineEditor
@@ -89,6 +90,51 @@ public class Program
 
         // Otherwise use default from ConfigurationService
         return _configurationService.GetSystemPrompt();
+    }
+
+    private static string? LoadProjectContext(string cwd)
+    {
+        // Look for NB.md in cwd, then walk up to find it in parent dirs
+        var dir = Path.GetFullPath(cwd);
+        string? nbMdPath = null;
+
+        while (dir != null)
+        {
+            var candidate = Path.Combine(dir, "NB.md");
+            if (File.Exists(candidate))
+            {
+                nbMdPath = candidate;
+                break;
+            }
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        var sections = new List<string>();
+
+        if (nbMdPath != null)
+        {
+            var content = File.ReadAllText(nbMdPath).Trim();
+            if (!string.IsNullOrEmpty(content))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Loaded project context: {Markup.Escape(nbMdPath)}[/]");
+                sections.Add($"## Project Context (NB.md)\n\n{content}");
+            }
+        }
+
+        // Check for other vendor context files — don't auto-load, just tell the model they exist
+        var contextFiles = new[] { "CLAUDE.md", "AGENTS.md", "COPILOT.md", "CURSORRULES", ".cursorrules", "GEMINI.md", ".github/copilot-instructions.md" };
+        var found = contextFiles
+            .Select(f => Path.Combine(Path.GetFullPath(cwd), f))
+            .Where(File.Exists)
+            .Select(f => Path.GetFileName(f))
+            .ToList();
+
+        if (found.Count > 0)
+        {
+            sections.Add($"## Other Context Files\n\nThe following project context files exist in the working directory: {string.Join(", ", found)}. Use `read_file` to read them if they seem relevant to the user's request.");
+        }
+
+        return sections.Count > 0 ? string.Join("\n\n", sections) : null;
     }
 
     private static string[] ParseFlags(string[] args)
@@ -186,6 +232,7 @@ public class Program
             _editFileTool = new EditFileTool(_shellEnvironment);
             _findFilesTool = new FindFilesTool(_shellEnvironment);
             _grepTool = new GrepTool(_shellEnvironment);
+            _listDirTool = new ListDirTool(_shellEnvironment);
         }
 
         // Check for trust mode from config
@@ -223,13 +270,19 @@ public class Program
         // Initialize conversation manager with dependencies
         var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
         var fullPrompt = _noBash
             ? basePrompt
             : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
+
+        // Auto-load project context from NB.md in working directory
+        var projectContext = LoadProjectContext(_noBash ? "." : _shellEnvironment.ShellCwd);
+        if (projectContext != null)
+            fullPrompt += $"\n\n{projectContext}";
+
         _conversationManager.InitializeWithSystemPrompt(fullPrompt);
 
         // Show trust mode banner
