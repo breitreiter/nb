@@ -74,7 +74,7 @@ Launch with no parameters to start an interactive chat session:
 nb
 ```
 In interactive mode, you can use these commands:
-- `exit` - Quit the application
+- `/exit` - Quit the application
 - `/clear` - Clear conversation history (preserves system prompt)
 - `/providers` - List all available AI providers and their configuration status
 - `/provider <name>` - Switch to a different AI provider (e.g., `/provider Anthropic`)

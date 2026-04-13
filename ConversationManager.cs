@@ -23,6 +23,8 @@ public class ConversationManager
     private readonly EditFileTool? _editFileTool;
     private readonly FindFilesTool? _findFilesTool;
     private readonly GrepTool? _grepTool;
+    private readonly ListDirTool? _listDirTool;
+    private readonly FileReadTracker _fileReadTracker = new();
     private readonly ApprovalPatterns _approvalPatterns;
     private readonly bool _verbose;
     private readonly bool _trustMode;
@@ -41,6 +43,7 @@ public class ConversationManager
         EditFileTool? editFileTool,
         FindFilesTool? findFilesTool,
         GrepTool? grepTool,
+        ListDirTool? listDirTool,
         ApprovalPatterns approvalPatterns,
         string providerName = "",
         bool verbose = false,
@@ -56,6 +59,7 @@ public class ConversationManager
         _editFileTool = editFileTool;
         _findFilesTool = findFilesTool;
         _grepTool = grepTool;
+        _listDirTool = listDirTool;
         _approvalPatterns = approvalPatterns;
         _currentProviderName = providerName;
         _verbose = verbose;
@@ -146,6 +150,11 @@ public class ConversationManager
             if (_grepTool != null)
             {
                 mcpTools.Add(_grepTool.CreateTool());
+            }
+
+            if (_listDirTool != null)
+            {
+                mcpTools.Add(_listDirTool.CreateTool());
             }
 
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
@@ -265,6 +274,7 @@ public class ConversationManager
                                 }
                                 else if (readResult.FileType == "image")
                                 {
+                                    _fileReadTracker.RecordRead(readResult.Path);
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → image ({readResult.ImageSizeBytes:N0} bytes)[/]");
                                     var imageBytes = Convert.FromBase64String(readResult.ImageBase64!);
                                     var imageContent = new DataContent(imageBytes, readResult.MimeType!);
@@ -275,6 +285,7 @@ public class ConversationManager
                                 }
                                 else
                                 {
+                                    _fileReadTracker.RecordRead(readResult.Path);
                                     var label = readResult.FileType == "pdf"
                                         ? $"{readResult.TotalLines} pages"
                                         : $"{readResult.LinesReturned} lines ({readResult.TotalLines} total)";
@@ -338,7 +349,9 @@ public class ConversationManager
 
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• grep: {Markup.Escape(grepPattern)}{(filePatternArg != null ? $" ({Markup.Escape(filePatternArg)})" : "")}[/]");
 
-                                var grepResult = _grepTool.Grep(grepPattern, grepPath, filePatternArg, caseInsensitive, grepMax);
+                                var grepOutputMode = functionCall.Arguments?.ContainsKey("output_mode") == true ? functionCall.Arguments["output_mode"]?.ToString() : null;
+
+                                var grepResult = _grepTool.Grep(grepPattern, grepPath, filePatternArg, caseInsensitive, grepMax, grepOutputMode);
                                 string resultString;
                                 if (grepResult.Success)
                                 {
@@ -349,6 +362,30 @@ public class ConversationManager
                                 {
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(grepResult.Error ?? "Unknown error")}[/]");
                                     resultString = $"Error: {grepResult.Error}";
+                                }
+
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                            }
+                            // Check if this is list_dir (no approval needed, read-only)
+                            else if (functionCall.Name == "list_dir" && _listDirTool != null)
+                            {
+                                var listPath = functionCall.Arguments?.ContainsKey("path") == true ? functionCall.Arguments["path"]?.ToString() : null;
+
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• list_dir: {Markup.Escape(listPath ?? ".")}[/]");
+
+                                var listResult = _listDirTool.ListDir(listPath);
+                                string resultString;
+                                if (listResult.Success)
+                                {
+                                    var entryCount = listResult.Output?.Split('\n').Length ?? 0;
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {entryCount} entries[/]");
+                                    resultString = listResult.Output ?? "";
+                                }
+                                else
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(listResult.Error ?? "Unknown error")}[/]");
+                                    resultString = $"Error: {listResult.Error}";
                                 }
 
                                 allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
@@ -793,6 +830,16 @@ public class ConversationManager
             // Resolve path for display
             var fullPath = _writeFileTool?.ResolvePath(path) ?? path;
 
+            // Guard: if file exists, it must have been read first
+            if (File.Exists(fullPath))
+            {
+                if (!_fileReadTracker.HasBeenRead(fullPath))
+                    return Task.FromResult(new FunctionResultContent(callId, "Error: You must read_file before overwriting an existing file."));
+
+                if (_fileReadTracker.HasBeenModifiedSinceRead(fullPath))
+                    return Task.FromResult(new FunctionResultContent(callId, "Error: File has been modified since you last read it. Read it again before writing."));
+            }
+
             var lineCount = content.Split('\n').Length;
             var byteCount = System.Text.Encoding.UTF8.GetByteCount(content);
 
@@ -815,6 +862,7 @@ public class ConversationManager
                     var writeResult = _writeFileTool.WriteFile(path, content);
                     if (writeResult.Success)
                     {
+                        _fileReadTracker.RecordWrite(writeResult.Path);
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {writeResult.BytesWritten} bytes[/]");
                         return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {writeResult.BytesWritten} bytes to {writeResult.Path}"));
                     }
@@ -868,6 +916,7 @@ public class ConversationManager
 
                     if (result.Success)
                     {
+                        _fileReadTracker.RecordWrite(result.Path);
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {result.BytesWritten} bytes[/]");
                         return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {result.BytesWritten} bytes to {result.Path}"));
                     }
@@ -892,6 +941,13 @@ public class ConversationManager
         {
             var fullPath = _editFileTool?.ResolvePath(path) ?? path;
 
+            // Guard: file must have been read first
+            if (!_fileReadTracker.HasBeenRead(fullPath))
+                return new FunctionResultContent(callId, "Error: You must read_file before editing. Read the file first to see its current content.");
+
+            if (_fileReadTracker.HasBeenModifiedSinceRead(fullPath))
+                return new FunctionResultContent(callId, "Error: File has been modified since you last read it. Read it again before editing.");
+
             // Auto-approve edits within cwd sandbox
             if (_bashTool != null)
             {
@@ -911,6 +967,7 @@ public class ConversationManager
                     var editResult = _editFileTool.EditFile(path, oldString, newString, replaceAll);
                     if (editResult.Success)
                     {
+                        _fileReadTracker.RecordWrite(editResult.Path);
                         var msg = editResult.Replacements == 1
                             ? $"Successfully edited {editResult.Path} (1 replacement)"
                             : $"Successfully edited {editResult.Path} ({editResult.Replacements} replacements)";
@@ -961,6 +1018,7 @@ public class ConversationManager
 
                     if (result.Success)
                     {
+                        _fileReadTracker.RecordWrite(result.Path);
                         var msg = result.Replacements == 1
                             ? $"Successfully edited {result.Path} (1 replacement)"
                             : $"Successfully edited {result.Path} ({result.Replacements} replacements)";

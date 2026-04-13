@@ -61,7 +61,7 @@ The application supports two execution modes:
 
 ## Custom Commands
 The application supports these built-in commands (intercepted before LLM):
-- `exit` - Quit the application
+- `/exit` - Quit the application
 - `/clear` - Clear conversation history (preserves system prompt)
 
 ## Development Notes
@@ -144,7 +144,9 @@ Cross-platform file tools that don't require shell access. All read-only tools a
 - `Shell/WriteFileTool.cs` - Create or overwrite files (requires approval unless --trust)
 - `Shell/EditFileTool.cs` - Targeted string replacement in files (requires approval unless --trust)
 - `Shell/FindFilesTool.cs` - Glob-based file discovery using `Microsoft.Extensions.FileSystemGlobbing`
-- `Shell/GrepTool.cs` - Regex content search across files
+- `Shell/GrepTool.cs` - Regex content search across files (supports content and files_with_matches output modes)
+- `Shell/ListDirTool.cs` - Lightweight directory listing (files and subdirectories)
+- `Shell/FileReadTracker.cs` - Tracks file reads; enforces read-before-edit/write and detects external modifications
 
 **Auto-skipped directories:** `.git`, `node_modules`, `bin`, `obj`, `.vs`, `__pycache__`, `.venv`, `venv`, `.idea`, `dist`, `build`, `.next`, `.nuget`
 
