@@ -85,15 +85,6 @@ public class ConversationManager
         _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, "I've received the document content and it's now available in our conversation context."));
     }
     
-    public void AddImageToConversationHistory(string description, byte[] imageData, string mimeType)
-    {
-        var textContent = new TextContent(description);
-        var imageContent = new DataContent(imageData, mimeType);
-        var contentList = new List<AIContent> { textContent, imageContent };
-        
-        _conversationHistory.Add(new AIChatMessage(ChatRole.User, contentList));
-        _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, "I've received the image and it's now available in our conversation context. I can analyze and discuss its contents."));
-    }
 
     public async Task SendMessageAsync(string userMessage)
     {
@@ -268,20 +259,34 @@ public class ConversationManager
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• reading {Markup.Escape(path)}[/]");
 
                                 var readResult = _readFileTool.ReadFile(path, readOffset, readLimit);
-                                string resultString;
-                                if (readResult.Success)
+
+                                if (!readResult.Success)
                                 {
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {readResult.LinesReturned} lines ({readResult.TotalLines} total)[/]");
-                                    resultString = readResult.Content ?? "";
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(readResult.Error ?? "Unknown error")}[/]");
+                                    var errorString = $"Error: {readResult.Error}";
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorString));
+                                    LogToolCall(functionCall.Name, functionCall.Arguments, errorString);
+                                }
+                                else if (readResult.FileType == "image")
+                                {
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → image ({readResult.ImageSizeBytes:N0} bytes)[/]");
+                                    var imageBytes = Convert.FromBase64String(readResult.ImageBase64!);
+                                    var imageContent = new DataContent(imageBytes, readResult.MimeType!);
+                                    var textNote = new TextContent($"[Image loaded: {Path.GetFileName(path)} ({readResult.ImageSizeBytes:N0} bytes)]");
+                                    // Return tool result with both text description and image data
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, new List<AIContent> { textNote, imageContent }));
+                                    LogToolCall(functionCall.Name, functionCall.Arguments, $"[image: {readResult.MimeType}]");
                                 }
                                 else
                                 {
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(readResult.Error ?? "Unknown error")}[/]");
-                                    resultString = $"Error: {readResult.Error}";
+                                    var label = readResult.FileType == "pdf"
+                                        ? $"{readResult.TotalLines} pages"
+                                        : $"{readResult.LinesReturned} lines ({readResult.TotalLines} total)";
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {label}[/]");
+                                    var resultString = readResult.Content ?? "";
+                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                    LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                                 }
-
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
-                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                             }
                             // Check if this is edit_file (custom approval UX)
                             else if (functionCall.Name == "edit_file" && _editFileTool != null)

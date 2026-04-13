@@ -63,9 +63,6 @@ The application supports two execution modes:
 The application supports these built-in commands (intercepted before LLM):
 - `exit` - Quit the application
 - `/clear` - Clear conversation history (preserves system prompt)
-- `/insert <filepath>` - Insert file content into conversation context (supports PDF, TXT, MD, images: JPG, PNG)
-- `/prompts` - List available MCP prompts from connected servers
-- `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `?` - Show help with all commands
 
 ## Development Notes
@@ -97,18 +94,15 @@ The application supports these built-in commands (intercepted before LLM):
   Failure to add these exclusions will cause namespace conflicts, assembly resolution issues, and build errors.
 
 ## MCP Implementation Details
-- **McpManager.cs** - Manages MCP client lifecycle and exposes tools/prompts via interfaces
+- **McpManager.cs** - Manages MCP client lifecycle and exposes tools/resources via interfaces
 - **Tool Integration** - MCP tools are automatically integrated with Microsoft.Extensions.AI tool system
-- **Prompt Support** - MCP prompts are accessible via `/prompts` and `/prompt <name>` commands
-- **Argument Collection** - Prompt arguments are collected interactively using `AnsiConsole.Ask<string>()`
-- **Result Processing** - Prompt results are extracted from `TextContentBlock` messages and sent to LLM
 - **Error Handling** - Graceful fallback when servers don't support prompts (some MCP servers are tools-only)
 - **Configuration** - MCP servers configured in `mcp.json` with command, args, and environment variables
 - **Transport** - Uses stdio transport (`StdioClientTransport`) for process-based MCP servers
 
 ## Built-in MCP Server
 - **Location** - `mcp-servers/mcp-tester/` - Self-contained C# MCP server
-- **Dynamic Prompts** - Automatically generates prompts from `.md` files in `Prompts/` directory
+- **Dynamic Prompts** - Can generate prompts from `.md` files in `Prompts/` directory
 - **Parameter Support** - Supports up to 3 parameters using `{parameter}` syntax in markdown files
 - **Tools** - Includes basic test tools (echo, reverse-echo, current-time)
 - **Integration** - Added to solution file, builds alongside main project
@@ -147,7 +141,7 @@ Native tool that gives the model shell access with custom approval UX.
 Cross-platform file tools that don't require shell access. All read-only tools auto-execute with no approval.
 
 **Files:**
-- `Shell/ReadFileTool.cs` - Read file contents with line numbers
+- `Shell/ReadFileTool.cs` - Read file contents (text with line numbers, PDF text extraction, image base64 for vision)
 - `Shell/WriteFileTool.cs` - Create or overwrite files (requires approval unless --trust)
 - `Shell/EditFileTool.cs` - Targeted string replacement in files (requires approval unless --trust)
 - `Shell/FindFilesTool.cs` - Glob-based file discovery using `Microsoft.Extensions.FileSystemGlobbing`
@@ -198,7 +192,7 @@ Auto-approves file tools and non-dangerous bash commands **within the working di
 ## Architecture Notes
 - **Microsoft.Extensions.AI Integration**: Uses modern AI abstractions with IChatClient interface for provider independence
 - **Provider Abstraction**: LLM interactions isolated through pluggable provider system for easy swapping between AI services
-- **Refactored Structure**: Commands (`CommandProcessor`), file operations (`FileContentExtractor`), prompts (`PromptProcessor`) separated for maintainability
+- **Refactored Structure**: Commands (`CommandProcessor`) separated for maintainability
 - **Safety Mechanisms**: Max tool calls per message, parameter validation, graceful error handling
 - **Clean Type System**: Uses Microsoft.Extensions.AI types (ChatMessage, ChatOptions, ChatResponse) throughout
 

@@ -12,7 +12,7 @@ A feature-rich AI CLI.
 - **Native File Tools**: Cross-platform `read_file`, `write_file`, `edit_file`, `find_files`, and `grep` — read-only tools run without approval.
 - **Trust Mode**: `--trust` auto-approves file tools and safe shell commands within the working directory sandbox.
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
-- **MCP Server Integration** for extensible tools, prompts, and resources
+- **MCP Server Integration** for extensible tools and resources
 
 ## Prerequisites
 
@@ -76,11 +76,8 @@ nb
 In interactive mode, you can use these commands:
 - `exit` - Quit the application
 - `/clear` - Clear conversation history (preserves system prompt)
-- `/insert <filepath>` - Insert file content into conversation context (PDF, text, JPG, PNG)
 - `/providers` - List all available AI providers and their configuration status
 - `/provider <name>` - Switch to a different AI provider (e.g., `/provider Anthropic`)
-- `/prompts` - List available MCP prompts from connected servers
-- `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
 - `/skills` - List installed skills
 - `/skill <name|off>` - Load or unload a skill
 - `?` - Show help with all commands
@@ -89,7 +86,6 @@ In interactive mode, you can use these commands:
 Launch with parameters to execute a single command and exit immediately:
 ```bash
 nb /clear
-nb /insert document.pdf
 nb Summarize this document
 ```
 
@@ -182,14 +178,6 @@ Switch between AI providers during a conversation to leverage different models' 
 
 Conversation history is maintained when switching providers, allowing you to continue the same conversation with different AI models.
 
-### MCP Prompts
-List and invoke prompts from connected MCP servers:
-```bash
-/prompts                    # List available prompts
-/prompt weather-report      # Invoke a specific prompt
-```
-Prompts may request arguments interactively before execution.
-
 ### Skills
 
 Skills are instruction packages that inject domain-specific guidance into context on demand. Install skills to `~/.nb/skills/<name>/SKILL.md`:
@@ -228,7 +216,7 @@ The `alwaysAllow` array specifies tools that skip approval prompts. Use `["*"]` 
 ```
 
 ### Built-in MCP Server
-The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools and dynamically generated prompts from markdown files.
+The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools.
 
 ### Fake Tools
 nb will read `fake-tools.yaml` and treat those definitions as normal tools. When the model requests a fake tool, nb will return the configured response. Refer to `fake-tools.example.yaml` for the expected format.
