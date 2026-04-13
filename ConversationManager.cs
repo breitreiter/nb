@@ -649,7 +649,9 @@ public class ConversationManager
             var categoryColor = classified.IsDangerous ? UIColors.SpectreError : UIColors.SpectreWarning;
             var warningIndicator = classified.IsDangerous ? " ⚠️" : "";
 
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{classified.Category}:[/] {Markup.Escape(classified.DisplayText)}");
+            // For dangerous commands, show the full command so the user can see what they're approving
+            var displayCommand = classified.IsDangerous ? command : classified.DisplayText;
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{classified.Category}:[/] {Markup.Escape(displayCommand)}");
 
             if (classified.IsDangerous && classified.DangerReason != null)
             {
