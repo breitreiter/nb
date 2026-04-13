@@ -64,8 +64,14 @@ public class NbLineEditor
             return HandleGuardMode(prompt, "/", Commands);
 
         // "+" guard: kit disambiguation
-        if (keyInfo.KeyChar == '+' && Kits.Count > 0)
+        if (keyInfo.KeyChar == '+')
         {
+            if (Kits.Count == 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
+                return null;
+            }
             var selected = HandleGuardMode(prompt, "+", Kits);
             if (selected != null && selected.StartsWith("+"))
             {
