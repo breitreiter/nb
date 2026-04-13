@@ -571,6 +571,13 @@ public class ConversationManager
                 return await ExecuteBashCommand(callId, command);
             }
 
+            // Auto-approve safe commands (build, test, git read-only, etc.)
+            if (!classified.IsDangerous && IsSafeCommand(command))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• bash: {Markup.Escape(classified.DisplayText)}[/]");
+                return await ExecuteBashCommand(callId, command);
+            }
+
             // Check trust mode: auto-approve non-dangerous commands within sandbox
             if (_trustMode && !classified.IsDangerous && _bashTool != null)
             {
@@ -652,6 +659,42 @@ public class ConversationManager
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Approval error: {Markup.Escape(ex.Message)}[/]");
             return new FunctionResultContent(callId, $"Error during command approval: {ex.Message}");
         }
+    }
+
+    // Commands that are always safe to run without approval.
+    // Matched against the first token of the command (before pipes/args).
+    private static readonly HashSet<string> SafeCommandPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Build
+        "dotnet build", "dotnet test", "dotnet run", "dotnet restore",
+        "npm run", "npm test", "npx", "yarn build", "yarn test",
+        "cargo build", "cargo test", "cargo check", "cargo clippy",
+        "go build", "go test", "go vet",
+        "make", "cmake",
+        "mvn compile", "mvn test", "mvn package",
+        "gradle build", "gradle test",
+        "python -m pytest", "pytest",
+
+        // Git (read-only)
+        "git status", "git diff", "git log", "git show", "git branch",
+        "git stash list", "git remote", "git tag",
+
+        // Read-only tools
+        "ls", "pwd", "which", "whereis", "file", "wc", "du", "df",
+        "env", "echo", "date", "uname", "whoami",
+    };
+
+    private static bool IsSafeCommand(string command)
+    {
+        var trimmed = command.Trim();
+        // Check if command starts with any safe prefix
+        foreach (var prefix in SafeCommandPrefixes)
+        {
+            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && (trimmed.Length == prefix.Length || trimmed[prefix.Length] is ' ' or '\t' or ';' or '|' or '\n'))
+                return true;
+        }
+        return false;
     }
 
     private static bool IsBashCommandTrusted(ClassifiedCommand classified, string cwd)
