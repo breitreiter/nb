@@ -1175,24 +1175,23 @@ public class ConversationManager
         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Conversation history cleared[/]");
     }
 
-    public void SetSkillSystemMessage(string? skillContent)
+    public void SetKitContext(string? kitContent)
     {
-        const string marker = "[Skill Instructions]";
+        const string marker = "[Kit Context]";
 
-        // Find existing skill message at index 1
-        bool hasSkillSlot = _conversationHistory.Count > 1
+        bool hasKitSlot = _conversationHistory.Count > 1
             && _conversationHistory[1].Role == ChatRole.System
             && _conversationHistory[1].Text?.StartsWith(marker) == true;
 
-        if (skillContent == null)
+        if (kitContent == null)
         {
-            if (hasSkillSlot)
+            if (hasKitSlot)
                 _conversationHistory.RemoveAt(1);
         }
         else
         {
-            var message = new AIChatMessage(ChatRole.System, $"{marker}\n{skillContent}");
-            if (hasSkillSlot)
+            var message = new AIChatMessage(ChatRole.System, $"{marker}\n{kitContent}");
+            if (hasKitSlot)
                 _conversationHistory[1] = message;
             else
                 _conversationHistory.Insert(1, message);

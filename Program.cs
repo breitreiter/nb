@@ -27,6 +27,7 @@ public class Program
     private static FindFilesTool _findFilesTool = null!;
     private static GrepTool _grepTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
+    private static KitManager _kitManager = new KitManager();
     private static NbLineEditor _lineEditor = new NbLineEditor
     {
         Commands = new List<SlashCommand>
@@ -240,6 +241,13 @@ public class Program
         // Load conversation history from previous sessions
         await _conversationManager.LoadConversationHistoryAsync();
 
+        // Initialize kits
+        _kitManager.LoadKits(AppContext.BaseDirectory);
+        _lineEditor.Kits = _kitManager.Kits.Values
+            .Select(k => new SlashCommand(k.Name, k.Description))
+            .ToList();
+        _lineEditor.OnKitSelected = HandleKitSelected;
+
         // Initialize refactored services
         _commandProcessor = new CommandProcessor(_conversationManager, _configurationService, _providerManager);
 
@@ -333,6 +341,20 @@ public class Program
                     _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
                     break;
             }
+        }
+    }
+
+    private static void HandleKitSelected(string kitName)
+    {
+        if (_kitManager.Activate(kitName))
+        {
+            var kit = _kitManager.Kits[kitName];
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Kit: {Markup.Escape(kitName)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(kit.Description)}[/]");
+            _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Kit not found: {Markup.Escape(kitName)}[/]");
         }
     }
 

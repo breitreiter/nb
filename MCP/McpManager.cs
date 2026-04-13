@@ -184,6 +184,16 @@ public class McpManager : IDisposable
         return _mcpTools.AsReadOnly();
     }
 
+    public IReadOnlyList<AIFunction> GetToolsForServers(IEnumerable<string> serverNames)
+    {
+        var names = new HashSet<string>(serverNames, StringComparer.OrdinalIgnoreCase);
+        return _toolsByServer
+            .Where(kvp => names.Contains(kvp.Key))
+            .SelectMany(kvp => kvp.Value)
+            .ToList()
+            .AsReadOnly();
+    }
+
     public IReadOnlyList<string> GetConnectedServerNames()
     {
         return _connectedServerNames.AsReadOnly();

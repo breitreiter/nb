@@ -1,0 +1,19 @@
+{
+  // Kit definitions — each kit adds prompt context and optional MCP server tools
+  // Activate with "+" in the chat input (e.g. type + then select)
+  "kits": {
+    "review": {
+      "description": "Code review guidance",
+      "prompt": "Focus on code quality, correctness, security vulnerabilities, and maintainability. Point out potential bugs, suggest improvements, and highlight anything that could cause issues in production."
+    },
+    "testing": {
+      "description": "Testing and QA",
+      "prompt": "Help write and run tests. Suggest edge cases, boundary conditions, and failure modes. Prefer integration tests over unit tests when the distinction matters.",
+      "mcpServers": ["test-runner"]
+    },
+    "docs": {
+      "description": "Documentation",
+      "prompt": "Help write clear, concise documentation. Focus on what users need to know, not implementation details. Use examples over explanations where possible."
+    }
+  }
+}

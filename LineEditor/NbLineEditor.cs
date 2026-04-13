@@ -1,5 +1,5 @@
 // Line editor for nb — wraps vendored tonerdo/readline KeyHandler
-// Adds: backslash continuation, history, guard character callbacks, command disambiguation
+// Adds: backslash continuation, history, guard char disambiguation for / and +
 
 namespace nb.LineEditor;
 
@@ -9,32 +9,19 @@ public class NbLineEditor
 {
     private readonly List<string> _history = new();
 
-    /// <summary>
-    /// Available slash commands for "/" disambiguation.
-    /// </summary>
+    /// <summary>Available slash commands for "/" disambiguation.</summary>
     public List<SlashCommand> Commands { get; set; } = new();
 
-    /// <summary>
-    /// Called when the user types '+' as the only input and presses Enter.
-    /// Return the string to use as input, or null to re-prompt.
-    /// </summary>
-    public Func<string?>? OnPlusGuard { get; set; }
+    /// <summary>Available kits for "+" disambiguation.</summary>
+    public List<SlashCommand> Kits { get; set; } = new();
 
-    /// <summary>
-    /// Read a line of input with history, backslash continuation, and guard characters.
-    /// Returns null if the user enters empty input (after trimming).
-    /// </summary>
+    /// <summary>Called when a kit is selected via "+" disambiguation. Receives kit name (e.g. "+review").</summary>
+    public Action<string>? OnKitSelected { get; set; }
+
     public string? ReadLine(string prompt)
     {
         var line = ReadSingleLine(prompt);
         if (line == null) return null;
-
-        // Guard character: + as sole input
-        if (line.Trim() == "+" && OnPlusGuard != null)
-        {
-            var result = OnPlusGuard();
-            return result;
-        }
 
         // Backslash continuation
         if (line.EndsWith('\\'))
@@ -49,9 +36,7 @@ public class NbLineEditor
                     break;
                 }
                 if (continuation.EndsWith('\\'))
-                {
                     lines.Add(continuation[..^1]);
-                }
                 else
                 {
                     lines.Add(continuation);
@@ -72,14 +57,22 @@ public class NbLineEditor
         Console.Write(prompt);
 
         var handler = new KeyHandler(new ConsoleAdapter(), _history);
-
         var keyInfo = Console.ReadKey(true);
 
-        // "/" guard: enter command disambiguation mode
+        // "/" guard: command disambiguation
         if (keyInfo.KeyChar == '/' && Commands.Count > 0)
+            return HandleGuardMode(prompt, "/", Commands);
+
+        // "+" guard: kit disambiguation
+        if (keyInfo.KeyChar == '+' && Kits.Count > 0)
         {
-            var result = HandleSlashMode(prompt);
-            return result;
+            var selected = HandleGuardMode(prompt, "+", Kits);
+            if (selected != null && selected.StartsWith("+"))
+            {
+                OnKitSelected?.Invoke(selected);
+                return null; // kit activation handled by callback, don't send to LLM
+            }
+            return selected;
         }
 
         while (keyInfo.Key != ConsoleKey.Enter)
@@ -89,15 +82,14 @@ public class NbLineEditor
         }
 
         Console.WriteLine();
-
         var text = handler.Text;
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
-    private string? HandleSlashMode(string prompt)
+    private string? HandleGuardMode(string prompt, string prefix, List<SlashCommand> items)
     {
         var typed = "";
-        ShowCommandHints(typed);
+        ShowHints(prefix, typed, items);
 
         while (true)
         {
@@ -105,37 +97,33 @@ public class NbLineEditor
 
             if (keyInfo.Key == ConsoleKey.Escape)
             {
-                ClearHints();
-                // Re-prompt with clean line
-                ClearCurrentLine(prompt);
+                ClearHints(items.Count);
+                ClearCurrentLine();
                 Console.Write(prompt);
-                return ReadSingleLine(prompt) is { } resumed ? resumed : null;
+                return ReadSingleLine(prompt);
             }
 
             if (keyInfo.Key == ConsoleKey.Enter)
             {
-                ClearHints();
+                ClearHints(items.Count);
                 Console.WriteLine();
-                var cmd = "/" + typed;
-                return string.IsNullOrWhiteSpace(typed) ? null : cmd;
+                return string.IsNullOrWhiteSpace(typed) ? null : prefix + typed;
             }
 
             if (keyInfo.Key == ConsoleKey.Backspace)
             {
                 if (typed.Length == 0)
                 {
-                    // Backspace past the "/" — cancel
-                    ClearHints();
-                    ClearCurrentLine(prompt);
+                    ClearHints(items.Count);
+                    ClearCurrentLine();
                     Console.Write(prompt);
-                    return ReadSingleLine(prompt) is { } resumed2 ? resumed2 : null;
+                    return ReadSingleLine(prompt);
                 }
                 typed = typed[..^1];
-                // Redraw the input line
-                ClearHints();
-                ClearCurrentLine(prompt);
-                Console.Write(prompt + "/" + typed);
-                ShowCommandHints(typed);
+                ClearHints(items.Count);
+                ClearCurrentLine();
+                Console.Write(prompt + prefix + typed);
+                ShowHints(prefix, typed, items);
                 continue;
             }
 
@@ -143,68 +131,57 @@ public class NbLineEditor
             {
                 typed += keyInfo.KeyChar;
 
-                var matches = Commands
-                    .Where(c => c.Name.StartsWith("/" + typed, StringComparison.OrdinalIgnoreCase))
+                var matches = items
+                    .Where(c => c.Name.StartsWith(prefix + typed, StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
                 if (matches.Count == 1)
                 {
-                    // Disambiguated — auto-execute
-                    ClearHints();
-                    ClearCurrentLine(prompt);
+                    ClearHints(items.Count);
+                    ClearCurrentLine();
                     Console.Write(prompt + matches[0].Name);
                     Console.WriteLine();
                     return matches[0].Name;
                 }
 
-                if (matches.Count == 0)
-                {
-                    // No matches — just show what they typed, let them Enter or backspace
-                    ClearHints();
-                    ClearCurrentLine(prompt);
-                    Console.Write(prompt + "/" + typed);
-                    continue;
-                }
+                ClearHints(items.Count);
+                ClearCurrentLine();
+                Console.Write(prompt + prefix + typed);
 
-                // Multiple matches — update display
-                ClearHints();
-                ClearCurrentLine(prompt);
-                Console.Write(prompt + "/" + typed);
-                ShowCommandHints(typed);
+                if (matches.Count > 0)
+                    ShowHints(prefix, typed, items);
             }
         }
     }
 
-    private void ShowCommandHints(string typed)
+    private void ShowHints(string prefix, string typed, List<SlashCommand> items)
     {
-        var matches = Commands
-            .Where(c => c.Name.StartsWith("/" + typed, StringComparison.OrdinalIgnoreCase))
+        var matches = items
+            .Where(c => c.Name.StartsWith(prefix + typed, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (matches.Count == 0) return;
 
-        // Save cursor position
         var savedLeft = Console.CursorLeft;
         var savedTop = Console.CursorTop;
 
         Console.WriteLine();
         foreach (var cmd in matches)
         {
-            Console.WriteLine($"\u001b[90m  {cmd.Name,-12} {cmd.Description}\u001b[0m");
+            var shortName = cmd.Name[prefix.Length..]; // strip / or +
+            var pad = new string(' ', Math.Max(0, 14 - shortName.Length));
+            Console.WriteLine($"\u001b[90m  \u001b[97m{shortName[0]}\u001b[90m{shortName[1..]}{pad}{cmd.Description}\u001b[0m");
         }
 
-        // Restore cursor
         Console.SetCursorPosition(savedLeft, savedTop);
     }
 
-    private void ClearHints()
+    private void ClearHints(int maxLines)
     {
         var savedLeft = Console.CursorLeft;
         var savedTop = Console.CursorTop;
 
-        // Clear lines below cursor (max commands + 1 for the blank line)
-        var linesToClear = Commands.Count + 1;
-        for (int i = 1; i <= linesToClear; i++)
+        for (int i = 1; i <= maxLines + 1; i++)
         {
             if (savedTop + i >= Console.BufferHeight) break;
             Console.SetCursorPosition(0, savedTop + i);
@@ -214,9 +191,8 @@ public class NbLineEditor
         Console.SetCursorPosition(savedLeft, savedTop);
     }
 
-    private void ClearCurrentLine(string prompt)
+    private void ClearCurrentLine()
     {
-        // Move to start of input (after any ANSI codes in prompt, approximate with cursor position)
         Console.Write('\r');
         Console.Write(new string(' ', Console.WindowWidth));
         Console.Write('\r');
