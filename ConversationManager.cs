@@ -28,7 +28,6 @@ public class ConversationManager
     private readonly bool _trustMode;
     private readonly int _maxToolCalls;
     private readonly List<AIChatMessage> _conversationHistory = new();
-    private bool _stopSpinner = false;
     private int _toolCallCount = 0;
     private string _currentProviderName = "";
 
@@ -162,15 +161,12 @@ public class ConversationManager
 
             // Microsoft.Extensions.AI handles token limits cleanly without experimental methods
 
-            // Start spinner and make async API call
-            var spinnerTask = Task.Run(() => ShowSpinner());
-            var apiTask = _client.GetResponseAsync(_conversationHistory, requestOptions);
-
-            var response = await apiTask;
-
-            // Stop spinner
-            _stopSpinner = true;
-            await spinnerTask;
+            // Make API call with status spinner
+            var response = await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(Style.Parse(UIColors.SpectreMuted))
+                .StartAsync("Thinking...", async ctx =>
+                    await _client.GetResponseAsync(_conversationHistory, requestOptions));
 
             // Handle tool calls if present - check if any message has tool calls
             var hasToolCalls = response.Messages.Any(m => m.Contents.Any(c => c is FunctionCallContent));
@@ -550,46 +546,11 @@ public class ConversationManager
         }
         catch (Exception ex)
         {
-            // Stop spinner on error
-            _stopSpinner = true;
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
         }
-        finally
-        {
-            // Reset spinner flag for next call
-            _stopSpinner = false;
-        }
     }
 
 
-    private void ShowSpinner()
-    {
-        // Skip spinner if stdout is redirected (e.g., piped to file)
-        if (Console.IsOutputRedirected)
-            return;
-            
-        var spinnerChars = new char[] { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' };
-        int index = 0;
-        
-        try
-        {
-            Console.CursorVisible = false;
-            
-            while (!_stopSpinner)
-            {
-                Console.Write($"\r{spinnerChars[index]} Thinking...");
-                index = (index + 1) % spinnerChars.Length;
-                Thread.Sleep(100);
-            }
-            
-            Console.Write("\r                    \r"); // Clear the spinner line
-            Console.CursorVisible = true;
-        }
-        catch
-        {
-            // Ignore console errors when output is redirected
-        }
-    }
 
     private static void RenderMarkdown(string markdown)
     {
@@ -792,24 +753,33 @@ public class ConversationManager
             var lineCount = content.Split('\n').Length;
             var byteCount = System.Text.Encoding.UTF8.GetByteCount(content);
 
-            // Trust mode: auto-approve writes within sandbox
-            if (_trustMode && _bashTool != null && TrustSandbox.IsPathTrustedRelative(path, _bashTool.GetCwd()))
+            // Auto-approve writes within cwd sandbox
+            if (_bashTool != null)
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• auto: write {Markup.Escape(fullPath)} ({lineCount} lines)[/]");
-
-                if (_writeFileTool == null)
-                    return Task.FromResult(new FunctionResultContent(callId, "Error: Write file tool not initialized"));
-
-                var writeResult = _writeFileTool.WriteFile(path, content);
-                if (writeResult.Success)
+                var (trusted, symlinkEscape) = TrustSandbox.CheckPath(fullPath, _bashTool.GetCwd());
+                if (symlinkEscape)
                 {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {writeResult.BytesWritten} bytes[/]");
-                    return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {writeResult.BytesWritten} bytes to {writeResult.Path}"));
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Symlink escape:[/] [{UIColors.SpectreMuted}]{Markup.Escape(fullPath)} resolves outside working directory[/]");
+                    // Fall through to manual approval
                 }
-                else
+                else if (trusted)
                 {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(writeResult.Error ?? "Unknown error")}[/]");
-                    return Task.FromResult(new FunctionResultContent(callId, $"Error writing file: {writeResult.Error}"));
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• write {Markup.Escape(fullPath)} ({lineCount} lines)[/]");
+
+                    if (_writeFileTool == null)
+                        return Task.FromResult(new FunctionResultContent(callId, "Error: Write file tool not initialized"));
+
+                    var writeResult = _writeFileTool.WriteFile(path, content);
+                    if (writeResult.Success)
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {writeResult.BytesWritten} bytes[/]");
+                        return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {writeResult.BytesWritten} bytes to {writeResult.Path}"));
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(writeResult.Error ?? "Unknown error")}[/]");
+                        return Task.FromResult(new FunctionResultContent(callId, $"Error writing file: {writeResult.Error}"));
+                    }
                 }
             }
 
@@ -879,27 +849,36 @@ public class ConversationManager
         {
             var fullPath = _editFileTool?.ResolvePath(path) ?? path;
 
-            // Trust mode: auto-approve edits within sandbox
-            if (_trustMode && _bashTool != null && TrustSandbox.IsPathTrustedRelative(path, _bashTool.GetCwd()))
+            // Auto-approve edits within cwd sandbox
+            if (_bashTool != null)
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• auto: edit {Markup.Escape(fullPath)}[/]");
-
-                if (_editFileTool == null)
-                    return new FunctionResultContent(callId, "Error: Edit file tool not initialized");
-
-                var editResult = _editFileTool.EditFile(path, oldString, newString, replaceAll);
-                if (editResult.Success)
+                var (trusted, symlinkEscape) = TrustSandbox.CheckPath(fullPath, _bashTool.GetCwd());
+                if (symlinkEscape)
                 {
-                    var msg = editResult.Replacements == 1
-                        ? $"Successfully edited {editResult.Path} (1 replacement)"
-                        : $"Successfully edited {editResult.Path} ({editResult.Replacements} replacements)";
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
-                    return new FunctionResultContent(callId, msg);
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Symlink escape:[/] [{UIColors.SpectreMuted}]{Markup.Escape(fullPath)} resolves outside working directory[/]");
+                    // Fall through to manual approval
                 }
-                else
+                else if (trusted)
                 {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(editResult.Error ?? "Unknown error")}[/]");
-                    return new FunctionResultContent(callId, $"Error: {editResult.Error}");
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• edit {Markup.Escape(fullPath)}[/]");
+
+                    if (_editFileTool == null)
+                        return new FunctionResultContent(callId, "Error: Edit file tool not initialized");
+
+                    var editResult = _editFileTool.EditFile(path, oldString, newString, replaceAll);
+                    if (editResult.Success)
+                    {
+                        var msg = editResult.Replacements == 1
+                            ? $"Successfully edited {editResult.Path} (1 replacement)"
+                            : $"Successfully edited {editResult.Path} ({editResult.Replacements} replacements)";
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
+                        return new FunctionResultContent(callId, msg);
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(editResult.Error ?? "Unknown error")}[/]");
+                        return new FunctionResultContent(callId, $"Error: {editResult.Error}");
+                    }
                 }
             }
 
