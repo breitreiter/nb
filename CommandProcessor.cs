@@ -1,9 +1,10 @@
+using System.Diagnostics;
 using Spectre.Console;
 using nb.Utilities;
 
 namespace nb;
 
-public enum CommandAction { Exit, Continue, AddToHistory }
+public enum CommandAction { Exit, Continue, AddToHistory, SendToLlm }
 
 public class CommandResult
 {
@@ -13,6 +14,7 @@ public class CommandResult
     public static CommandResult Exit() => new() { Action = CommandAction.Exit };
     public static CommandResult Continue() => new() { Action = CommandAction.Continue };
     public static CommandResult AddToHistory(string input) => new() { Action = CommandAction.AddToHistory, ModifiedInput = input };
+    public static CommandResult SendToLlm(string input) => new() { Action = CommandAction.SendToLlm, ModifiedInput = input };
 }
 
 public class CommandProcessor
@@ -37,26 +39,23 @@ public class CommandProcessor
             return CommandResult.Exit();
         }
 
+        if (command == "/edit")
+        {
+            var input = LaunchEditor();
+            if (input != null)
+                return CommandResult.SendToLlm(input);
+            return CommandResult.Continue();
+        }
+
         if (command == "/clear")
         {
-            return HandleClearCommand();
-        }
-
-        if (command == "/providers")
-        {
-            HandleProvidersCommand();
+            _conversationManager.ClearConversationHistory();
             return CommandResult.Continue();
         }
 
-        if (command.StartsWith("/provider "))
+        if (command == "/provider")
         {
-            HandleSwitchProviderCommand(userInput);
-            return CommandResult.Continue();
-        }
-
-        if (command == "?")
-        {
-            DisplayHelp();
+            HandleProviderCommand();
             return CommandResult.Continue();
         }
 
@@ -64,32 +63,37 @@ public class CommandProcessor
         return CommandResult.Continue();
     }
 
-
-    private CommandResult HandleClearCommand()
-    {
-        _conversationManager.ClearConversationHistory();
-        return CommandResult.Continue();
-    }
-
-    private void HandleProvidersCommand()
+    private void HandleProviderCommand()
     {
         var config = _configService.GetConfiguration();
         var currentProvider = _conversationManager.GetCurrentProvider();
-        _providerManager.ShowProvidersWithStatus(config, currentProvider);
-    }
+        var configured = _providerManager.GetConfiguredProviders(config).ToList();
 
-    private void HandleSwitchProviderCommand(string userInput)
-    {
-        var providerName = userInput.Substring(10).Trim();
-        if (string.IsNullOrEmpty(providerName))
+        if (configured.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Please specify a provider name: /provider <name>[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No providers configured[/]");
             return;
         }
 
-        var config = _configService.GetConfiguration();
-        var newClient = _providerManager.TryCreateChatClient(config, providerName);
+        var choices = configured
+            .Select(name => name.Equals(currentProvider, StringComparison.OrdinalIgnoreCase)
+                ? $"{name} (active)"
+                : name)
+            .ToList();
 
+        var selection = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title($"[{UIColors.SpectreWarning}]Switch provider[/]")
+                .HighlightStyle(UIColors.SpectreInfo)
+                .AddChoices(choices));
+
+        // Strip the "(active)" suffix if present
+        var providerName = selection.Replace(" (active)", "");
+
+        if (providerName.Equals(currentProvider, StringComparison.OrdinalIgnoreCase))
+            return; // Already active, nothing to do
+
+        var newClient = _providerManager.TryCreateChatClient(config, providerName);
         if (newClient == null)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to switch to provider '{providerName}'[/]");
@@ -99,13 +103,40 @@ public class CommandProcessor
         _conversationManager.SwitchProvider(newClient, providerName);
     }
 
-    private void DisplayHelp()
+    private string? LaunchEditor()
     {
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Available commands:[/]");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]exit[/] - Quit the application");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/clear[/] - Clear conversation history");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/providers[/] - List all available providers");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]/provider <name>[/] - Switch to a different provider");
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreInfo}]?[/] - Show this help");
+        var tmpFile = Path.GetTempFileName();
+        try
+        {
+            var editor = Environment.GetEnvironmentVariable("EDITOR") ?? "nano";
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = editor,
+                Arguments = tmpFile,
+                UseShellExecute = false
+            });
+
+            if (process == null)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to launch editor: {editor}[/]");
+                return null;
+            }
+
+            process.WaitForExit();
+
+            var content = File.ReadAllText(tmpFile).Trim();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Empty input, cancelled[/]");
+                return null;
+            }
+
+            return content;
+        }
+        finally
+        {
+            try { File.Delete(tmpFile); } catch { }
+        }
     }
+
 }

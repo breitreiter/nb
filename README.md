@@ -80,7 +80,6 @@ In interactive mode, you can use these commands:
 - `/provider <name>` - Switch to a different AI provider (e.g., `/provider Anthropic`)
 - `/skills` - List installed skills
 - `/skill <name|off>` - Load or unload a skill
-- `?` - Show help with all commands
 
 ### Single-Shot Mode
 Launch with parameters to execute a single command and exit immediately:

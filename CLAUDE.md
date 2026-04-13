@@ -63,7 +63,6 @@ The application supports two execution modes:
 The application supports these built-in commands (intercepted before LLM):
 - `exit` - Quit the application
 - `/clear` - Clear conversation history (preserves system prompt)
-- `?` - Show help with all commands
 
 ## Development Notes
 - Commands are intercepted in `CommandProcessor.cs` and processed via enum-based actions

@@ -5,6 +5,7 @@ using nb.Providers;
 using nb.MCP;
 using nb.Shell;
 using nb.Utilities;
+using nb.LineEditor;
 
 namespace nb;
 
@@ -26,6 +27,7 @@ public class Program
     private static FindFilesTool _findFilesTool = null!;
     private static GrepTool _grepTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
+    private static NbLineEditor _lineEditor = new NbLineEditor();
 
     private static string? _systemPromptOverride = null;
     private static bool _noBash = false;
@@ -281,7 +283,7 @@ public class Program
         Console.Write(" " + UIColors.robot_img_2);
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
         Console.Write(" " + UIColors.robot_img_3);
-        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]");
+        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/]");
         
         while (true)
         {
@@ -289,9 +291,7 @@ public class Program
             string divider = string.Concat(Enumerable.Repeat("🞌", Console.WindowWidth));
             Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
 
-            AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]You:[/] ");
-            Console.Write(UIColors.NativeUserInput);
-            var userInput = Console.ReadLine();
+            var userInput = _lineEditor.ReadLine($"\u001b[38;5;154mYou:\u001b[0m {UIColors.NativeUserInput}");
             Console.Write(UIColors.NativeReset);
             
             // Add visual separator after user input
@@ -310,10 +310,14 @@ public class Program
                 
                 case CommandAction.Continue:
                     // Check if this was a non-command that should go to LLM
-                    if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "?" && userInput.Trim() != "exit")
+                    if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "exit")
                     {
                         await _conversationManager.SendMessageAsync(userInput);
                     }
+                    break;
+
+                case CommandAction.SendToLlm:
+                    await _conversationManager.SendMessageAsync(result.ModifiedInput!);
                     break;
 
                 case CommandAction.AddToHistory:
@@ -336,7 +340,7 @@ public class Program
             
             case CommandAction.Continue:
                 // Check if this was a non-command that should go to LLM
-                if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "?" && userInput.Trim() != "exit")
+                if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "exit")
                 {
                     await _conversationManager.SendMessageAsync(userInput);
                 }
