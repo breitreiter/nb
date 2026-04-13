@@ -27,7 +27,16 @@ public class Program
     private static FindFilesTool _findFilesTool = null!;
     private static GrepTool _grepTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
-    private static NbLineEditor _lineEditor = new NbLineEditor();
+    private static NbLineEditor _lineEditor = new NbLineEditor
+    {
+        Commands = new List<SlashCommand>
+        {
+            new("/clear", "Clear conversation"),
+            new("/edit", "Compose in $EDITOR"),
+            new("/provider", "Switch AI provider"),
+            new("/quit", "Quit"),
+        }
+    };
 
     private static string? _systemPromptOverride = null;
     private static bool _noBash = false;
@@ -283,7 +292,7 @@ public class Program
         Console.Write(" " + UIColors.robot_img_2);
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
         Console.Write(" " + UIColors.robot_img_3);
-        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/]");
+        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/exit[/] [{UIColors.SpectreMuted}]to quit[/]");
         
         while (true)
         {
@@ -310,7 +319,7 @@ public class Program
                 
                 case CommandAction.Continue:
                     // Check if this was a non-command that should go to LLM
-                    if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "exit")
+                    if (!userInput.TrimStart().StartsWith("/"))
                     {
                         await _conversationManager.SendMessageAsync(userInput);
                     }
@@ -340,7 +349,7 @@ public class Program
             
             case CommandAction.Continue:
                 // Check if this was a non-command that should go to LLM
-                if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "exit")
+                if (!userInput.TrimStart().StartsWith("/"))
                 {
                     await _conversationManager.SendMessageAsync(userInput);
                 }
