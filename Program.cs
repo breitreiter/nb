@@ -308,7 +308,7 @@ public class Program
             string divider = string.Concat(Enumerable.Repeat("🞌", Console.WindowWidth));
             Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
 
-            var userInput = _lineEditor.ReadLine($"\u001b[38;5;154mYou:\u001b[0m {UIColors.NativeUserInput}");
+            var userInput = _lineEditor.ReadLine($"\u001b[38;5;154m›\u001b[0m {UIColors.NativeUserInput}");
             Console.Write(UIColors.NativeReset);
             
             // Add visual separator after user input

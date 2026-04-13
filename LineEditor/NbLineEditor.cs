@@ -29,7 +29,7 @@ public class NbLineEditor
             var lines = new List<string> { line[..^1] };
             while (true)
             {
-                var continuation = ReadSingleLine("  > ");
+                var continuation = ReadSingleLine("  › ");
                 if (continuation == null)
                 {
                     lines.Add("");
