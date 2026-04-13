@@ -33,6 +33,7 @@ public class Program
     {
         Commands = new List<SlashCommand>
         {
+            new("//", "Back"),
             new("/clear", "Clear conversation"),
             new("/edit", "Compose in $EDITOR"),
             new("/provider", "Switch AI provider"),
@@ -354,7 +355,7 @@ public class Program
         Console.Write(" " + UIColors.robot_img_2);
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
         Console.Write(" " + UIColors.robot_img_3);
-        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/exit[/] [{UIColors.SpectreMuted}]to quit[/]");
+        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/[/] [{UIColors.SpectreMuted}]for commands[/] [{UIColors.SpectreAccent}]+[/] [{UIColors.SpectreMuted}]for kits[/]");
         
         while (true)
         {

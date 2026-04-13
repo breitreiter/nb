@@ -101,15 +101,7 @@ public class NbLineEditor
         {
             var keyInfo = Console.ReadKey(true);
 
-            if (keyInfo.Key == ConsoleKey.Escape)
-            {
-                ClearHints(items.Count);
-                ClearCurrentLine();
-                Console.Write(prompt);
-                return ReadSingleLine(prompt);
-            }
-
-            if (keyInfo.Key == ConsoleKey.Enter)
+            if (keyInfo.Key == ConsoleKey.Escape || keyInfo.Key == ConsoleKey.Enter)
             {
                 ClearHints(items.Count);
                 Console.WriteLine();
@@ -119,18 +111,27 @@ public class NbLineEditor
             if (keyInfo.Key == ConsoleKey.Backspace)
             {
                 if (typed.Length == 0)
-                {
-                    ClearHints(items.Count);
-                    ClearCurrentLine();
-                    Console.Write(prompt);
-                    return ReadSingleLine(prompt);
-                }
+                    continue; // stay in menu
                 typed = typed[..^1];
                 ClearHints(items.Count);
                 ClearCurrentLine();
                 Console.Write(prompt + prefix + typed);
                 ShowHints(prefix, typed, items);
                 continue;
+            }
+
+            if (keyInfo.KeyChar == prefix[0]) // e.g. "/" in slash mode = "//" cancel
+            {
+                typed += keyInfo.KeyChar;
+                // Check for exact match (e.g. "//")
+                var exact = items.FirstOrDefault(c => c.Name.Equals(prefix + typed, StringComparison.OrdinalIgnoreCase));
+                if (exact != null)
+                {
+                    ClearHints(items.Count);
+                    ClearCurrentLine();
+                    Console.Write(prompt);
+                    return null; // cancel, back to prompt
+                }
             }
 
             if (char.IsLetterOrDigit(keyInfo.KeyChar) || keyInfo.KeyChar == '_' || keyInfo.KeyChar == '-')
