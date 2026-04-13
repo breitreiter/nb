@@ -33,6 +33,12 @@ public class ConversationManager
     private int _toolCallCount = 0;
     private string _currentProviderName = "";
 
+    /// <summary>
+    /// Returns the set of MCP server names whose tools should be included in requests.
+    /// When null or returning empty, no MCP tools are included.
+    /// </summary>
+    public Func<HashSet<string>>? GetActiveMcpServers { get; set; }
+
     public ConversationManager(
         IChatClient client,
         McpManager mcpManager,
@@ -113,12 +119,18 @@ public class ConversationManager
                 MaxOutputTokens = 10000,
             };
 
-            // Add MCP tools, native resource tools, bash tools, and fake tools
-            var mcpTools = _mcpManager.GetTools().ToList();
+            // Add MCP tools (only from servers referenced by active kits)
+            var activeServers = GetActiveMcpServers?.Invoke();
+            var mcpTools = (activeServers != null && activeServers.Count > 0)
+                ? _mcpManager.GetToolsForServers(activeServers).ToList()
+                : new List<AIFunction>();
 
-            // Add native resource tools
-            mcpTools.Add(ResourceTools.CreateListResourcesTool(_mcpManager));
-            mcpTools.Add(ResourceTools.CreateReadResourceTool(_mcpManager));
+            // Add native resource tools only if we have active MCP servers
+            if (mcpTools.Count > 0)
+            {
+                mcpTools.Add(ResourceTools.CreateListResourcesTool(_mcpManager));
+                mcpTools.Add(ResourceTools.CreateReadResourceTool(_mcpManager));
+            }
 
             // Add bash tools if enabled
             if (_bashTool != null)

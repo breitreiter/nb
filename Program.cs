@@ -284,6 +284,7 @@ public class Program
             fullPrompt += $"\n\n{projectContext}";
 
         _conversationManager.InitializeWithSystemPrompt(fullPrompt);
+        _conversationManager.GetActiveMcpServers = () => _kitManager.GetActiveMcpServers();
 
         // Show trust mode banner
         if (_trustMode)
