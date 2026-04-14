@@ -6,7 +6,7 @@ A terminal-native AI assistant with deep shell integration, project context awar
 
 ## Features
 
-- **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
+- **Multi-Provider AI Support**: Built-in support for Azure OpenAI (Chat Completions and Responses API), OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
 - **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
 - **Terminal Integration**: Native shell access with approval UX. Models can execute commands, with dangerous operations requiring explicit confirmation.
 - **Native File Tools**: Cross-platform `read_file`, `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, and `fetch_url` — read-only tools auto-approve within the working directory.
@@ -315,14 +315,28 @@ Include `system.md`, `mcp.json`, `kits.json`, and `theme.json` with your executa
 
 ## AI Provider Architecture
 
-nb includes four built-in AI providers and supports extensibility for additional services:
+nb includes several built-in AI providers and supports extensibility for additional services:
 
 ### Built-in Providers
-- **Azure OpenAI** - Microsoft's enterprise OpenAI service
+- **AzureOpenAI** - Chat Completions on classic Azure OpenAI resources
+- **AzureFoundry** - Responses API on classic Azure OpenAI resources (needed for codex-family models like `gpt-5-codex`, and any other Responses-API-only model)
 - **OpenAI** - Direct OpenAI API integration
 - **Anthropic** - Claude models with function calling support
 - **Google Gemini** - Google's generative AI models
 - **Mock** - Testing provider that requires no API key
+
+#### Which Azure provider do I want?
+
+Azure's product surface spans several ways to expose a model. If you're unsure, match the API shape your deployment exposes:
+
+| Your deployment URL looks like... | Use provider |
+|---|---|
+| `https://<name>.{openai.azure.com,cognitiveservices.azure.com}/openai/deployments/<name>/chat/completions?...` | `AzureOpenAI` |
+| `https://<name>.{openai.azure.com,cognitiveservices.azure.com}/openai/responses?...` | `AzureFoundry` |
+
+Both providers accept either the resource root (`https://<name>.cognitiveservices.azure.com/`) or the full deployment URL in the `Endpoint` field — the plugin strips to the host. The `Model` field is your **deployment name** (what you named it at deploy time), not the model family name.
+
+If Azure shows you an endpoint on `services.ai.azure.com` with a `/api/projects/<project>/...` path, that's the newer Foundry Unified Endpoint and neither current provider targets it directly — open an issue if you need that variant.
 
 All providers are automatically compiled into the `bin/{Config}/net8.0/providers/` directory during build.
 

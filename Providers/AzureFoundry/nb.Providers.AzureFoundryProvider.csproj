@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AssemblyName>AzureFoundryProvider</AssemblyName>
+    <RootNamespace>nb.Providers</RootNamespace>
+    <NoWarn>$(NoWarn);OPENAI001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.3.0-beta.2" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="9.9.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.9.1-preview.1.25474.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\nb.Providers.Abstractions\nb.Providers.Abstractions.csproj" />
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <PropertyGroup>
+      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' != ''">$(SolutionDir)bin\$(Configuration)\net8.0\$(RuntimeIdentifier)\providers\azurefoundry</ProviderOutputPath>
+      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' == ''">$(SolutionDir)bin\$(Configuration)\net8.0\providers\azurefoundry</ProviderOutputPath>
+    </PropertyGroup>
+    <RemoveDir Directories="$(ProviderOutputPath)" />
+    <ItemGroup>
+      <ProviderFiles Include="$(TargetDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ProviderFiles)" DestinationFolder="$(ProviderOutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

@@ -29,6 +29,7 @@
     <Compile Remove="nb-builds\**" />
     <Compile Remove="Providers\Anthropic\**" />
     <Compile Remove="Providers\AzureOpenAI\**" />
+    <Compile Remove="Providers\AzureFoundry\**" />
     <Compile Remove="Providers\nb.Providers.Abstractions\**" />
     <Compile Remove="Providers\OpenAI\**" />
     <Compile Remove="Providers\Gemini\**" />
@@ -36,6 +37,7 @@
     <EmbeddedResource Remove="nb-builds\**" />
     <EmbeddedResource Remove="Providers\Anthropic\**" />
     <EmbeddedResource Remove="Providers\AzureOpenAI\**" />
+    <EmbeddedResource Remove="Providers\AzureFoundry\**" />
     <EmbeddedResource Remove="Providers\nb.Providers.Abstractions\**" />
     <EmbeddedResource Remove="Providers\OpenAI\**" />
     <EmbeddedResource Remove="Providers\Gemini\**" />
@@ -44,6 +46,7 @@
     <None Remove="nb-builds\**" />
     <None Remove="Providers\Anthropic\**" />
     <None Remove="Providers\AzureOpenAI\**" />
+    <None Remove="Providers\AzureFoundry\**" />
     <None Remove="Providers\nb.Providers.Abstractions\**" />
     <None Remove="Providers\OpenAI\**" />
     <None Remove="Providers\Gemini\**" />

@@ -21,6 +21,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.MockProvider",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Tests", "nb.Tests\nb.Tests.csproj", "{40253E9B-9F37-4985-8275-AC7F4C1E4391}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Providers", "Providers", "{12D47BF3-E57B-4AAB-B3A5-FB81557CA9DF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.AzureFoundryProvider", "Providers\AzureFoundry\nb.Providers.AzureFoundryProvider.csproj", "{FC23A4F8-081C-4ECD-9573-906B56EC54C0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -63,8 +67,15 @@ Global
 		{40253E9B-9F37-4985-8275-AC7F4C1E4391}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{40253E9B-9F37-4985-8275-AC7F4C1E4391}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{40253E9B-9F37-4985-8275-AC7F4C1E4391}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FC23A4F8-081C-4ECD-9573-906B56EC54C0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FC23A4F8-081C-4ECD-9573-906B56EC54C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FC23A4F8-081C-4ECD-9573-906B56EC54C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FC23A4F8-081C-4ECD-9573-906B56EC54C0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{FC23A4F8-081C-4ECD-9573-906B56EC54C0} = {12D47BF3-E57B-4AAB-B3A5-FB81557CA9DF}
 	EndGlobalSection
 EndGlobal
