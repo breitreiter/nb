@@ -374,7 +374,7 @@ public class Program
         Console.Write(" " + UIColors.robot_img_2);
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
         Console.Write(" " + UIColors.robot_img_3);
-        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/[/] [{UIColors.SpectreMuted}]for commands[/] [{UIColors.SpectreAccent}]+[/] [{UIColors.SpectreMuted}]for kits[/]");
+        AnsiConsole.MarkupLine($"  NotaBene 0.10.0β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/[/] [{UIColors.SpectreMuted}]for commands[/] [{UIColors.SpectreAccent}]+[/] [{UIColors.SpectreMuted}]for kits[/]");
         
         while (true)
         {
