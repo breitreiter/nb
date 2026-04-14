@@ -27,6 +27,7 @@ public class Program
     private static FindFilesTool _findFilesTool = null!;
     private static GrepTool _grepTool = null!;
     private static ListDirTool _listDirTool = null!;
+    private static FetchUrlTool _fetchUrlTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static KitManager _kitManager = new KitManager();
     private static NbLineEditor _lineEditor = new NbLineEditor
@@ -138,6 +139,21 @@ public class Program
         return sections.Count > 0 ? string.Join("\n\n", sections) : null;
     }
 
+    private static int ResolveMaxContextTokens(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
+    {
+        var providers = config.GetSection("ChatProviders").GetChildren();
+        foreach (var provider in providers)
+        {
+            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (int.TryParse(provider["MaxContextTokens"], out var providerTokens))
+                    return providerTokens;
+                break;
+            }
+        }
+        return int.TryParse(config["MaxContextTokens"], out var tokens) ? tokens : 128000;
+    }
+
     private static string[] ParseFlags(string[] args)
     {
         var remainingArgs = new List<string>();
@@ -234,6 +250,7 @@ public class Program
             _findFilesTool = new FindFilesTool(_shellEnvironment);
             _grepTool = new GrepTool(_shellEnvironment);
             _listDirTool = new ListDirTool(_shellEnvironment);
+            _fetchUrlTool = new FetchUrlTool();
         }
 
         // Check for trust mode from config
@@ -270,8 +287,10 @@ public class Program
 
         // Initialize conversation manager with dependencies
         var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
+        var maxContextTokens = ResolveMaxContextTokens(config, activeProviderName);
+        var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();

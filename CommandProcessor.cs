@@ -100,7 +100,25 @@ public class CommandProcessor
             return;
         }
 
-        _conversationManager.SwitchProvider(newClient, providerName);
+        var maxContextTokens = ResolveMaxContextTokens(config, providerName);
+        _conversationManager.SwitchProvider(newClient, providerName, maxContextTokens);
+    }
+
+    private static int ResolveMaxContextTokens(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
+    {
+        // Check per-provider MaxContextTokens first
+        var providers = config.GetSection("ChatProviders").GetChildren();
+        foreach (var provider in providers)
+        {
+            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (int.TryParse(provider["MaxContextTokens"], out var providerTokens))
+                    return providerTokens;
+                break;
+            }
+        }
+        // Fall back to top-level setting
+        return int.TryParse(config["MaxContextTokens"], out var tokens) ? tokens : 128000;
     }
 
     private string? LaunchEditor()

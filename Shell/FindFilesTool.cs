@@ -44,13 +44,17 @@ public class FindFilesTool
         );
     }
 
+    public string GetCwd() => _env.ShellCwd;
+
+    public string ResolvePath(string? path) => string.IsNullOrEmpty(path)
+        ? _env.ShellCwd
+        : Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
+
     public FindFilesResult FindFiles(string pattern, string? path = null, int? maxResults = null)
     {
         try
         {
-            var searchDir = string.IsNullOrEmpty(path)
-                ? _env.ShellCwd
-                : Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
+            var searchDir = ResolvePath(path);
 
             if (!Directory.Exists(searchDir))
                 return new FindFilesResult(false, Array.Empty<string>(), 0, $"Directory not found: {searchDir}");

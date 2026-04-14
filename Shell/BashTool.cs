@@ -63,28 +63,6 @@ public class BashTool
         );
     }
 
-    public AIFunction CreateSetCwdTool()
-    {
-        var setCwdFunc = (string path) =>
-        {
-            try
-            {
-                _env.SetCwd(path);
-                return $"Working directory changed to: {_env.ShellCwd}";
-            }
-            catch (DirectoryNotFoundException ex)
-            {
-                return $"Error: {ex.Message}";
-            }
-        };
-
-        return AIFunctionFactory.Create(
-            setCwdFunc,
-            name: "set_cwd",
-            description: "Change the working directory for subsequent bash commands. Does not require approval."
-        );
-    }
-
     public async Task<ShellResult> ExecuteAsync(
         string command,
         string? cwd = null,

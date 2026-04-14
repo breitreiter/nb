@@ -51,6 +51,8 @@ public class ReadFileTool
         );
     }
 
+    public string GetCwd() => _env.ShellCwd;
+
     public string ResolvePath(string path) =>
         Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
 

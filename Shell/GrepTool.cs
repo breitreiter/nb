@@ -51,13 +51,17 @@ public class GrepTool
         );
     }
 
+    public string GetCwd() => _env.ShellCwd;
+
+    public string ResolvePath(string? path) => string.IsNullOrEmpty(path)
+        ? _env.ShellCwd
+        : Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
+
     public GrepResult Grep(string pattern, string? path = null, string? filePattern = null, bool? caseInsensitive = null, int? maxResults = null, string? outputMode = null)
     {
         try
         {
-            var searchPath = string.IsNullOrEmpty(path)
-                ? _env.ShellCwd
-                : Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
+            var searchPath = ResolvePath(path);
 
             var limit = maxResults ?? DefaultMaxResults;
             var filesOnly = string.Equals(outputMode, "files_with_matches", StringComparison.OrdinalIgnoreCase);

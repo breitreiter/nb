@@ -39,13 +39,17 @@ public class ListDirTool
         );
     }
 
+    public string GetCwd() => _env.ShellCwd;
+
+    public string ResolvePath(string? path) => string.IsNullOrEmpty(path)
+        ? _env.ShellCwd
+        : Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
+
     public ListDirResult ListDir(string? path = null)
     {
         try
         {
-            var dirPath = string.IsNullOrEmpty(path)
-                ? _env.ShellCwd
-                : Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
+            var dirPath = ResolvePath(path);
 
             if (!Directory.Exists(dirPath))
                 return new ListDirResult(false, dirPath, null, $"Directory not found: {dirPath}");
