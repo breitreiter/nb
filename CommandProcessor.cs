@@ -126,17 +126,39 @@ public class CommandProcessor
         var tmpFile = Path.GetTempFileName();
         try
         {
-            var editor = Environment.GetEnvironmentVariable("EDITOR") ?? "nano";
-            var process = Process.Start(new ProcessStartInfo
-            {
-                FileName = editor,
-                Arguments = tmpFile,
-                UseShellExecute = false
-            });
+            var candidates = BuildEditorCandidates();
+            Process? process = null;
+            string? launchedEditor = null;
 
-            if (process == null)
+            foreach (var (editor, warning) in candidates)
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to launch editor: {editor}[/]");
+                try
+                {
+                    process = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = editor,
+                        Arguments = tmpFile,
+                        UseShellExecute = false
+                    });
+                    if (process != null)
+                    {
+                        launchedEditor = editor;
+                        if (warning != null)
+                            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{warning}[/]");
+                        break;
+                    }
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // Editor not found on PATH — try the next candidate
+                }
+            }
+
+            if (process == null || launchedEditor == null)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No editor found. Set the EDITOR environment variable to your preferred editor.[/]");
+                if (OperatingSystem.IsWindows())
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Tip: `winget install Microsoft.Edit` for a console editor that works well with /edit.[/]");
                 return null;
             }
 
@@ -154,6 +176,23 @@ public class CommandProcessor
         finally
         {
             try { File.Delete(tmpFile); } catch { }
+        }
+    }
+
+    private static IEnumerable<(string Editor, string? Warning)> BuildEditorCandidates()
+    {
+        var envEditor = Environment.GetEnvironmentVariable("EDITOR");
+        if (!string.IsNullOrWhiteSpace(envEditor))
+            yield return (envEditor, null);
+
+        if (OperatingSystem.IsWindows())
+        {
+            yield return ("edit", null);
+            yield return ("notepad", "Falling back to notepad — if tabs are enabled, /edit may return immediately. Set EDITOR to a console editor (e.g. `edit`) for reliable behavior.");
+        }
+        else
+        {
+            yield return ("nano", null);
         }
     }
 
