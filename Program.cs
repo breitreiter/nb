@@ -5,6 +5,7 @@ using nb.Providers;
 using nb.MCP;
 using nb.Shell;
 using nb.Utilities;
+using nb.LineEditor;
 
 namespace nb;
 
@@ -18,8 +19,6 @@ public class Program
     private static ConfigurationService _configurationService = new ConfigurationService();
     private static ProviderManager _providerManager = new ProviderManager();
     private static CommandProcessor _commandProcessor = null!;
-    private static FileContentExtractor _fileExtractor = null!;
-    private static PromptProcessor _promptProcessor = null!;
     private static ShellEnvironment _shellEnvironment = null!;
     private static BashTool _bashTool = null!;
     private static ReadFileTool _readFileTool = null!;
@@ -27,8 +26,22 @@ public class Program
     private static EditFileTool _editFileTool = null!;
     private static FindFilesTool _findFilesTool = null!;
     private static GrepTool _grepTool = null!;
+    private static ListDirTool _listDirTool = null!;
+    private static FetchUrlTool _fetchUrlTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
-    private static SkillManager _skillManager = null!;
+    private static KitManager _kitManager = new KitManager();
+    private static NbLineEditor _lineEditor = new NbLineEditor
+    {
+        Commands = new List<SlashCommand>
+        {
+            new("//", "Back"),
+            new("/clear", "Clear conversation"),
+            new("/edit", "Compose in $EDITOR"),
+            new("/provider", "Switch AI provider"),
+            new("/quit", "Quit"),
+        }
+    };
+
     private static string? _systemPromptOverride = null;
     private static bool _noBash = false;
     private static bool _verbose = false;
@@ -79,6 +92,66 @@ public class Program
 
         // Otherwise use default from ConfigurationService
         return _configurationService.GetSystemPrompt();
+    }
+
+    private static string? LoadProjectContext(string cwd)
+    {
+        // Look for NB.md in cwd, then walk up to find it in parent dirs
+        var dir = Path.GetFullPath(cwd);
+        string? nbMdPath = null;
+
+        while (dir != null)
+        {
+            var candidate = Path.Combine(dir, "NB.md");
+            if (File.Exists(candidate))
+            {
+                nbMdPath = candidate;
+                break;
+            }
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        var sections = new List<string>();
+
+        if (nbMdPath != null)
+        {
+            var content = File.ReadAllText(nbMdPath).Trim();
+            if (!string.IsNullOrEmpty(content))
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Loaded project context: {Markup.Escape(nbMdPath)}[/]");
+                sections.Add($"## Project Context (NB.md)\n\n{content}");
+            }
+        }
+
+        // Check for other vendor context files — don't auto-load, just tell the model they exist
+        var contextFiles = new[] { "CLAUDE.md", "AGENTS.md", "COPILOT.md", "CURSORRULES", ".cursorrules", "GEMINI.md", ".github/copilot-instructions.md" };
+        var found = contextFiles
+            .Select(f => Path.Combine(Path.GetFullPath(cwd), f))
+            .Where(File.Exists)
+            .Select(f => Path.GetFileName(f))
+            .ToList();
+
+        if (found.Count > 0)
+        {
+            sections.Add($"## Other Context Files\n\nThe following project context files exist in the working directory: {string.Join(", ", found)}. Use `read_file` to read them if they seem relevant to the user's request.");
+        }
+
+        return sections.Count > 0 ? string.Join("\n\n", sections) : null;
+    }
+
+    private static int ResolveMaxContextTokens(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
+    {
+        var providers = config.GetSection("ChatProviders").GetChildren();
+        foreach (var provider in providers)
+        {
+            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (int.TryParse(provider["MaxContextTokens"], out var providerTokens))
+                    return providerTokens;
+                break;
+            }
+        }
+        return int.TryParse(config["MaxContextTokens"], out var tokens) ? tokens : 128000;
     }
 
     private static string[] ParseFlags(string[] args)
@@ -176,6 +249,8 @@ public class Program
             _editFileTool = new EditFileTool(_shellEnvironment);
             _findFilesTool = new FindFilesTool(_shellEnvironment);
             _grepTool = new GrepTool(_shellEnvironment);
+            _listDirTool = new ListDirTool(_shellEnvironment);
+            _fetchUrlTool = new FetchUrlTool();
         }
 
         // Check for trust mode from config
@@ -212,15 +287,24 @@ public class Program
 
         // Initialize conversation manager with dependencies
         var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
+        var maxContextTokens = ResolveMaxContextTokens(config, activeProviderName);
+        var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
         var fullPrompt = _noBash
             ? basePrompt
             : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
+
+        // Auto-load project context from NB.md in working directory
+        var projectContext = LoadProjectContext(_noBash ? "." : _shellEnvironment.ShellCwd);
+        if (projectContext != null)
+            fullPrompt += $"\n\n{projectContext}";
+
         _conversationManager.InitializeWithSystemPrompt(fullPrompt);
+        _conversationManager.GetActiveMcpServers = () => _kitManager.GetActiveMcpServers();
 
         // Show trust mode banner
         if (_trustMode)
@@ -231,14 +315,15 @@ public class Program
         // Load conversation history from previous sessions
         await _conversationManager.LoadConversationHistoryAsync();
 
-        // Initialize skills
-        _skillManager = new SkillManager();
-        _skillManager.LoadAllSkills();
+        // Initialize kits
+        _kitManager.LoadKits(AppContext.BaseDirectory);
+        _lineEditor.Kits = _kitManager.Kits.Values
+            .Select(k => new SlashCommand(k.Name, k.Description))
+            .ToList();
+        _lineEditor.OnKitSelected = HandleKitSelected;
 
         // Initialize refactored services
-        _fileExtractor = new FileContentExtractor();
-        _promptProcessor = new PromptProcessor(_mcpManager);
-        _commandProcessor = new CommandProcessor(_fileExtractor, _promptProcessor, _conversationManager, _configurationService, _providerManager, _skillManager);
+        _commandProcessor = new CommandProcessor(_conversationManager, _configurationService, _providerManager);
 
         // Check if stdin is being piped
         string? stdinContent = null;
@@ -289,9 +374,7 @@ public class Program
         Console.Write(" " + UIColors.robot_img_2);
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
         Console.Write(" " + UIColors.robot_img_3);
-        var skillCount = _skillManager.Skills.Count;
-        var skillInfo = skillCount > 0 ? $" [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreMuted}]Skills: {skillCount}[/]" : "";
-        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]exit[/] [{UIColors.SpectreMuted}]to quit[/] [{UIColors.SpectreAccent}]?[/] [{UIColors.SpectreMuted}]for help[/]{skillInfo}");
+        AnsiConsole.MarkupLine($"  NotaBene 0.9.1β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/[/] [{UIColors.SpectreMuted}]for commands[/] [{UIColors.SpectreAccent}]+[/] [{UIColors.SpectreMuted}]for kits[/]");
         
         while (true)
         {
@@ -299,9 +382,7 @@ public class Program
             string divider = string.Concat(Enumerable.Repeat("🞌", Console.WindowWidth));
             Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
 
-            AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]You:[/] ");
-            Console.Write(UIColors.NativeUserInput);
-            var userInput = Console.ReadLine();
+            var userInput = _lineEditor.ReadLine($"\u001b[38;5;154m›\u001b[0m {UIColors.NativeUserInput}");
             Console.Write(UIColors.NativeReset);
             
             // Add visual separator after user input
@@ -311,7 +392,7 @@ public class Program
                 continue;
 
             // Process command through the command processor
-            var result = await _commandProcessor.ProcessCommandAsync(userInput);
+            var result = _commandProcessor.ProcessCommand(userInput);
 
             switch (result.Action)
             {
@@ -320,26 +401,14 @@ public class Program
                 
                 case CommandAction.Continue:
                     // Check if this was a non-command that should go to LLM
-                    if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "?" && userInput.Trim() != "exit")
+                    if (!userInput.TrimStart().StartsWith("/"))
                     {
-                        // Auto-match skills if none active
-                        if (_skillManager.ActiveSkillName == null)
-                        {
-                            var matches = _skillManager.FindMatchingSkills(userInput);
-                            if (matches.Count > 0)
-                            {
-                                var top = matches[0];
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Skill match:[/] [{UIColors.SpectreInfo}]{Markup.Escape(top.Skill.Name)}[/] — {Markup.Escape(top.Skill.Description)}");
-                                if (AnsiConsole.Confirm("Load skill?", defaultValue: true))
-                                {
-                                    _skillManager.LoadSkill(top.Skill.Name);
-                                    _conversationManager.SetSkillSystemMessage(_skillManager.GetSkillBody(top.Skill.Name));
-                                }
-                            }
-                        }
-
                         await _conversationManager.SendMessageAsync(userInput);
                     }
+                    break;
+
+                case CommandAction.SendToLlm:
+                    await _conversationManager.SendMessageAsync(result.ModifiedInput!);
                     break;
 
                 case CommandAction.AddToHistory:
@@ -349,10 +418,24 @@ public class Program
         }
     }
 
+    private static void HandleKitSelected(string kitName)
+    {
+        if (_kitManager.Activate(kitName))
+        {
+            var kit = _kitManager.Kits[kitName];
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Kit: {Markup.Escape(kitName)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(kit.Description)}[/]");
+            _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Kit not found: {Markup.Escape(kitName)}[/]");
+        }
+    }
+
     private static async Task ExecuteSingleCommand(string userInput)
     {
         // Process command through the command processor (same logic as interactive mode)
-        var result = await _commandProcessor.ProcessCommandAsync(userInput);
+        var result = _commandProcessor.ProcessCommand(userInput);
 
         switch (result.Action)
         {
@@ -362,7 +445,7 @@ public class Program
             
             case CommandAction.Continue:
                 // Check if this was a non-command that should go to LLM
-                if (!userInput.TrimStart().StartsWith("/") && userInput.Trim() != "?" && userInput.Trim() != "exit")
+                if (!userInput.TrimStart().StartsWith("/"))
                 {
                     await _conversationManager.SendMessageAsync(userInput);
                 }

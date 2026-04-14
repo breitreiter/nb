@@ -11,7 +11,6 @@ public class McpManager : IDisposable
 {
     private readonly List<McpClient> _mcpClients = new();
     private readonly List<AIFunction> _mcpTools = new();
-    private readonly List<McpClientPrompt> _mcpPrompts = new();
     private readonly List<ResourceInfo> _mcpResources = new();
     private readonly List<string> _connectedServerNames = new();
     private readonly Dictionary<string, List<AIFunction>> _toolsByServer = new();
@@ -144,17 +143,6 @@ public class McpManager : IDisposable
                         }
                     }
 
-                    // Get prompts from this client
-                    try
-                    {
-                        var prompts = await client.ListPromptsAsync();
-                        _mcpPrompts.AddRange(prompts);
-                    }
-                    catch (Exception)
-                    {
-                        // Most MCP servers don't support prompts, so we silently ignore this
-                    }
-
                     // Get resources from this client
                     try
                     {
@@ -196,9 +184,14 @@ public class McpManager : IDisposable
         return _mcpTools.AsReadOnly();
     }
 
-    public IReadOnlyList<McpClientPrompt> GetPrompts()
+    public IReadOnlyList<AIFunction> GetToolsForServers(IEnumerable<string> serverNames)
     {
-        return _mcpPrompts.AsReadOnly();
+        var names = new HashSet<string>(serverNames, StringComparer.OrdinalIgnoreCase);
+        return _toolsByServer
+            .Where(kvp => names.Contains(kvp.Key))
+            .SelectMany(kvp => kvp.Value)
+            .ToList()
+            .AsReadOnly();
     }
 
     public IReadOnlyList<string> GetConnectedServerNames()

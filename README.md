@@ -1,6 +1,6 @@
 # NotaBene (nb)
 
-A feature-rich AI CLI.
+A terminal-native AI assistant with deep shell integration, project context awareness, and extensible tooling.
 
 ![NotaBene Preview](preview.png)
 
@@ -9,10 +9,13 @@ A feature-rich AI CLI.
 - **Multi-Provider AI Support**: Built-in support for Azure OpenAI, OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
 - **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
 - **Terminal Integration**: Native shell access with approval UX. Models can execute commands, with dangerous operations requiring explicit confirmation.
-- **Native File Tools**: Cross-platform `read_file`, `write_file`, `edit_file`, `find_files`, and `grep` — read-only tools run without approval.
+- **Native File Tools**: Cross-platform `read_file`, `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, and `fetch_url` — read-only tools auto-approve within the working directory.
 - **Trust Mode**: `--trust` auto-approves file tools and safe shell commands within the working directory sandbox.
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
-- **MCP Server Integration** for extensible tools, prompts, and resources
+- **MCP Server Integration** for extensible tools and resources
+- **Kit System**: Activate contextual prompts and MCP tools with `+` disambiguation (e.g., `+review`, `+testing`)
+- **Line Editor**: Full editing capabilities with history, backslash continuation, and `/edit` for composing in `$EDITOR`
+- **Project Context**: Auto-loads `NB.md` from your working directory to provide project-specific context
 
 ## Prerequisites
 
@@ -39,8 +42,11 @@ A feature-rich AI CLI.
 3. Build and run:
    ```bash
    dotnet build
-   dotnet run
+   cd bin/Debug/net8.0
+   ./nb
    ```
+
+   **Note:** nb must run from the bin directory where provider DLLs are located.
 
 ### Option 2: Pre-built Binaries
 
@@ -64,7 +70,9 @@ After installation, configure nb for your environment:
 
 3. **MCP Servers** (Optional): Copy `mcp.example.json` to `mcp.json` and configure your MCP server connections.
 
-4. **Theme** (Optional): Customize colors by editing `theme.json`.
+4. **Kits** (Optional): Copy `kits.example.json` to `kits.json` and configure contextual prompt bundles.
+
+5. **Theme** (Optional): Customize colors by editing `theme.json`.
 
 ## Usage
 
@@ -73,23 +81,28 @@ Launch with no parameters to start an interactive chat session:
 ```bash
 nb
 ```
-In interactive mode, you can use these commands:
-- `exit` - Quit the application
-- `/clear` - Clear conversation history (preserves system prompt)
-- `/insert <filepath>` - Insert file content into conversation context (PDF, text, JPG, PNG)
-- `/providers` - List all available AI providers and their configuration status
-- `/provider <name>` - Switch to a different AI provider (e.g., `/provider Anthropic`)
-- `/prompts` - List available MCP prompts from connected servers
-- `/prompt <name>` - Invoke a specific MCP prompt with interactive argument collection
-- `/skills` - List installed skills
-- `/skill <name|off>` - Load or unload a skill
-- `?` - Show help with all commands
+
+In interactive mode, you can:
+- Type naturally to chat with the AI
+- Type `+` to activate kits (contextual prompt/tool bundles)
+- Type `/` to see available slash commands
+- Type `//` to cancel and go back
+- Use backslash (`\`) at end of line to continue on next line
+- Press up/down arrows for command history
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/clear` | Clear conversation history (preserves system prompt) |
+| `/edit` | Compose message in `$EDITOR` |
+| `/provider` | Switch AI provider |
+| `/quit` | Exit nb |
 
 ### Single-Shot Mode
 Launch with parameters to execute a single command and exit immediately:
 ```bash
 nb /clear
-nb /insert document.pdf
 nb Summarize this document
 ```
 
@@ -119,7 +132,7 @@ Delete ⚠: /tmp/important-file
 Execute? [y/N/?]
 ```
 
-Press `?` to see the full command before deciding.
+Press `?` at the approval prompt to see the full command before deciding.
 
 For automation and scripting, pre-approve commands with the `--approve` flag:
 ```bash
@@ -128,19 +141,28 @@ nb --approve "ls" --approve "cat *" "analyze this project"
 
 Patterns support globs (`cat *` matches `cat file.txt`, `cat /etc/hosts`, etc.).
 
+**Auto-approved safe commands** (no prompt required):
+- Build tools: `dotnet build`, `dotnet test`, `cargo build`, `make`, `npm run`, `yarn`, etc.
+- Read-only git: `git status`, `git log`, `git diff`, `git show`, etc.
+- Read-only queries: `which`, `whereis`, `type`, etc.
+
 ### File Tools
 
 Models have native file tools that work cross-platform without the shell:
 
 | Tool | Description | Approval |
 |------|-------------|----------|
-| `read_file` | Read file contents with line numbers | Auto |
-| `write_file` | Create or overwrite files | Required |
-| `edit_file` | Targeted string replacement | Required |
-| `find_files` | Glob-based file discovery | Auto |
-| `grep` | Regex content search | Auto |
+| `read_file` | Read file contents with line numbers | Auto in cwd, prompt outside |
+| `list_dir` | Lightweight directory listing | Auto in cwd, prompt outside |
+| `find_files` | Glob-based file discovery | Auto in cwd, prompt outside |
+| `grep` | Regex content search | Auto in cwd, prompt outside |
+| `write_file` | Create or overwrite files | Required (auto in cwd with `--trust`) |
+| `edit_file` | Targeted string replacement | Required (auto in cwd with `--trust`) |
+| `fetch_url` | Fetch text content from an HTTP/HTTPS URL | Always required |
 
-Read-only tools (`read_file`, `find_files`, `grep`) execute immediately. Write tools require approval unless trust mode is active.
+Read tools auto-approve inside the working directory sandbox (and system temp dirs); paths outside prompt for approval. Write tools always prompt unless `--trust` is active. `fetch_url` always prompts — outbound network is a separate trust boundary.
+
+**Read-before-edit guard**: The `edit_file` and `write_file` tools enforce that files must be read via `read_file` before modification, helping prevent the model from making blind edits.
 
 ### Trust Mode
 
@@ -156,6 +178,33 @@ Or enable permanently in `appsettings.json`:
 ```
 
 **Sandboxed**: only operations targeting the cwd (and system temp dirs) are auto-approved. Dangerous commands (`rm -rf`, `sudo`, etc.) always prompt. Also bumps the max tool calls per message to 50.
+
+### Kits
+
+Kits are contextual prompt bundles that inject domain-specific guidance and optionally gate MCP server tools. Configure in `kits.json`:
+
+```json
+{
+  "kits": {
+    "review": {
+      "description": "Code review guidance",
+      "prompt": "Focus on code quality, correctness, security vulnerabilities, and maintainability..."
+    },
+    "testing": {
+      "description": "Testing and QA",
+      "prompt": "Help write and run tests...",
+      "mcpServers": ["test-runner"]
+    }
+  }
+}
+```
+
+Activate during conversation by typing `+` and selecting from the menu. When a kit is active:
+- Its prompt is injected into context
+- Any MCP servers specified in `mcpServers` are made available
+- MCP tools from non-active kits are hidden
+
+**MCP gating**: If you have kits configured, MCP tools are only available when their server is listed in an active kit's `mcpServers` array. This prevents tool clutter and helps focus the model.
 
 ### Command-Line Flags
 
@@ -176,36 +225,10 @@ nb --verbose --nobash --system eval-prompt.txt "run the evaluation"
 ### Provider Switching
 Switch between AI providers during a conversation to leverage different models' strengths:
 ```bash
-/providers                 # List all available providers
-/provider Anthropic        # Switch to Claude
+/provider                 # Interactive selection menu
 ```
 
 Conversation history is maintained when switching providers, allowing you to continue the same conversation with different AI models.
-
-### MCP Prompts
-List and invoke prompts from connected MCP servers:
-```bash
-/prompts                    # List available prompts
-/prompt weather-report      # Invoke a specific prompt
-```
-Prompts may request arguments interactively before execution.
-
-### Skills
-
-Skills are instruction packages that inject domain-specific guidance into context on demand. Install skills to `~/.nb/skills/<name>/SKILL.md`:
-
-```markdown
----
-name: code-review
-description: Review code for bugs, style issues, and improvements
-keywords: review, code review, audit, lint, quality
-phrases: review this code, check for bugs
----
-
-You are an expert code reviewer...
-```
-
-Load manually with `/skill code-review`, or nb will suggest a match when your input scores against a skill's keywords (1pt each) and phrases (2pt each). `/skill off` unloads.
 
 ### MCP Configuration
 Configure MCP servers in `mcp.json`:
@@ -228,7 +251,7 @@ The `alwaysAllow` array specifies tools that skip approval prompts. Use `["*"]` 
 ```
 
 ### Built-in MCP Server
-The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools and dynamically generated prompts from markdown files.
+The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools.
 
 ### Fake Tools
 nb will read `fake-tools.yaml` and treat those definitions as normal tools. When the model requests a fake tool, nb will return the configured response. Refer to `fake-tools.example.yaml` for the expected format.
@@ -255,6 +278,14 @@ Example response template:
 response: '{"id": "{{$guid}}", "status": "{{$choice(pending,active,completed)}}", "created_at": "{{$timestamp}}"}'
 ```
 
+## Project Context
+
+If you create an `NB.md` file in your working directory, nb will automatically load it and include it in the system prompt. This is perfect for providing project-specific context, coding conventions, architecture notes, or any other information the AI should know about your project.
+
+nb will search upward through parent directories to find `NB.md`, so you can place it at your project root and it will be available in subdirectories.
+
+Other context files may be hinted at if found (e.g., `CLAUDE.md`, `AGENTS.md`), but only `NB.md` auto-loads.
+
 ## Theming
 
 nb loads its color scheme from `theme.json` at startup. Color names are from [Spectre.Console](https://spectreconsole.net/appendix/colors)
@@ -280,7 +311,7 @@ For example, here's a high-contrast theme (WCAG AAA on standard Windows console 
 dotnet publish -c Release -r win-x64 --self-contained
 ```
 
-Include `system.md`, `mcp.json`, and `theme.json` with your executable for custom configurations.
+Include `system.md`, `mcp.json`, `kits.json`, and `theme.json` with your executable for custom configurations.
 
 ## AI Provider Architecture
 

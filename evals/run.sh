@@ -119,12 +119,7 @@ run_test_contains \
     "System prompt file not found" \
     "$NB" --system /nonexistent/file.md "test"
 
-# Command interception: ? shows help (intercepted before LLM)
-run_test_contains \
-    "? shows help" \
-    0 \
-    "exit" \
-    "$NB" "?"
+# ? is no longer intercepted — it goes to the LLM as a normal prompt
 
 # Command interception: /clear doesn't crash
 run_test \

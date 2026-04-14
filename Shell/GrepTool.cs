@@ -27,14 +27,14 @@ public class GrepTool
 
     public AIFunction CreateTool()
     {
-        var grepFunc = (string pattern, string path, string file_pattern, bool? case_insensitive, int? max_results) =>
-            Grep(pattern, string.IsNullOrEmpty(path) ? null : path, string.IsNullOrEmpty(file_pattern) ? null : file_pattern, case_insensitive, max_results);
+        var grepFunc = (string pattern, string path, string file_pattern, bool? case_insensitive, int? max_results, string output_mode) =>
+            Grep(pattern, string.IsNullOrEmpty(path) ? null : path, string.IsNullOrEmpty(file_pattern) ? null : file_pattern, case_insensitive, max_results, string.IsNullOrEmpty(output_mode) ? null : output_mode);
 
         return AIFunctionFactory.Create(
             grepFunc,
             name: "grep",
             description: $"""
-                Search file contents using regex. Returns matching lines with file paths and line numbers.
+                Search file contents using regex.
                 Searches from: {_env.ShellCwd}
 
                 Parameters:
@@ -42,24 +42,29 @@ public class GrepTool
                 - path: Directory or file to search (absolute or relative to working directory). Empty string for working directory.
                 - file_pattern: Glob filter for files to search (e.g. "*.cs", "*.ts"). Empty string for all files.
                 - case_insensitive: If true, perform case-insensitive search (default: false)
-                - max_results: Maximum number of matching lines to return (default: {DefaultMaxResults})
+                - max_results: Maximum number of results to return (default: {DefaultMaxResults})
+                - output_mode: "content" (default) returns matching lines as "file:line: content". "files_with_matches" returns only file paths that contain matches.
 
-                Returns results in "file:line_number: content" format.
                 Automatically skips binary files and common non-source directories.
                 Use this instead of bash grep/findstr/Select-String for content search.
                 """
         );
     }
 
-    public GrepResult Grep(string pattern, string? path = null, string? filePattern = null, bool? caseInsensitive = null, int? maxResults = null)
+    public string GetCwd() => _env.ShellCwd;
+
+    public string ResolvePath(string? path) => string.IsNullOrEmpty(path)
+        ? _env.ShellCwd
+        : Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
+
+    public GrepResult Grep(string pattern, string? path = null, string? filePattern = null, bool? caseInsensitive = null, int? maxResults = null, string? outputMode = null)
     {
         try
         {
-            var searchPath = string.IsNullOrEmpty(path)
-                ? _env.ShellCwd
-                : Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_env.ShellCwd, path));
+            var searchPath = ResolvePath(path);
 
             var limit = maxResults ?? DefaultMaxResults;
+            var filesOnly = string.Equals(outputMode, "files_with_matches", StringComparison.OrdinalIgnoreCase);
             var regexOptions = RegexOptions.Compiled;
             if (caseInsensitive == true)
                 regexOptions |= RegexOptions.IgnoreCase;
@@ -74,10 +79,31 @@ public class GrepTool
                 return new GrepResult(false, Array.Empty<string>(), 0, $"Invalid regex pattern: {ex.Message}");
             }
 
+            // files_with_matches mode: collect file paths only
+            if (filesOnly)
+            {
+                var matchingFiles = new List<string>();
+                var filesToSearch = GetFilesToSearch(searchPath, filePattern);
+                if (filesToSearch == null)
+                    return new GrepResult(false, Array.Empty<string>(), 0, $"Path not found: {searchPath}");
+
+                foreach (var file in filesToSearch)
+                {
+                    if (matchingFiles.Count >= limit) break;
+                    if (FileContainsMatch(file, regex))
+                        matchingFiles.Add(Path.GetRelativePath(searchPath, file));
+                }
+
+                var output = string.Join("\n", matchingFiles);
+                if (matchingFiles.Count >= limit)
+                    output += $"\n\n[Showing first {limit} files. Use max_results to see more.]";
+                return new GrepResult(true, matchingFiles.ToArray(), matchingFiles.Count, null, output);
+            }
+
+            // content mode (default): return matching lines
             var matches = new List<string>();
             var totalMatches = 0;
 
-            // If searching a single file
             if (File.Exists(searchPath))
             {
                 SearchFile(searchPath, Path.GetDirectoryName(searchPath) ?? searchPath, regex, matches, ref totalMatches, limit);
@@ -87,25 +113,8 @@ public class GrepTool
             if (!Directory.Exists(searchPath))
                 return new GrepResult(false, Array.Empty<string>(), 0, $"Path not found: {searchPath}");
 
-            // Get files to search
-            IEnumerable<string> files;
-            if (!string.IsNullOrEmpty(filePattern))
-            {
-                var matcher = new Matcher();
-                matcher.AddInclude($"**/{filePattern}");
-                foreach (var dir in SkipDirectories)
-                    matcher.AddExclude($"{dir}/**");
-
-                var dirInfo = new DirectoryInfoWrapper(new DirectoryInfo(searchPath));
-                var globResult = matcher.Execute(dirInfo);
-                files = globResult.Files.Select(f => Path.Combine(searchPath, f.Path));
-            }
-            else
-            {
-                files = EnumerateFilesRecursive(searchPath);
-            }
-
-            foreach (var file in files)
+            var allFiles = GetFilesToSearch(searchPath, filePattern)!;
+            foreach (var file in allFiles)
             {
                 if (totalMatches >= limit) break;
                 SearchFile(file, searchPath, regex, matches, ref totalMatches, limit);
@@ -117,6 +126,43 @@ public class GrepTool
         {
             return new GrepResult(false, Array.Empty<string>(), 0, ex.Message);
         }
+    }
+
+    private IEnumerable<string>? GetFilesToSearch(string searchPath, string? filePattern)
+    {
+        if (File.Exists(searchPath))
+            return new[] { searchPath };
+
+        if (!Directory.Exists(searchPath))
+            return null;
+
+        if (!string.IsNullOrEmpty(filePattern))
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude($"**/{filePattern}");
+            foreach (var dir in SkipDirectories)
+                matcher.AddExclude($"{dir}/**");
+
+            var dirInfo = new DirectoryInfoWrapper(new DirectoryInfo(searchPath));
+            var globResult = matcher.Execute(dirInfo);
+            return globResult.Files.Select(f => Path.Combine(searchPath, f.Path));
+        }
+
+        return EnumerateFilesRecursive(searchPath);
+    }
+
+    private static bool FileContainsMatch(string filePath, Regex regex)
+    {
+        try
+        {
+            if (IsBinaryFile(filePath)) return false;
+            foreach (var line in File.ReadLines(filePath))
+            {
+                if (regex.IsMatch(line)) return true;
+            }
+            return false;
+        }
+        catch { return false; }
     }
 
     private static void SearchFile(string filePath, string baseDir, Regex regex, List<string> matches, ref int totalMatches, int limit)
