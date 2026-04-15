@@ -50,10 +50,18 @@ public class EditFileTool
                 return new EditFileResult(false, fullPath, 0, "old_string and new_string are identical");
 
             var content = File.ReadAllText(fullPath);
-            var occurrences = CountOccurrences(content, oldString);
+
+            // Normalize old_string line endings to match the file, so models writing \n
+            // don't fail on CRLF files.
+            bool fileUsesCrlf = content.Contains("\r\n");
+            var normalizedOld = fileUsesCrlf
+                ? oldString.Replace("\r\n", "\n").Replace("\n", "\r\n")
+                : oldString.Replace("\r\n", "\n");
+
+            var occurrences = CountOccurrences(content, normalizedOld);
 
             if (occurrences == 0)
-                return new EditFileResult(false, fullPath, 0, "old_string not found in file");
+                return new EditFileResult(false, fullPath, 0, BuildNotFoundMessage(content, oldString));
 
             if (!replaceAll && occurrences > 1)
                 return new EditFileResult(false, fullPath, 0,
@@ -64,13 +72,13 @@ public class EditFileTool
 
             if (replaceAll)
             {
-                newContent = content.Replace(oldString, newString);
+                newContent = content.Replace(normalizedOld, newString);
                 replacements = occurrences;
             }
             else
             {
-                var index = content.IndexOf(oldString, StringComparison.Ordinal);
-                newContent = string.Concat(content.AsSpan(0, index), newString, content.AsSpan(index + oldString.Length));
+                var index = content.IndexOf(normalizedOld, StringComparison.Ordinal);
+                newContent = string.Concat(content.AsSpan(0, index), newString, content.AsSpan(index + normalizedOld.Length));
                 replacements = 1;
             }
 
@@ -82,6 +90,27 @@ public class EditFileTool
         {
             return new EditFileResult(false, path, 0, ex.Message);
         }
+    }
+
+    private static string BuildNotFoundMessage(string content, string oldString)
+    {
+        // Find the first non-empty line of old_string in the file to give the model context.
+        var searchLine = oldString.Replace("\r\n", "\n").Split('\n')
+            .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim();
+
+        if (searchLine == null)
+            return "old_string not found in file";
+
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+        var matchIdx = Array.FindIndex(lines, l => l.Contains(searchLine, StringComparison.Ordinal));
+
+        if (matchIdx < 0)
+            return "old_string not found in file";
+
+        var start = Math.Max(0, matchIdx - 2);
+        var end = Math.Min(lines.Length - 1, matchIdx + 2);
+        var snippet = string.Join("\n", lines[start..(end + 1)]);
+        return $"old_string not found in file. First line of old_string was found — actual file content near that location:\n{snippet}";
     }
 
     private static int CountOccurrences(string text, string search)
