@@ -302,6 +302,11 @@ public class Program
             ? basePrompt
             : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
 
+        // Append provider-specific system prompt if present (e.g. system.AzureFoundry.md)
+        var providerPromptPath = Path.Combine(AppContext.BaseDirectory, $"system.{activeProviderName}.md");
+        if (File.Exists(providerPromptPath))
+            fullPrompt += $"\n\n{File.ReadAllText(providerPromptPath)}";
+
         // Auto-load project context from NB.md in working directory
         var projectContext = LoadProjectContext(_noBash ? "." : _shellEnvironment.ShellCwd);
         if (projectContext != null)

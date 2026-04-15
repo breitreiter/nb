@@ -32,21 +32,15 @@ public class ReadFileTool
             readFunc,
             name: "read_file",
             description: $"""
-                Read the contents of a file and return it with line numbers.
+                Read file contents with line numbers.
                 Paths are relative to: {_env.ShellCwd}
 
-                Supported file types:
-                - Text files: returned with line numbers
-                - PDF files (.pdf): text is extracted and returned
-                - Image files (.jpg, .jpeg, .png): returned as base64-encoded data for vision models
+                Supports text (with offset/limit pagination), PDF (text extraction), and images (.jpg/.jpeg/.png, returned as base64 for vision).
 
                 Parameters:
                 - path: File path (absolute or relative to working directory)
-                - offset: 1-based line number to start reading from (default: 1, text files only)
-                - limit: Maximum number of lines to return (default: {DefaultMaxLines}, text files only)
-
-                Use this instead of bash cat/head/tail for reading files.
-                For large text files, use offset and limit to read specific sections.
+                - offset: 1-based line number to start from (default: 1, text only)
+                - limit: Max lines to return (default: {DefaultMaxLines}, text only)
                 """
         );
     }

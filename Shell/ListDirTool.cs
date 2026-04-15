@@ -34,7 +34,6 @@ public class ListDirTool
 
                 Returns entries in "type name" format where type is [file] or [dir].
                 Automatically skips: {string.Join(", ", SkipDirectories)}
-                Use this for quick directory overview. For recursive file search, use find_files instead.
                 """
         );
     }

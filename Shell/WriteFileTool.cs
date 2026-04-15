@@ -26,10 +26,6 @@ public class WriteFileTool
                 Parameters:
                 - path: File path (absolute or relative to working directory)
                 - content: The full content to write to the file
-
-                Use this for creating new files or complete rewrites.
-                For targeted edits to existing files, use edit_file instead.
-                File writes require user approval.
                 """
         );
     }

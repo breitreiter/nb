@@ -20,20 +20,16 @@ public class EditFileTool
             editFunc,
             name: "edit_file",
             description: $"""
-                Make targeted edits to an existing file using string replacement.
+                Targeted string replacement in an existing file.
                 Paths are relative to: {_env.ShellCwd}
 
                 Parameters:
                 - path: File path (absolute or relative to working directory)
-                - old_string: The exact text to find in the file (must match exactly, including whitespace and indentation)
-                - new_string: The replacement text
-                - replace_all: If true, replace all occurrences. If false (default), replace only the first occurrence and fail if old_string is not unique.
+                - old_string: Exact text to find (must match including whitespace and indentation)
+                - new_string: Replacement text
+                - replace_all: Replace all occurrences (default: false)
 
-                The edit will FAIL if old_string is not found in the file.
-                When replace_all is false, the edit will FAIL if old_string appears more than once — provide more surrounding context to make it unique.
-                Use read_file first to see the current content before editing.
-                For creating new files or complete rewrites, use write_file instead.
-                File edits require user approval.
+                Fails if old_string is not found. Fails if old_string is not unique when replace_all is false — add more surrounding context to make it unique.
                 """
         );
     }

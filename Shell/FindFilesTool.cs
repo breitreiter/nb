@@ -39,7 +39,6 @@ public class FindFilesTool
                 - max_results: Maximum number of results to return (default: {DefaultMaxResults})
 
                 Automatically skips: {string.Join(", ", SkipDirectories)}
-                Use this instead of bash find/ls/dir for file discovery.
                 """
         );
     }

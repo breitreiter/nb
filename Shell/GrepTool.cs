@@ -46,7 +46,6 @@ public class GrepTool
                 - output_mode: "content" (default) returns matching lines as "file:line: content". "files_with_matches" returns only file paths that contain matches.
 
                 Automatically skips binary files and common non-source directories.
-                Use this instead of bash grep/findstr/Select-String for content search.
                 """
         );
     }
