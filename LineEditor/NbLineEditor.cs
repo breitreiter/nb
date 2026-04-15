@@ -15,8 +15,6 @@ public class NbLineEditor
     /// <summary>Available kits for "+" disambiguation.</summary>
     public List<SlashCommand> Kits { get; set; } = new();
 
-    /// <summary>Called when a kit is selected via "+" disambiguation. Receives kit name (e.g. "+review").</summary>
-    public Action<string>? OnKitSelected { get; set; }
 
     public string? ReadLine(string prompt)
     {

@@ -15,167 +15,148 @@ public class McpManager : IDisposable
     private readonly List<string> _connectedServerNames = new();
     private readonly Dictionary<string, List<AIFunction>> _toolsByServer = new();
     private readonly HashSet<string> _alwaysAllowTools = new();
+    private McpConfig _config = new();
 
-    public async Task InitializeAsync(bool showBanners = true)
+    /// <summary>
+    /// Reads mcp.json and caches the config. No network connections are made.
+    /// Call this at startup.
+    /// </summary>
+    public void LoadConfig()
     {
-        try
+        try { _config = LoadMcpConfiguration(); }
+        catch { _config = new McpConfig(); }
+    }
+
+    /// <summary>
+    /// Connects any of the named servers that are not yet connected.
+    /// Safe to call multiple times — already-connected servers are skipped.
+    /// </summary>
+    public async Task EnsureServersConnectedAsync(IEnumerable<string> serverNames)
+    {
+        var servers = _config.McpServers.Count > 0 ? _config.McpServers : _config.Servers;
+        foreach (var name in serverNames)
         {
-            var mcpConfig = LoadMcpConfiguration();
-            
-            // Use either McpServers or Servers property (support both formats)
-            var servers = mcpConfig.McpServers.Count > 0 ? mcpConfig.McpServers : mcpConfig.Servers;
-            
-            if (servers.Count == 0)
+            if (_connectedServerNames.Contains(name)) continue;
+            if (!servers.TryGetValue(name, out var serverConfig))
             {
-                return; // No MCP servers configured
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]MCP: '{name}' not found in mcp.json[/]");
+                continue;
+            }
+            try { await ConnectServerAsync(name, serverConfig); }
+            catch (Exception ex) { AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP error: {name} — {Markup.Escape(ex.Message)}[/]"); }
+        }
+    }
+
+    /// <summary>
+    /// Connects all configured servers. Used by --dump-tools.
+    /// </summary>
+    public async Task ConnectAllAsync()
+    {
+        var servers = _config.McpServers.Count > 0 ? _config.McpServers : _config.Servers;
+        foreach (var (name, serverConfig) in servers)
+        {
+            if (_connectedServerNames.Contains(name)) continue;
+            try { await ConnectServerAsync(name, serverConfig); }
+            catch (Exception ex) { AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP error: {name} — {Markup.Escape(ex.Message)}[/]"); }
+        }
+    }
+
+    private async Task ConnectServerAsync(string serverName, McpServerConfig serverConfig)
+    {
+        IClientTransport transport;
+
+        if (serverConfig.Type.Equals("http", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrEmpty(serverConfig.Endpoint))
+                throw new InvalidOperationException($"HTTP transport for '{serverName}' requires an 'endpoint' property");
+
+            transport = new HttpClientTransport(new HttpClientTransportOptions
+            {
+                Endpoint = new Uri(serverConfig.Endpoint)
+            });
+        }
+        else
+        {
+            var envVars = new Dictionary<string, string?>();
+            if (serverConfig.Env != null)
+            {
+                foreach (var kvp in serverConfig.Env)
+                    envVars[kvp.Key] = kvp.Value;
             }
 
-            foreach (var (serverName, serverConfig) in servers)
+            transport = new StdioClientTransport(new StdioClientTransportOptions
             {
-                try
+                Name = serverName,
+                Command = serverConfig.Command,
+                Arguments = serverConfig.Args ?? Array.Empty<string>(),
+                EnvironmentVariables = envVars
+            });
+        }
+
+        // TODO: Centralize version string (also used in startup banner)
+        var clientOptions = new McpClientOptions
+        {
+            ClientInfo = new Implementation { Name = "nb", Version = "0.9.0" },
+            Capabilities = new ClientCapabilities
+            {
+                Roots = new RootsCapability { ListChanged = true }
+            },
+            Handlers = new McpClientHandlers
+            {
+                RootsHandler = (request, cancellationToken) =>
                 {
-                    // Create appropriate transport based on type
-                    IClientTransport transport;
-
-                    if (serverConfig.Type.Equals("http", StringComparison.OrdinalIgnoreCase))
+                    var cwd = Directory.GetCurrentDirectory();
+                    var cwdUri = new Uri(cwd).AbsoluteUri;
+                    return ValueTask.FromResult(new ListRootsResult
                     {
-                        // HTTP/SSE transport
-                        if (string.IsNullOrEmpty(serverConfig.Endpoint))
-                        {
-                            throw new InvalidOperationException($"HTTP transport for '{serverName}' requires an 'endpoint' property");
-                        }
-
-                        transport = new HttpClientTransport(new HttpClientTransportOptions
-                        {
-                            Endpoint = new Uri(serverConfig.Endpoint)
-                        });
-                    }
-                    else
-                    {
-                        // Default to stdio transport
-                        var envVars = new Dictionary<string, string?>();
-                        if (serverConfig.Env != null)
-                        {
-                            foreach (var kvp in serverConfig.Env)
-                            {
-                                envVars[kvp.Key] = kvp.Value;
-                            }
-                        }
-
-                        transport = new StdioClientTransport(new StdioClientTransportOptions
-                        {
-                            Name = serverName,
-                            Command = serverConfig.Command,
-                            Arguments = serverConfig.Args ?? Array.Empty<string>(),
-                            EnvironmentVariables = envVars
-                        });
-                    }
-
-                    // Create client options with roots support (current working directory)
-                    // TODO: Centralize version string (also used in startup banner)
-                    var clientOptions = new McpClientOptions
-                    {
-                        ClientInfo = new Implementation
-                        {
-                            Name = "nb",
-                            Version = "0.9.0" 
-                        },
-                        Capabilities = new ClientCapabilities
-                        {
-                            Roots = new RootsCapability
-                            {
-                                ListChanged = true
-                            }
-                        },
-                        Handlers = new McpClientHandlers
-                        {
-                            RootsHandler = (request, cancellationToken) =>
-                            {
-                                var cwd = Directory.GetCurrentDirectory();
-                                var cwdUri = new Uri(cwd).AbsoluteUri;
-                                var result = new ListRootsResult
-                                {
-                                    Roots = new List<Root>
-                                    {
-                                        new Root
-                                        {
-                                            Uri = cwdUri,
-                                            Name = "Working Directory"
-                                        }
-                                    }
-                                };
-                                return ValueTask.FromResult(result);
-                            }
-                        }
-                    };
-
-                    var client = await McpClient.CreateAsync(transport, clientOptions);
-                    _mcpClients.Add(client);
-                    _connectedServerNames.Add(serverName);
-
-                    // Get tools from this client and namespace them
-                    var tools = await client.ListToolsAsync();
-                    _toolsByServer[serverName] = new List<AIFunction>(tools);
-                    foreach (var tool in tools)
-                    {
-                        // Namespace the tool: serverName.toolName (dot separator for OpenAI compatibility)
-                        var namespacedTool = tool.WithName($"{serverName}_{tool.Name}");
-                        _mcpTools.Add(namespacedTool);
-                    }
-
-                    // Add tools to always-allow list if configured (namespace them)
-                    if (serverConfig.AlwaysAllow != null)
-                    {
-                        if (serverConfig.AlwaysAllow.Contains("*"))
-                        {
-                            // Wildcard: allow all tools from this server
-                            foreach (var tool in tools)
-                            {
-                                _alwaysAllowTools.Add($"{serverName}_{tool.Name}");
-                            }
-                        }
-                        else
-                        {
-                            foreach (var toolName in serverConfig.AlwaysAllow)
-                            {
-                                _alwaysAllowTools.Add($"{serverName}_{toolName}");
-                            }
-                        }
-                    }
-
-                    // Get resources from this client
-                    try
-                    {
-                        var resources = await client.ListResourcesAsync();
-                        foreach (var resource in resources)
-                        {
-                            _mcpResources.Add(new ResourceInfo
-                            {
-                                ServerName = serverName,
-                                Client = client,
-                                Uri = resource.Uri,
-                                Name = resource.Name ?? resource.Uri,
-                                Description = resource.Description,
-                                MimeType = resource.MimeType
-                            });
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // Many MCP servers don't support resources, so we silently ignore this
-                    }
-
-                    // Silently connect - no banners
+                        Roots = new List<Root> { new Root { Uri = cwdUri, Name = "Working Directory" } }
+                    });
                 }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP error: {serverName} - {Markup.Escape(ex.Message)}[/]");
-                }
+            }
+        };
+
+        var client = await McpClient.CreateAsync(transport, clientOptions);
+        _mcpClients.Add(client);
+        _connectedServerNames.Add(serverName);
+
+        var tools = await client.ListToolsAsync();
+        _toolsByServer[serverName] = new List<AIFunction>(tools);
+        foreach (var tool in tools)
+            _mcpTools.Add(tool.WithName($"{serverName}_{tool.Name}"));
+
+        if (serverConfig.AlwaysAllow != null)
+        {
+            if (serverConfig.AlwaysAllow.Contains("*"))
+            {
+                foreach (var tool in tools)
+                    _alwaysAllowTools.Add($"{serverName}_{tool.Name}");
+            }
+            else
+            {
+                foreach (var toolName in serverConfig.AlwaysAllow)
+                    _alwaysAllowTools.Add($"{serverName}_{toolName}");
             }
         }
-        catch (Exception)
+
+        try
         {
-            // Silently skip MCP config errors
+            var resources = await client.ListResourcesAsync();
+            foreach (var resource in resources)
+            {
+                _mcpResources.Add(new ResourceInfo
+                {
+                    ServerName = serverName,
+                    Client = client,
+                    Uri = resource.Uri,
+                    Name = resource.Name ?? resource.Uri,
+                    Description = resource.Description,
+                    MimeType = resource.MimeType
+                });
+            }
+        }
+        catch
+        {
+            // Many MCP servers don't support resources
         }
     }
 

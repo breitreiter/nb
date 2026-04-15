@@ -225,7 +225,8 @@ public class Program
         // --dump-tools: connect to MCP servers, write manifest, exit
         if (_dumpTools)
         {
-            await _mcpManager.InitializeAsync(showBanners: false);
+            _mcpManager.LoadConfig();
+            await _mcpManager.ConnectAllAsync();
             var manifest = _mcpManager.BuildToolManifest();
             var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
             var outputPath = Path.Combine(Directory.GetCurrentDirectory(), "mcp-tools.json");
@@ -280,19 +281,13 @@ public class Program
             Environment.Exit(1);
         }
 
-        // Determine execution mode first to control banner display
+        // Load MCP config (no connections yet — servers connect on kit activation)
+        _mcpManager.LoadConfig();
+
+        // Load fake tools
+        await _fakeToolManager.LoadFakeToolsAsync();
+
         var isInteractiveMode = remainingArgs.Length == 0;
-        await _mcpManager.InitializeAsync(showBanners: isInteractiveMode);
-
-        // Load fake tools (notifications will be shown after integration)
-        var fakeToolResult = await _fakeToolManager.LoadFakeToolsAsync();
-
-        // Perform integration to determine overrides
-        if (fakeToolResult.Success && fakeToolResult.ToolsLoaded > 0)
-        {
-            var mcpTools = _mcpManager.GetTools();
-            _fakeToolManager.IntegrateWithMcpTools(mcpTools);
-        }
 
         // Initialize conversation manager with dependencies
         var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
@@ -410,6 +405,13 @@ public class Program
             if (string.IsNullOrWhiteSpace(userInput))
                 continue;
 
+            // Kit activation — returned by the line editor when "+" guard mode selects a kit
+            if (userInput.StartsWith("+"))
+            {
+                await HandleKitSelectedAsync(userInput);
+                continue;
+            }
+
             // Process command through the command processor
             var result = _commandProcessor.ProcessCommand(userInput);
 
@@ -437,17 +439,30 @@ public class Program
         }
     }
 
-    private static void HandleKitSelected(string kitName)
+    private static async Task HandleKitSelectedAsync(string kitName)
     {
-        if (_kitManager.Activate(kitName))
-        {
-            var kit = _kitManager.Kits[kitName];
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Kit: {Markup.Escape(kitName)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(kit.Description)}[/]");
-            _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
-        }
-        else
+        if (!_kitManager.Activate(kitName))
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Kit not found: {Markup.Escape(kitName)}[/]");
+            return;
+        }
+
+        var kit = _kitManager.Kits[kitName];
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Kit: {Markup.Escape(kitName)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(kit.Description)}[/]");
+        _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
+
+        // Connect any MCP servers declared by this kit that aren't connected yet
+        if (kit.McpServers.Length > 0)
+        {
+            var pending = kit.McpServers
+                .Except(_mcpManager.GetConnectedServerNames(), StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (pending.Length > 0)
+            {
+                AnsiConsole.Markup($"[{UIColors.SpectreMuted}]Connecting MCP: {Markup.Escape(string.Join(", ", pending))}…[/]");
+                await _mcpManager.EnsureServersConnectedAsync(pending);
+                AnsiConsole.MarkupLine($" [{UIColors.SpectreSuccess}]done[/]");
+            }
         }
     }
 
