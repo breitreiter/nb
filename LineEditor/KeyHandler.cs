@@ -74,6 +74,35 @@ internal class KeyHandler
     {
         if (IsEndOfLine())
         {
+            // Word wrap: avoid splitting a word at the terminal buffer boundary
+            if (IsEndOfBuffer() && c != ' ' && c != '\t' && _cursorPos > 0)
+            {
+                // Find start of current word in existing text
+                int wordStart = _cursorPos;
+                while (wordStart > 0 && _text[wordStart - 1] != ' ' && _text[wordStart - 1] != '\t')
+                    wordStart--;
+                int wordLen = (_cursorPos - wordStart) + 1; // existing word chars + new char
+
+                // Cursor is at BufferWidth-1; word starts at BufferWidth-wordLen
+                int wordStartCol = _console.BufferWidth - wordLen;
+
+                // Only wrap if the word fits on the next row and started after column 0
+                if (wordLen < _console.BufferWidth && wordStartCol > 0)
+                {
+                    int savedTop = _console.CursorTop;
+                    // Erase the existing word chars from the current row
+                    _console.SetCursorPosition(wordStartCol, savedTop);
+                    _console.Write(new string(' ', wordLen - 1));
+                    // Jump to next row and write the full word + new char
+                    _console.SetCursorPosition(0, savedTop + 1);
+                    _text.Append(c);
+                    _console.Write(_text.ToString().Substring(wordStart, wordLen));
+                    _cursorPos++;
+                    _cursorLimit++;
+                    return;
+                }
+            }
+
             _text.Append(c);
             _console.Write(c.ToString());
             _cursorPos++;

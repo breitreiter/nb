@@ -29,7 +29,7 @@ public class NbLineEditor
             var lines = new List<string> { line[..^1] };
             while (true)
             {
-                var continuation = ReadSingleLine("  › ");
+                var continuation = ReadSingleLine("  ");
                 if (continuation == null)
                 {
                     lines.Add("");
@@ -72,17 +72,34 @@ public class NbLineEditor
                 Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
                 return null;
             }
-            var selected = HandleGuardMode(prompt, "+", Kits);
-            if (selected != null && selected.StartsWith("+"))
-            {
-                OnKitSelected?.Invoke(selected);
-                return null; // kit activation handled by callback, don't send to LLM
-            }
-            return selected;
+            return HandleGuardMode(prompt, "+", Kits); // "+kitname" or null returned to caller
         }
 
         while (keyInfo.Key != ConsoleKey.Enter)
         {
+            // Guard mode re-entry: handles slash/kit trigger after backspacing to empty
+            if (handler.Text.Length == 0)
+            {
+                if (keyInfo.KeyChar == '/' && Commands.Count > 0)
+                {
+                    ClearCurrentLine();
+                    Console.Write(prompt);
+                    return HandleGuardMode(prompt, "/", Commands);
+                }
+                if (keyInfo.KeyChar == '+')
+                {
+                    ClearCurrentLine();
+                    Console.Write(prompt);
+                    if (Kits.Count == 0)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
+                        return null;
+                    }
+                    return HandleGuardMode(prompt, "+", Kits); // "+kitname" or null returned to caller
+                }
+            }
+
             handler.Handle(keyInfo);
             keyInfo = Console.ReadKey(true);
         }

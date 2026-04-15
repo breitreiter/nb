@@ -13,6 +13,7 @@ artifacts/
 .claude/
 *.user
 *.suo
+*.swp
 *.userosscache
 *.sln.docstates
 .nb_conversation_history.json

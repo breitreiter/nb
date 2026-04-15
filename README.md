@@ -28,6 +28,11 @@ A terminal-native AI assistant with deep shell integration, project context awar
 
 ## Installation
 
+### Requirements
+
+- .NET 8 SDK (to build from source) or .NET 8 runtime (for pre-built binaries)
+- **Windows only:** [Git for Windows](https://git-scm.com/download/win) — nb uses Git Bash for its shell tool on Windows. PowerShell is not supported, because models mix bash and PowerShell idioms when given a tool named `bash` and produce broken commands. If `bash.exe` isn't found at install time, nb will tell you where to get it.
+
 ### Option 1: Build from Source (Recommended)
 
 1. Clone and configure:

@@ -19,6 +19,7 @@ public class Program
     private static ConfigurationService _configurationService = new ConfigurationService();
     private static ProviderManager _providerManager = new ProviderManager();
     private static CommandProcessor _commandProcessor = null!;
+    private static HistoryLock _historyLock = new HistoryLock(".nb_conversation_history.lock");
     private static ShellEnvironment _shellEnvironment = null!;
     private static BashTool _bashTool = null!;
     private static ReadFileTool _readFileTool = null!;
@@ -240,7 +241,15 @@ public class Program
         UIColors.LoadTheme();
 
         // Initialize shell environment (unless --nobash)
-        _shellEnvironment = ShellEnvironment.Detect();
+        try
+        {
+            _shellEnvironment = ShellEnvironment.Detect();
+        }
+        catch (InvalidOperationException ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{Markup.Escape(ex.Message)}[/]");
+            return;
+        }
         if (!_noBash)
         {
             _bashTool = new BashTool(_shellEnvironment);
@@ -312,16 +321,23 @@ public class Program
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Trust mode active[/] [{UIColors.SpectreMuted}]— auto-approving within {Markup.Escape(_shellEnvironment.ShellCwd)}[/]");
         }
 
-        // Load conversation history from previous sessions
-        await _conversationManager.LoadConversationHistoryAsync();
+        // Acquire per-directory history lock. If another nb session owns it, skip load/save
+        // so parallel instances don't clobber each other.
+        if (_historyLock.TryAcquire())
+        {
+            await _conversationManager.LoadConversationHistoryAsync();
+        }
+        else
+        {
+            var owner = _historyLock.OwnerPid?.ToString() ?? "unknown";
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Another nb session (pid {owner}) owns this directory — history will not be loaded or saved.[/]");
+        }
 
         // Initialize kits
         _kitManager.LoadKits(AppContext.BaseDirectory);
         _lineEditor.Kits = _kitManager.Kits.Values
             .Select(k => new SlashCommand(k.Name, k.Description))
             .ToList();
-        _lineEditor.OnKitSelected = HandleKitSelected;
-
         // Initialize refactored services
         _commandProcessor = new CommandProcessor(_conversationManager, _configurationService, _providerManager);
 
@@ -345,9 +361,12 @@ public class Program
             await StartChatLoop();
         }
         
-        // Save conversation history before exit
-        await _conversationManager.SaveConversationHistoryAsync();
-        
+        // Save conversation history before exit (only if we own the directory lock)
+        if (_historyLock.IsOwner)
+            await _conversationManager.SaveConversationHistoryAsync();
+
+        _historyLock.Dispose();
+
         // Cleanup MCP clients
         _mcpManager.Dispose();
     }

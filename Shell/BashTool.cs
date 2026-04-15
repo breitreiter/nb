@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.AI;
 
@@ -212,13 +211,7 @@ public class BashTool
 
     private (string shellPath, string shellArgs) GetShellCommand(string command)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            // Use PowerShell on Windows
-            return ("powershell", $"-NoProfile -Command \"{EscapePowerShell(command)}\"");
-        }
-
-        // Unix: use the detected shell
+        // Bash everywhere (Git Bash on Windows, native bash/zsh/sh on Unix).
         return (_env.ShellPath, $"-c \"{EscapeBash(command)}\"");
     }
 
@@ -230,14 +223,6 @@ public class BashTool
             .Replace("\"", "\\\"")
             .Replace("$", "\\$")
             .Replace("`", "\\`");
-    }
-
-    private static string EscapePowerShell(string command)
-    {
-        // Escape for PowerShell -Command "..."
-        return command
-            .Replace("\"", "`\"")
-            .Replace("$", "`$");
     }
 
     private static bool IsValidUtf8(string text)

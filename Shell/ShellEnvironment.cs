@@ -93,7 +93,7 @@ public class ShellEnvironment
             : "none";
 
         var windowsNote = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)
-            ? "\nThe bash tool uses PowerShell on this system. Avoid PowerShell-specific syntax — write cross-platform commands or use python for complex logic. Prefer native file tools (read_file, write_file, edit_file, find_files, grep) over shell commands."
+            ? "\nThe bash tool runs Git Bash (MSYS2). Use POSIX syntax — NOT PowerShell cmdlets or switches like -Force. Note that MSYS translates Unix-style paths to Windows paths automatically (e.g. /c/Users/... ↔ C:\\Users\\...). If an argument that looks like a path is being mangled, prefix the command with MSYS_NO_PATHCONV=1."
             : "";
 
         return $"""
@@ -153,21 +153,42 @@ For complex data processing or multi-step logic, prefer python over long shell p
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            // Default to PowerShell on Windows
-            var pwsh = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe";
-
-            // Prefer PowerShell if available
-            var pwshPath = TryFindCommand("pwsh") ?? TryFindCommand("powershell");
-            if (pwshPath != null)
-                return (pwshPath, "PowerShell");
-
-            return (pwsh, "cmd");
+            // nb requires Git Bash on Windows. PowerShell is not supported because
+            // models routinely mix bash and PowerShell idioms when the tool is named
+            // "bash", producing broken commands.
+            var gitBash = FindGitBash();
+            if (gitBash == null)
+            {
+                throw new InvalidOperationException(
+                    "nb requires Git Bash on Windows, but bash.exe was not found. " +
+                    "Install Git for Windows from https://git-scm.com/download/win " +
+                    "(bash.exe is typically at C:\\Program Files\\Git\\bin\\bash.exe).");
+            }
+            return (gitBash, "bash");
         }
 
         // Unix: use SHELL env var
         var shell = Environment.GetEnvironmentVariable("SHELL") ?? "/bin/sh";
         var shellName = Path.GetFileName(shell);
         return (shell, shellName);
+    }
+
+    private static string? FindGitBash()
+    {
+        var candidates = new[]
+        {
+            @"C:\Program Files\Git\bin\bash.exe",
+            @"C:\Program Files (x86)\Git\bin\bash.exe",
+        };
+        foreach (var path in candidates)
+        {
+            if (File.Exists(path)) return path;
+        }
+        // Fall back to PATH lookup (e.g. chocolatey, scoop, custom install)
+        var onPath = TryFindCommand("bash");
+        if (onPath != null && onPath.EndsWith("bash.exe", StringComparison.OrdinalIgnoreCase))
+            return onPath;
+        return null;
     }
 
     private static string DetectArchitecture()
