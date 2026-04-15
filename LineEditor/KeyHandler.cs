@@ -38,7 +38,7 @@ internal class KeyHandler
     {
         if (IsEndOfLine()) return;
 
-        if (IsEndOfBuffer())
+        if (IsEndOfBuffer() && _console.CursorTop + 1 < _console.BufferHeight)
             _console.SetCursorPosition(0, _console.CursorTop + 1);
         else
             _console.SetCursorPosition(_console.CursorLeft + 1, _console.CursorTop);
@@ -87,7 +87,7 @@ internal class KeyHandler
                 int wordStartCol = _console.BufferWidth - wordLen;
 
                 // Only wrap if the word fits on the next row and started after column 0
-                if (wordLen < _console.BufferWidth && wordStartCol > 0)
+                if (wordLen < _console.BufferWidth && wordStartCol > 0 && _console.CursorTop + 1 < _console.BufferHeight)
                 {
                     int savedTop = _console.CursorTop;
                     // Erase the existing word chars from the current row
