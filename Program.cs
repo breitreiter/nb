@@ -253,7 +253,8 @@ public class Program
         }
         if (!_noBash)
         {
-            _bashTool = new BashTool(_shellEnvironment);
+            var bashTimeoutSeconds = int.TryParse(config["BashTimeoutSeconds"], out var bts) ? bts : 120;
+            _bashTool = new BashTool(_shellEnvironment, defaultTimeoutSeconds: bashTimeoutSeconds);
             _readFileTool = new ReadFileTool(_shellEnvironment);
             _writeFileTool = new WriteFileTool(_shellEnvironment);
             _editFileTool = new EditFileTool(_shellEnvironment);

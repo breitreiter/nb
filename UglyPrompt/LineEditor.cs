@@ -76,7 +76,7 @@ public class LineEditor
             return HandleGuardMode(prompt, "+", Kits);
         }
 
-        while (keyInfo.Key != ConsoleKey.Enter)
+        while (true)
         {
             // Bracketed paste: ESC [ 2 0 0 ~ ... content ... ESC [ 2 0 1 ~
             if (keyInfo.Key == ConsoleKey.Escape && Console.KeyAvailable)
@@ -89,6 +89,19 @@ public class LineEditor
                     continue;
                 }
                 // Not a paste sequence — fall through to handler (clears line)
+            }
+
+            if (keyInfo.Key == ConsoleKey.Enter)
+            {
+                // On Windows without bracketed paste, pasted newlines arrive as Enter keys.
+                // If more input is buffered immediately after Enter, it's a paste — keep reading.
+                if (Console.KeyAvailable)
+                {
+                    handler.InsertText("\n");
+                    keyInfo = Console.ReadKey(true);
+                    continue;
+                }
+                break;
             }
 
             // Guard mode re-entry: handles slash/kit trigger after backspacing to empty

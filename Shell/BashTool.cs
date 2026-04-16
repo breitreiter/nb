@@ -68,7 +68,8 @@ public class BashTool
         int? timeoutSeconds = null)
     {
         var workingDir = cwd ?? _env.ShellCwd;
-        var timeout = timeoutSeconds ?? _defaultTimeoutSeconds;
+        var requested = timeoutSeconds ?? _defaultTimeoutSeconds;
+        var timeout = Math.Min(requested, _defaultTimeoutSeconds);
 
         var (shellPath, shellArgs) = GetShellCommand(command);
 
