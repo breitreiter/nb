@@ -1,7 +1,7 @@
 // Vendored from tonerdo/readline (MIT License)
 // https://github.com/tonerdo/readline
 
-namespace nb.LineEditor;
+namespace UglyPrompt;
 
 internal class ConsoleAdapter : IConsoleAdapter
 {

@@ -34,6 +34,8 @@
     <Compile Remove="Providers\OpenAI\**" />
     <Compile Remove="Providers\Gemini\**" />
     <Compile Remove="Providers\Mock\**" />
+    <Compile Remove="UglyPrompt\**" />
+    <Compile Remove="UglyPrompt.Tests\**" />
     <EmbeddedResource Remove="nb-builds\**" />
     <EmbeddedResource Remove="Providers\Anthropic\**" />
     <EmbeddedResource Remove="Providers\AzureOpenAI\**" />
@@ -42,6 +44,8 @@
     <EmbeddedResource Remove="Providers\OpenAI\**" />
     <EmbeddedResource Remove="Providers\Gemini\**" />
     <EmbeddedResource Remove="Providers\Mock\**" />
+    <EmbeddedResource Remove="UglyPrompt\**" />
+    <EmbeddedResource Remove="UglyPrompt.Tests\**" />
     <None Remove="mcp-servers/**" />
     <None Remove="nb-builds\**" />
     <None Remove="Providers\Anthropic\**" />
@@ -51,6 +55,8 @@
     <None Remove="Providers\OpenAI\**" />
     <None Remove="Providers\Gemini\**" />
     <None Remove="Providers\Mock\**" />
+    <None Remove="UglyPrompt\**" />
+    <None Remove="UglyPrompt.Tests\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -81,6 +87,7 @@
 
   <ItemGroup>
     <ProjectReference Include="Providers\nb.Providers.Abstractions\nb.Providers.Abstractions.csproj" />
+    <ProjectReference Include="UglyPrompt\UglyPrompt.csproj" />
   </ItemGroup>
 
   <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">

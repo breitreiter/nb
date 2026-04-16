@@ -5,7 +5,7 @@ using nb.Providers;
 using nb.MCP;
 using nb.Shell;
 using nb.Utilities;
-using nb.LineEditor;
+using UglyPrompt;
 
 namespace nb;
 
@@ -31,9 +31,9 @@ public class Program
     private static FetchUrlTool _fetchUrlTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static KitManager _kitManager = new KitManager();
-    private static NbLineEditor _lineEditor = new NbLineEditor
+    private static LineEditor _lineEditor = new LineEditor
     {
-        Commands = new List<SlashCommand>
+        Commands = new List<CompletionHint>
         {
             new("//", "Back"),
             new("/clear", "Clear conversation"),
@@ -336,7 +336,7 @@ public class Program
         // Initialize kits
         _kitManager.LoadKits(AppContext.BaseDirectory);
         _lineEditor.Kits = _kitManager.Kits.Values
-            .Select(k => new SlashCommand(k.Name, k.Description))
+            .Select(k => new CompletionHint(k.Name, k.Description))
             .ToList();
         // Initialize refactored services
         _commandProcessor = new CommandProcessor(_conversationManager, _configurationService, _providerManager);
@@ -357,8 +357,17 @@ public class Program
         }
         else
         {
-            // Interactive mode: start chat loop
-            await StartChatLoop();
+            // Interactive mode: enable bracketed paste so multi-line pastes don't submit early
+            bool bracketedPaste = !Console.IsInputRedirected;
+            if (bracketedPaste) Console.Write("\x1b[?2004h");
+            try
+            {
+                await StartChatLoop();
+            }
+            finally
+            {
+                if (bracketedPaste) Console.Write("\x1b[?2004l");
+            }
         }
         
         // Save conversation history before exit (only if we own the directory lock)

@@ -639,10 +639,8 @@ public class ConversationManager
 
 
 
-    private static void RenderMarkdown(string markdown)
-    {
-        AnsiConsole.WriteLine(markdown);
-    }
+    private static void RenderMarkdown(string markdown) =>
+        MarkdownRenderer.Render(markdown);
 
     private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command, string description)
     {

@@ -1,20 +1,23 @@
-// Line editor for nb — wraps vendored tonerdo/readline KeyHandler
+// UglyPrompt — a no-frills readline-style line editor for .NET console apps
+// Wraps vendored tonerdo/readline KeyHandler (MIT License)
 // Adds: backslash continuation, history, guard char disambiguation for / and +
 
-namespace nb.LineEditor;
+namespace UglyPrompt;
 
-public record SlashCommand(string Name, string Description);
+public record CompletionHint(string Name, string Description);
 
-public class NbLineEditor
+public class LineEditor
 {
     private readonly List<string> _history = new();
 
-    /// <summary>Available slash commands for "/" disambiguation.</summary>
-    public List<SlashCommand> Commands { get; set; } = new();
+    public List<CompletionHint> Commands { get; set; } = new();
+    public List<CompletionHint> Kits { get; set; } = new();
 
-    /// <summary>Available kits for "+" disambiguation.</summary>
-    public List<SlashCommand> Kits { get; set; } = new();
-
+    /// <summary>
+    /// When true (default), typing enough chars to uniquely identify a completion auto-selects it.
+    /// Set to false to require Enter to confirm.
+    /// </summary>
+    public bool QuickComplete { get; set; } = true;
 
     public string? ReadLine(string prompt)
     {
@@ -70,11 +73,24 @@ public class NbLineEditor
                 Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
                 return null;
             }
-            return HandleGuardMode(prompt, "+", Kits); // "+kitname" or null returned to caller
+            return HandleGuardMode(prompt, "+", Kits);
         }
 
         while (keyInfo.Key != ConsoleKey.Enter)
         {
+            // Bracketed paste: ESC [ 2 0 0 ~ ... content ... ESC [ 2 0 1 ~
+            if (keyInfo.Key == ConsoleKey.Escape && Console.KeyAvailable)
+            {
+                var pasted = TryReadBracketedPaste();
+                if (pasted != null)
+                {
+                    handler.InsertText(pasted);
+                    keyInfo = Console.ReadKey(true);
+                    continue;
+                }
+                // Not a paste sequence — fall through to handler (clears line)
+            }
+
             // Guard mode re-entry: handles slash/kit trigger after backspacing to empty
             if (handler.Text.Length == 0)
             {
@@ -94,7 +110,7 @@ public class NbLineEditor
                         Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
                         return null;
                     }
-                    return HandleGuardMode(prompt, "+", Kits); // "+kitname" or null returned to caller
+                    return HandleGuardMode(prompt, "+", Kits);
                 }
             }
 
@@ -107,7 +123,44 @@ public class NbLineEditor
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
-    private string? HandleGuardMode(string prompt, string prefix, List<SlashCommand> items)
+    // Try to read a bracketed paste sequence. Call after consuming \x1b.
+    // Returns the paste content if \x1b[200~ was present, null otherwise.
+    private static string? TryReadBracketedPaste()
+    {
+        var prefix = new char[5];
+        for (int i = 0; i < 5; i++)
+        {
+            if (!Console.KeyAvailable) return null;
+            prefix[i] = Console.ReadKey(true).KeyChar;
+        }
+        if (new string(prefix) != "[200~") return null;
+
+        var content = new System.Text.StringBuilder();
+        while (true)
+        {
+            var k = Console.ReadKey(true);
+            if (k.Key == ConsoleKey.Escape)
+            {
+                var end = new char[5];
+                for (int i = 0; i < 5; i++)
+                    end[i] = Console.ReadKey(true).KeyChar;
+                if (new string(end) == "[201~") break;
+                content.Append('\x1b');
+                content.Append(new string(end));
+            }
+            else if (k.Key == ConsoleKey.Enter)
+            {
+                content.Append('\n');
+            }
+            else
+            {
+                content.Append(k.KeyChar);
+            }
+        }
+        return content.ToString();
+    }
+
+    private string? HandleGuardMode(string prompt, string prefix, List<CompletionHint> items)
     {
         var typed = "";
         ShowHints(prefix, typed, items);
@@ -126,7 +179,7 @@ public class NbLineEditor
             if (keyInfo.Key == ConsoleKey.Backspace)
             {
                 if (typed.Length == 0)
-                    continue; // stay in menu
+                    continue;
                 typed = typed[..^1];
                 ClearHints(items.Count);
                 ClearCurrentLine();
@@ -138,14 +191,13 @@ public class NbLineEditor
             if (keyInfo.KeyChar == prefix[0]) // e.g. "/" in slash mode = "//" cancel
             {
                 typed += keyInfo.KeyChar;
-                // Check for exact match (e.g. "//")
                 var exact = items.FirstOrDefault(c => c.Name.Equals(prefix + typed, StringComparison.OrdinalIgnoreCase));
                 if (exact != null)
                 {
                     ClearHints(items.Count);
                     ClearCurrentLine();
                     Console.Write(prompt);
-                    return null; // cancel, back to prompt
+                    return null;
                 }
             }
 
@@ -157,7 +209,7 @@ public class NbLineEditor
                     .Where(c => c.Name.StartsWith(prefix + typed, StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
-                if (matches.Count == 1)
+                if (matches.Count == 1 && QuickComplete)
                 {
                     ClearHints(items.Count);
                     ClearCurrentLine();
@@ -176,7 +228,7 @@ public class NbLineEditor
         }
     }
 
-    private void ShowHints(string prefix, string typed, List<SlashCommand> items)
+    private void ShowHints(string prefix, string typed, List<CompletionHint> items)
     {
         var matches = items
             .Where(c => c.Name.StartsWith(prefix + typed, StringComparison.OrdinalIgnoreCase))
@@ -190,7 +242,7 @@ public class NbLineEditor
         Console.WriteLine();
         foreach (var cmd in matches)
         {
-            var shortName = cmd.Name[prefix.Length..]; // strip / or +
+            var shortName = cmd.Name[prefix.Length..];
             var pad = new string(' ', Math.Max(0, 14 - shortName.Length));
             Console.WriteLine($"\u001b[90m  \u001b[97m{shortName[0]}\u001b[90m{shortName[1..]}{pad}{cmd.Description}\u001b[0m");
         }
