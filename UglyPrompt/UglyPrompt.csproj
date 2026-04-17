@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>UglyPrompt</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Authors>Joseph Breitreiter</Authors>
     <Description>A no-frills readline-style console line editor for .NET. Backslash continuation, command completion hints, bracketed paste, and history. A permissively-licensed alternative to PrettyPrompt.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
