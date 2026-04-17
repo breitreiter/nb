@@ -38,6 +38,9 @@ public class ConversationManager
     private int _toolCallCount = 0;
     private readonly DoomLoopDetector _doomLoopDetector = new();
     private readonly ToolErrorTracker _errorTracker = new();
+    private readonly TodoManager _todoManager = new();
+    private readonly TodoTool _todoTool;
+    private HashSet<string>? _lastRemindedTodos = null;
     private string _currentProviderName = "";
 
     /// <summary>
@@ -84,6 +87,7 @@ public class ConversationManager
         _maxToolCalls = trustMode ? Math.Max(maxToolCalls, 50) : maxToolCalls;
         _maxContextTokens = maxContextTokens;
         _compactionThreshold = compactionThreshold;
+        _todoTool = new TodoTool(_todoManager);
     }
 
     public void SwitchProvider(IChatClient newClient, string providerName, int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS)
@@ -117,6 +121,7 @@ public class ConversationManager
         _toolCallCount = 0;
         _doomLoopDetector.Reset();
         _errorTracker.Reset();
+        _lastRemindedTodos = null;
 
         // Add user message to conversation history (no automatic RAG injection)
         _conversationHistory.Add(new AIChatMessage(ChatRole.User, userMessage));
@@ -194,6 +199,9 @@ public class ConversationManager
             {
                 mcpTools.Add(_fetchUrlTool.CreateTool());
             }
+
+            mcpTools.Add(_todoTool.CreateWriteTool());
+            mcpTools.Add(_todoTool.CreateReadTool());
 
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
             if (allTools.Count > 0)
@@ -483,6 +491,22 @@ public class ConversationManager
                                 allToolResults.Add(result);
                                 LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
                             }
+                            // todo_write / todo_read — always auto-approve, no approval prompt
+                            else if (functionCall.Name == "todo_write")
+                            {
+                                var changes = ParseTodoChanges(functionCall.Arguments);
+                                var resultString = _todoTool.Write(changes);
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_write ({changes.Count} change(s))[/]");
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                            }
+                            else if (functionCall.Name == "todo_read")
+                            {
+                                var resultString = _todoTool.Read();
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_read[/]");
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                            }
                             // Check if this is a fake tool (always auto-approve)
                             else if (_fakeToolManager.GetFakeTool(functionCall.Name) is {} fakeTool)
                             {
@@ -676,6 +700,27 @@ public class ConversationManager
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, assistantMessage));
                     RenderMarkdown(assistantMessage);
                 }
+
+                // Pending-todos reminder: if the model tries to end the turn with
+                // unfinished todos, inject a reminder and continue. Only fires when
+                // the active set has changed since the last reminder, so we don't
+                // badger the model about the same list twice in a row.
+                var activeTodos = _todoManager.GetActive();
+                if (activeTodos.Count > 0)
+                {
+                    var currentSet = new HashSet<string>(activeTodos.Select(t => t.Content));
+                    if (_lastRemindedTodos == null || !_lastRemindedTodos.SetEquals(currentSet))
+                    {
+                        var list = string.Join("\n", activeTodos.Select(t => $"- [{TodoManager.StatusLabel(t.Status)}] {t.Content}"));
+                        var reminder = "<system_reminder>You have pending todo items that must be completed or cancelled before finishing this turn:\n"
+                                     + list
+                                     + "\n\nContinue working through the list, or mark items as cancelled via todo_write if they are no longer relevant.</system_reminder>";
+                        _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
+                        _lastRemindedTodos = currentSet;
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Pending todos; reminding model[/]");
+                        await SendMessageInternalAsync();
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -700,6 +745,30 @@ public class ConversationManager
         {
             return string.Join(",", args.Select(kv => $"{kv.Key}={kv.Value}"));
         }
+    }
+
+    private static List<TodoChange> ParseTodoChanges(IDictionary<string, object?>? args)
+    {
+        var changes = new List<TodoChange>();
+        if (args == null || !args.TryGetValue("changes", out var raw) || raw == null)
+            return changes;
+
+        try
+        {
+            var json = raw is JsonElement je ? je.GetRawText() : raw.ToString();
+            if (string.IsNullOrWhiteSpace(json)) return changes;
+
+            var parsed = JsonSerializer.Deserialize<List<TodoChange>>(json!, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            });
+            if (parsed != null) changes.AddRange(parsed);
+        }
+        catch
+        {
+            // Leave changes empty; todo_write will report "no changes submitted"
+        }
+        return changes;
     }
 
     private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command, string description)
@@ -1589,6 +1658,8 @@ public class ConversationManager
         var systemMessages = _conversationHistory.TakeWhile(m => m.Role == ChatRole.System).ToList();
         _conversationHistory.Clear();
         _conversationHistory.AddRange(systemMessages);
+        _todoManager.Reset();
+        _lastRemindedTodos = null;
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Conversation history cleared[/]");
     }

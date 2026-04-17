@@ -48,6 +48,7 @@ Do NOT proactively create `.md`, README, CHANGELOG, summary, design-doc, or expl
 
 **For complex tasks:**
 - Break work into steps before executing
+- For anything with 3+ discrete steps, or when the user hands you a broad spec, use `todo_write` to capture the checklist FIRST, then execute. Mark items `in_progress` before starting and `completed` immediately when done. Only one `in_progress` at a time.
 - If the plan exceeds 5-6 steps, offer to write it to a file for review
 - Check in after completing major phases
 
