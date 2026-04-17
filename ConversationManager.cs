@@ -36,6 +36,8 @@ public class ConversationManager
     private int _maxContextTokens;
     private readonly List<AIChatMessage> _conversationHistory = new();
     private int _toolCallCount = 0;
+    private readonly DoomLoopDetector _doomLoopDetector = new();
+    private readonly ToolErrorTracker _errorTracker = new();
     private string _currentProviderName = "";
 
     /// <summary>
@@ -111,8 +113,10 @@ public class ConversationManager
     {
         if (_client == null) return;
 
-        // Reset tool call counter for new message
+        // Reset per-turn trackers
         _toolCallCount = 0;
+        _doomLoopDetector.Reset();
+        _errorTracker.Reset();
 
         // Add user message to conversation history (no automatic RAG injection)
         _conversationHistory.Add(new AIChatMessage(ChatRole.User, userMessage));
@@ -610,10 +614,53 @@ public class ConversationManager
                     }
                 }
 
+                // Record signatures + error counts, amend failed results with retry hint
+                var functionCalls = response.Messages
+                    .SelectMany(m => m.Contents.OfType<FunctionCallContent>())
+                    .ToList();
+                for (int i = 0; i < Math.Min(functionCalls.Count, allToolResults.Count); i++)
+                {
+                    var call = functionCalls[i];
+                    _doomLoopDetector.Record(call.Name, SerializeArgs(call.Arguments));
+
+                    if (allToolResults[i] is FunctionResultContent frc)
+                    {
+                        var resultText = frc.Result?.ToString() ?? "";
+                        var isError = resultText.StartsWith("Error:", StringComparison.Ordinal);
+                        _errorTracker.RecordResult(call.Name, isError);
+                        if (isError)
+                        {
+                            var remaining = _errorTracker.RemainingAttempts(call.Name);
+                            if (remaining > 0)
+                            {
+                                frc.Result = $"{resultText}\n\n[nb] {call.Name} has failed {_errorTracker.ErrorCount(call.Name)} time(s); {remaining} attempt(s) left before this turn is aborted. Analyze the root cause and try a different approach — do not retry the same call.";
+                            }
+                        }
+                    }
+                }
+
                 // Add all tool results as a single message
                 if (allToolResults.Count > 0)
                 {
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, allToolResults));
+                }
+
+                // Hard-abort the turn if any tool has hit its failure budget
+                if (_errorTracker.LimitReached(out var offendingTool))
+                {
+                    var abortMsg = $"Tool '{offendingTool}' failed {_errorTracker.Limit} times in a row. Aborting this turn to prevent a runaway loop. Review the errors above and try a different approach, or ask the user for help.";
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, abortMsg));
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]⛔ {Markup.Escape(abortMsg)}[/]");
+                    return;
+                }
+
+                // Inject a reminder if the model is looping
+                if (_doomLoopDetector.DetectLoop() is int reps)
+                {
+                    var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and ask the user for clarification.</system_reminder>";
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Loop detected ({reps} reps); reminding model[/]");
+                    _doomLoopDetector.Reset();
                 }
 
                 // Get another response after tool execution
@@ -641,6 +688,19 @@ public class ConversationManager
 
     private static void RenderMarkdown(string markdown) =>
         MarkdownRenderer.Render(markdown);
+
+    private static string SerializeArgs(IDictionary<string, object?>? args)
+    {
+        if (args == null || args.Count == 0) return "{}";
+        try
+        {
+            return JsonSerializer.Serialize(args);
+        }
+        catch
+        {
+            return string.Join(",", args.Select(kv => $"{kv.Key}={kv.Value}"));
+        }
+    }
 
     private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command, string description)
     {

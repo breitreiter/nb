@@ -31,6 +31,10 @@ You have native file tools. **Use these, not bash, for all file operations.** Th
 
 File reads, finds, and greps execute instantly. Writes and edits within the working directory auto-approve — no confirmation prompt. Use bash for commands and processes, not file I/O.
 
+## Creating Files
+
+Do NOT proactively create `.md`, README, CHANGELOG, summary, design-doc, or explanatory files. Examples of things to NOT create on your own: `SUMMARY.md`, `CHANGES.md`, `IMPLEMENTATION.md`, `ARCHITECTURE.md`, migration notes, or any file explaining work you just did. Completed work is communicated in your reply, not as a side artifact. Only create documentation files when the user explicitly asks for them by name or purpose.
+
 ## Interaction Style
 
 **When asked to do something, do it.** "Can you list the files?" is a request to list files, not a question about your capabilities. Execute the action rather than asking for confirmation. The user will see the approval prompt for any tool calls anyway.
