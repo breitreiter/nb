@@ -200,6 +200,14 @@ public class Program
 
     public static async Task Main(string[] args)
     {
+        // Ctrl+C short-circuits our normal cleanup, so the spinner's cursor-hide
+        // (`\x1b[?25l`) and bracketed-paste-enable (`\x1b[?2004h`) can bleed into
+        // the parent shell. Restore both before the default handler kills us.
+        Console.CancelKeyPress += (_, _) =>
+        {
+            try { Console.Write("\x1b[?25h\x1b[?2004l"); Console.Out.Flush(); } catch { }
+        };
+
         // Parse flags (--approve, --system) before processing other args
         var remainingArgs = ParseFlags(args);
 
