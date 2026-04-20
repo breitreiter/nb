@@ -30,7 +30,7 @@ public class LineEditor
             var lines = new List<string> { line[..^1] };
             while (true)
             {
-                var continuation = ReadSingleLine("  ");
+                var continuation = ReadSingleLine("  ", enableGuards: false);
                 if (continuation == null)
                 {
                     lines.Add("");
@@ -53,27 +53,30 @@ public class LineEditor
         return line;
     }
 
-    private string? ReadSingleLine(string prompt)
+    private string? ReadSingleLine(string prompt, bool enableGuards = true)
     {
         Console.Write(prompt);
 
         var handler = new KeyHandler(new ConsoleAdapter(), _history);
         var keyInfo = Console.ReadKey(true);
 
-        // "/" guard: command disambiguation
-        if (keyInfo.KeyChar == '/' && Commands.Count > 0)
-            return HandleGuardMode(prompt, "/", Commands);
-
-        // "+" guard: kit disambiguation
-        if (keyInfo.KeyChar == '+')
+        if (enableGuards)
         {
-            if (Kits.Count == 0)
+            // "/" guard: command disambiguation
+            if (keyInfo.KeyChar == '/' && Commands.Count > 0)
+                return HandleGuardMode(prompt, "/", Commands);
+
+            // "+" guard: kit disambiguation
+            if (keyInfo.KeyChar == '+')
             {
-                Console.WriteLine();
-                Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
-                return null;
+                if (Kits.Count == 0)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
+                    return null;
+                }
+                return HandleGuardMode(prompt, "+", Kits);
             }
-            return HandleGuardMode(prompt, "+", Kits);
         }
 
         while (true)
@@ -105,7 +108,7 @@ public class LineEditor
             }
 
             // Guard mode re-entry: handles slash/kit trigger after backspacing to empty
-            if (handler.Text.Length == 0)
+            if (enableGuards && handler.Text.Length == 0)
             {
                 if (keyInfo.KeyChar == '/' && Commands.Count > 0)
                 {
