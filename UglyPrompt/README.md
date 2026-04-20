@@ -27,7 +27,7 @@ while (true)
 
 ## Completion Hints
 
-Populate `Commands` or `Kits` to enable disambiguation/completion for `/` and `+` prefixes:
+Populate `Commands` or `Kits` to enable hints for `/` and `+` prefixes:
 
 ```csharp
 var editor = new LineEditor
@@ -46,9 +46,7 @@ var editor = new LineEditor
 };
 ```
 
-When the user types `/` or `+` at the start of a line, matching hints are shown below the input and filtered as they type. With `QuickComplete = true` (default), the match is accepted automatically when only one option remains.
-
-Type the prefix twice (`//` or `++`) or press Escape to cancel.
+When the current line starts with `/` or `+`, a terse comma-separated list of matching names is shown on an ephemeral line below the input and filtered as the user types. The hint is display-only — the user still types the full command and presses Enter to submit. Editing (arrows, history, Ctrl+U/W, etc.) works normally throughout.
 
 ## Features
 

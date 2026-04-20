@@ -1,6 +1,6 @@
 // UglyPrompt — a no-frills readline-style line editor for .NET console apps
 // Wraps vendored tonerdo/readline KeyHandler (MIT License)
-// Adds: backslash continuation, history, guard char disambiguation for / and +
+// Adds: backslash continuation, history, ambient completion hints for / and +
 
 namespace UglyPrompt;
 
@@ -12,12 +12,6 @@ public class LineEditor
 
     public List<CompletionHint> Commands { get; set; } = new();
     public List<CompletionHint> Kits { get; set; } = new();
-
-    /// <summary>
-    /// When true (default), typing enough chars to uniquely identify a completion auto-selects it.
-    /// Set to false to require Enter to confirm.
-    /// </summary>
-    public bool QuickComplete { get; set; } = true;
 
     public string? ReadLine(string prompt)
     {
@@ -57,27 +51,17 @@ public class LineEditor
     {
         Console.Write(prompt);
 
+        // Reserve a line below the prompt for ambient hints. Without this,
+        // when the prompt lands on the last row the hint renders below the fold.
+        if (enableGuards && Console.CursorTop == Console.BufferHeight - 1)
+        {
+            var left = Console.CursorLeft;
+            Console.WriteLine();
+            Console.SetCursorPosition(left, Console.CursorTop - 1);
+        }
+
         var handler = new KeyHandler(new ConsoleAdapter(), _history);
         var keyInfo = Console.ReadKey(true);
-
-        if (enableGuards)
-        {
-            // "/" guard: command disambiguation
-            if (keyInfo.KeyChar == '/' && Commands.Count > 0)
-                return HandleGuardMode(prompt, "/", Commands);
-
-            // "+" guard: kit disambiguation
-            if (keyInfo.KeyChar == '+')
-            {
-                if (Kits.Count == 0)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
-                    return null;
-                }
-                return HandleGuardMode(prompt, "+", Kits);
-            }
-        }
 
         while (true)
         {
@@ -88,6 +72,7 @@ public class LineEditor
                 if (pasted != null)
                 {
                     handler.InsertText(pasted);
+                    RefreshHint(handler, enableGuards);
                     keyInfo = Console.ReadKey(true);
                     continue;
                 }
@@ -107,33 +92,12 @@ public class LineEditor
                 break;
             }
 
-            // Guard mode re-entry: handles slash/kit trigger after backspacing to empty
-            if (enableGuards && handler.Text.Length == 0)
-            {
-                if (keyInfo.KeyChar == '/' && Commands.Count > 0)
-                {
-                    ClearCurrentLine();
-                    Console.Write(prompt);
-                    return HandleGuardMode(prompt, "/", Commands);
-                }
-                if (keyInfo.KeyChar == '+')
-                {
-                    ClearCurrentLine();
-                    Console.Write(prompt);
-                    if (Kits.Count == 0)
-                    {
-                        Console.WriteLine();
-                        Console.WriteLine("\u001b[90m  No kits configured. Add kits to kits.json\u001b[0m");
-                        return null;
-                    }
-                    return HandleGuardMode(prompt, "+", Kits);
-                }
-            }
-
             handler.Handle(keyInfo);
+            RefreshHint(handler, enableGuards);
             keyInfo = Console.ReadKey(true);
         }
 
+        ClearHintLine();
         Console.WriteLine();
         var text = handler.Text;
         return string.IsNullOrWhiteSpace(text) ? null : text;
@@ -176,115 +140,59 @@ public class LineEditor
         return content.ToString();
     }
 
-    private string? HandleGuardMode(string prompt, string prefix, List<CompletionHint> items)
+    private void RefreshHint(KeyHandler handler, bool enabled)
     {
-        var typed = "";
-        ShowHints(prefix, typed, items);
+        if (!enabled) return;
 
-        while (true)
-        {
-            var keyInfo = Console.ReadKey(true);
+        var text = handler.Text;
+        if (text.Length == 0) { ClearHintLine(); return; }
 
-            if (keyInfo.Key == ConsoleKey.Escape || keyInfo.Key == ConsoleKey.Enter)
-            {
-                ClearHints(items.Count);
-                Console.WriteLine();
-                return string.IsNullOrWhiteSpace(typed) ? null : prefix + typed;
-            }
-
-            if (keyInfo.Key == ConsoleKey.Backspace)
-            {
-                if (typed.Length == 0)
-                    continue;
-                typed = typed[..^1];
-                ClearHints(items.Count);
-                ClearCurrentLine();
-                Console.Write(prompt + prefix + typed);
-                ShowHints(prefix, typed, items);
-                continue;
-            }
-
-            if (keyInfo.KeyChar == prefix[0]) // e.g. "/" in slash mode = "//" cancel
-            {
-                typed += keyInfo.KeyChar;
-                var exact = items.FirstOrDefault(c => c.Name.Equals(prefix + typed, StringComparison.OrdinalIgnoreCase));
-                if (exact != null)
-                {
-                    ClearHints(items.Count);
-                    ClearCurrentLine();
-                    Console.Write(prompt);
-                    return null;
-                }
-            }
-
-            if (char.IsLetterOrDigit(keyInfo.KeyChar) || keyInfo.KeyChar == '_' || keyInfo.KeyChar == '-')
-            {
-                typed += keyInfo.KeyChar;
-
-                var matches = items
-                    .Where(c => c.Name.StartsWith(prefix + typed, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (matches.Count == 1 && QuickComplete)
-                {
-                    ClearHints(items.Count);
-                    ClearCurrentLine();
-                    Console.Write(prompt + matches[0].Name);
-                    Console.WriteLine();
-                    return matches[0].Name;
-                }
-
-                ClearHints(items.Count);
-                ClearCurrentLine();
-                Console.Write(prompt + prefix + typed);
-
-                if (matches.Count > 0)
-                    ShowHints(prefix, typed, items);
-            }
-        }
+        if (text[0] == '/' && Commands.Count > 0)
+            RenderHintLine("/", text[1..], Commands);
+        else if (text[0] == '+' && Kits.Count > 0)
+            RenderHintLine("+", text[1..], Kits);
+        else
+            ClearHintLine();
     }
 
-    private void ShowHints(string prefix, string typed, List<CompletionHint> items)
+    private static void RenderHintLine(string prefix, string typed, List<CompletionHint> items)
     {
+        var savedLeft = Console.CursorLeft;
+        var savedTop = Console.CursorTop;
+
+        if (savedTop + 1 >= Console.BufferHeight) return;
+
         var matches = items
-            .Where(c => c.Name.StartsWith(prefix + typed, StringComparison.OrdinalIgnoreCase))
+            .Where(h => h.Name.StartsWith(prefix + typed, StringComparison.OrdinalIgnoreCase))
+            .Select(h => h.Name)
             .ToList();
 
-        if (matches.Count == 0) return;
+        var width = Console.WindowWidth;
+        Console.SetCursorPosition(0, savedTop + 1);
+        Console.Write(new string(' ', width));
+        Console.SetCursorPosition(0, savedTop + 1);
 
-        var savedLeft = Console.CursorLeft;
-        var savedTop = Console.CursorTop;
-
-        Console.WriteLine();
-        foreach (var cmd in matches)
+        if (matches.Count > 0)
         {
-            var shortName = cmd.Name[prefix.Length..];
-            var pad = new string(' ', Math.Max(0, 14 - shortName.Length));
-            Console.WriteLine($"\u001b[90m  \u001b[97m{shortName[0]}\u001b[90m{shortName[1..]}{pad}{cmd.Description}\u001b[0m");
+            var joined = string.Join(", ", matches);
+            var maxLen = Math.Max(0, width - 4);
+            if (joined.Length > maxLen)
+                joined = joined[..Math.Max(0, maxLen - 1)] + "…";
+            Console.Write($"\u001b[90m  {joined}\u001b[0m");
         }
 
         Console.SetCursorPosition(savedLeft, savedTop);
     }
 
-    private void ClearHints(int maxLines)
+    private static void ClearHintLine()
     {
         var savedLeft = Console.CursorLeft;
         var savedTop = Console.CursorTop;
 
-        for (int i = 1; i <= maxLines + 1; i++)
-        {
-            if (savedTop + i >= Console.BufferHeight) break;
-            Console.SetCursorPosition(0, savedTop + i);
-            Console.Write(new string(' ', Console.WindowWidth));
-        }
+        if (savedTop + 1 >= Console.BufferHeight) return;
 
-        Console.SetCursorPosition(savedLeft, savedTop);
-    }
-
-    private void ClearCurrentLine()
-    {
-        Console.Write('\r');
+        Console.SetCursorPosition(0, savedTop + 1);
         Console.Write(new string(' ', Console.WindowWidth));
-        Console.Write('\r');
+        Console.SetCursorPosition(savedLeft, savedTop);
     }
 }
