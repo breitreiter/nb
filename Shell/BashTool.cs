@@ -95,13 +95,18 @@ public class BashTool
         var truncated = false;
         var timedOut = false;
 
+        Task? stdoutTask = null;
+        Task? stderrTask = null;
+
         try
         {
             process.Start();
+            // Trap this child and any descendants in nb's job object so MSBuild /
+            // VBCSCompiler daemons don't outlive us on Windows.
+            ProcessJob.Assign(process);
 
-            // Read stdout and stderr concurrently
-            var stdoutTask = ReadLinesAsync(process.StandardOutput, stdoutLines, cts.Token);
-            var stderrTask = ReadLinesAsync(process.StandardError, stderrLines, cts.Token);
+            stdoutTask = ReadLinesAsync(process.StandardOutput, stdoutLines, cts.Token);
+            stderrTask = ReadLinesAsync(process.StandardError, stderrLines, cts.Token);
 
             await Task.WhenAll(stdoutTask, stderrTask);
             await process.WaitForExitAsync(cts.Token);
@@ -109,13 +114,11 @@ public class BashTool
         catch (OperationCanceledException)
         {
             timedOut = true;
-            try
+            try { process.Kill(entireProcessTree: true); } catch { }
+            try { await process.WaitForExitAsync(CancellationToken.None); } catch { }
+            if (stdoutTask != null && stderrTask != null)
             {
-                process.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // Best effort kill
+                try { await Task.WhenAll(stdoutTask, stderrTask); } catch { }
             }
         }
 
