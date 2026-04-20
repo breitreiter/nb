@@ -54,11 +54,14 @@ internal static partial class MarkdownRenderer
     private static void RenderCodeBlock(string lang, string code)
     {
         var trimmed = code.Trim('\n').TrimEnd('\r', '\n');
-        var panel = new Panel(new Text(trimmed)).BorderColor(Color.Grey);
+        var topRule = new Rule().RuleStyle(Style.Parse("grey")).LeftJustified();
         if (!string.IsNullOrWhiteSpace(lang))
-            panel.Header($"[grey]{Markup.Escape(lang.Trim())}[/]");
+            topRule.Title = $"[grey]{Markup.Escape(lang.Trim())}[/]";
+
         AnsiConsole.WriteLine();
-        AnsiConsole.Write(panel);
+        AnsiConsole.Write(topRule);
+        AnsiConsole.WriteLine(trimmed);
+        AnsiConsole.Write(new Rule().RuleStyle(Style.Parse("grey")));
     }
 
     internal static string ApplyInline(string text)
