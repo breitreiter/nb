@@ -9,6 +9,8 @@ public record CompletionHint(string Name, string Description);
 public class LineEditor
 {
     private readonly List<string> _history = new();
+    private bool _hintActive;
+    private string? _lastHintContent;
 
     public List<CompletionHint> Commands { get; set; } = new();
     public List<CompletionHint> Kits { get; set; } = new();
@@ -145,54 +147,73 @@ public class LineEditor
         if (!enabled) return;
 
         var text = handler.Text;
-        if (text.Length == 0) { ClearHintLine(); return; }
+        string? prefix = null;
+        List<CompletionHint>? items = null;
 
-        if (text[0] == '/' && Commands.Count > 0)
-            RenderHintLine("/", text[1..], Commands);
-        else if (text[0] == '+' && Kits.Count > 0)
-            RenderHintLine("+", text[1..], Kits);
-        else
-            ClearHintLine();
+        if (text.Length > 0)
+        {
+            if (text[0] == '/' && Commands.Count > 0) { prefix = "/"; items = Commands; }
+            else if (text[0] == '+' && Kits.Count > 0) { prefix = "+"; items = Kits; }
+        }
+
+        // No guard character — skip all cursor work unless we need to clear a stale hint.
+        if (prefix == null) { ClearHintLine(); return; }
+
+        var matches = items!
+            .Where(h => h.Name.StartsWith(prefix + text[1..], StringComparison.OrdinalIgnoreCase))
+            .Select(h => h.Name)
+            .ToList();
+        var content = matches.Count > 0 ? string.Join(", ", matches) : "";
+
+        if (_hintActive && content == _lastHintContent) return;
+
+        RenderHintLine(content);
+        _hintActive = true;
+        _lastHintContent = content;
     }
 
-    private static void RenderHintLine(string prefix, string typed, List<CompletionHint> items)
+    private static void RenderHintLine(string content)
     {
         var savedLeft = Console.CursorLeft;
         var savedTop = Console.CursorTop;
 
         if (savedTop + 1 >= Console.BufferHeight) return;
 
-        var matches = items
-            .Where(h => h.Name.StartsWith(prefix + typed, StringComparison.OrdinalIgnoreCase))
-            .Select(h => h.Name)
-            .ToList();
-
         var width = Console.WindowWidth;
+        Console.Write("\u001b[?25l");
         Console.SetCursorPosition(0, savedTop + 1);
         Console.Write(new string(' ', width));
-        Console.SetCursorPosition(0, savedTop + 1);
 
-        if (matches.Count > 0)
+        if (content.Length > 0)
         {
-            var joined = string.Join(", ", matches);
+            Console.SetCursorPosition(0, savedTop + 1);
             var maxLen = Math.Max(0, width - 4);
-            if (joined.Length > maxLen)
-                joined = joined[..Math.Max(0, maxLen - 1)] + "…";
-            Console.Write($"\u001b[90m  {joined}\u001b[0m");
+            if (content.Length > maxLen)
+                content = content[..Math.Max(0, maxLen - 1)] + "…";
+            Console.Write($"\u001b[90m  {content}\u001b[0m");
         }
 
         Console.SetCursorPosition(savedLeft, savedTop);
+        Console.Write("\u001b[?25h");
     }
 
-    private static void ClearHintLine()
+    private void ClearHintLine()
     {
+        if (!_hintActive) return;
+
         var savedLeft = Console.CursorLeft;
         var savedTop = Console.CursorTop;
 
-        if (savedTop + 1 >= Console.BufferHeight) return;
+        if (savedTop + 1 < Console.BufferHeight)
+        {
+            Console.Write("\u001b[?25l");
+            Console.SetCursorPosition(0, savedTop + 1);
+            Console.Write(new string(' ', Console.WindowWidth));
+            Console.SetCursorPosition(savedLeft, savedTop);
+            Console.Write("\u001b[?25h");
+        }
 
-        Console.SetCursorPosition(0, savedTop + 1);
-        Console.Write(new string(' ', Console.WindowWidth));
-        Console.SetCursorPosition(savedLeft, savedTop);
+        _hintActive = false;
+        _lastHintContent = null;
     }
 }
