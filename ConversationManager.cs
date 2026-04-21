@@ -4,6 +4,7 @@ using Microsoft.Extensions.AI;
 using Spectre.Console;
 using nb.MCP;
 using nb.Shell;
+using nb.Shell.ApplyPatch;
 using nb.Utilities;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
@@ -27,6 +28,7 @@ public class ConversationManager
     private readonly GrepTool? _grepTool;
     private readonly ListDirTool? _listDirTool;
     private readonly FetchUrlTool? _fetchUrlTool;
+    private readonly ApplyPatchTool? _applyPatchTool;
     private readonly FileReadTracker _fileReadTracker = new();
     private readonly ApprovalPatterns _approvalPatterns;
     private readonly bool _verbose;
@@ -61,6 +63,7 @@ public class ConversationManager
         GrepTool? grepTool,
         ListDirTool? listDirTool,
         FetchUrlTool? fetchUrlTool,
+        ApplyPatchTool? applyPatchTool,
         ApprovalPatterns approvalPatterns,
         string providerName = "",
         bool verbose = false,
@@ -80,6 +83,7 @@ public class ConversationManager
         _grepTool = grepTool;
         _listDirTool = listDirTool;
         _fetchUrlTool = fetchUrlTool;
+        _applyPatchTool = applyPatchTool;
         _approvalPatterns = approvalPatterns;
         _currentProviderName = providerName;
         _verbose = verbose;
@@ -193,6 +197,11 @@ public class ConversationManager
             if (_listDirTool != null)
             {
                 mcpTools.Add(_listDirTool.CreateTool());
+            }
+
+            if (_applyPatchTool != null)
+            {
+                mcpTools.Add(_applyPatchTool.CreateTool());
             }
 
             if (_fetchUrlTool != null)
@@ -488,6 +497,14 @@ public class ConversationManager
                                 var path = functionCall.Arguments?["path"]?.ToString() ?? "";
                                 var content = functionCall.Arguments?["content"]?.ToString() ?? "";
                                 var result = await HandleWriteFileToolCall(functionCall.CallId, path, content);
+                                allToolResults.Add(result);
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
+                            }
+                            // Check if this is apply_patch (custom approval UX for multi-file patches)
+                            else if (functionCall.Name == "apply_patch" && _applyPatchTool != null)
+                            {
+                                var input = functionCall.Arguments?["input"]?.ToString() ?? "";
+                                var result = HandleApplyPatchToolCall(functionCall.CallId, input);
                                 allToolResults.Add(result);
                                 LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
                             }
@@ -1277,6 +1294,143 @@ public class ConversationManager
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Edit error: {Markup.Escape(ex.Message)}[/]");
             return new FunctionResultContent(callId, $"Error during file edit: {ex.Message}");
         }
+    }
+
+    private FunctionResultContent HandleApplyPatchToolCall(string callId, string input)
+    {
+        if (_applyPatchTool == null)
+            return new FunctionResultContent(callId, "Error: apply_patch tool not initialized");
+
+        List<FileOp> ops;
+        try
+        {
+            ops = PatchParser.Parse(input);
+        }
+        catch (PatchParseException ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch parse error: {Markup.Escape(ex.Message)}[/]");
+            return new FunctionResultContent(callId, $"Error parsing patch: {ex.Message}");
+        }
+
+        var cwd = _applyPatchTool.GetCwd();
+
+        PatchPreview preview;
+        try
+        {
+            preview = PatchApplier.BuildPreview(ops, cwd, _fileReadTracker);
+        }
+        catch (PatchApplyException ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch error: {Markup.Escape(ex.Message)}[/]");
+            return new FunctionResultContent(callId, $"Error: {ex.Message}");
+        }
+
+        // Check sandbox for every affected absolute path — both source (for updates/deletes) and destination (for moves/adds).
+        var allTrusted = true;
+        var anyEscape = false;
+        for (int i = 0; i < ops.Count; i++)
+        {
+            var touched = new List<string> { preview.Files[i].FinalPath };
+            if (ops[i] is UpdateFile upd && upd.MoveTo != null)
+            {
+                var sourceFull = Path.IsPathRooted(ops[i].Path)
+                    ? Path.GetFullPath(ops[i].Path)
+                    : Path.GetFullPath(Path.Combine(cwd, ops[i].Path));
+                touched.Add(sourceFull);
+            }
+            foreach (var p in touched)
+            {
+                var (trusted, escape) = TrustSandbox.CheckPath(p, cwd);
+                if (escape) anyEscape = true;
+                if (!trusted) allTrusted = false;
+            }
+        }
+
+        RenderPatchSummary(preview);
+
+        if (anyEscape)
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ One or more paths resolve outside working directory via symlink — manual approval required[/]");
+
+        if (allTrusted && !anyEscape)
+        {
+            try
+            {
+                PatchApplier.Apply(preview, ops, cwd, _fileReadTracker);
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch failed: {Markup.Escape(ex.Message)}[/]");
+                return new FunctionResultContent(callId, $"Error applying patch: {ex.Message}");
+            }
+            var summary = BuildApplySummary(preview);
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(summary)}[/]");
+            return new FunctionResultContent(callId, summary);
+        }
+
+        // Flush any pending input
+        while (Console.KeyAvailable) Console.ReadKey(intercept: true);
+
+        while (true)
+        {
+            AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N]][/] ");
+            var key = Console.ReadKey().KeyChar;
+            Console.WriteLine();
+
+            if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Patch rejected[/]");
+                return new FunctionResultContent(callId, "Error: User rejected apply_patch. Permission denied.");
+            }
+            else if (key == 'y' || key == 'Y')
+            {
+                try
+                {
+                    PatchApplier.Apply(preview, ops, cwd, _fileReadTracker);
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch failed: {Markup.Escape(ex.Message)}[/]");
+                    return new FunctionResultContent(callId, $"Error applying patch: {ex.Message}");
+                }
+                var summary = BuildApplySummary(preview);
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(summary)}[/]");
+                return new FunctionResultContent(callId, summary);
+            }
+        }
+    }
+
+    private static void RenderPatchSummary(PatchPreview preview)
+    {
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Patch:[/] {preview.Files.Count} file(s)");
+        foreach (var fp in preview.Files)
+        {
+            var (glyph, label) = fp.Kind switch
+            {
+                FileOpKind.Add => ("+", "add"),
+                FileOpKind.Delete => ("-", "delete"),
+                FileOpKind.Update => ("~", "update"),
+                FileOpKind.UpdateAndMove => ("↺", "rename+update"),
+                _ => ("?", "?"),
+            };
+            var stats = fp.Kind switch
+            {
+                FileOpKind.Add => $"{fp.NewLineCount} lines",
+                FileOpKind.Delete => $"{fp.OldLineCount} lines",
+                _ => $"-{fp.OldLineCount}/+{fp.NewLineCount}",
+            };
+            var path = fp.Kind == FileOpKind.UpdateAndMove
+                ? $"{fp.OriginalPath} → {fp.FinalPath}"
+                : fp.FinalPath;
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {glyph} {label,-13} {Markup.Escape(path)} ({stats})[/]");
+        }
+    }
+
+    private static string BuildApplySummary(PatchPreview preview)
+    {
+        var added = preview.Files.Count(f => f.Kind == FileOpKind.Add);
+        var updated = preview.Files.Count(f => f.Kind == FileOpKind.Update || f.Kind == FileOpKind.UpdateAndMove);
+        var deleted = preview.Files.Count(f => f.Kind == FileOpKind.Delete);
+        return $"Applied patch: {added} added, {updated} updated, {deleted} deleted";
     }
 
     public async Task SaveConversationHistoryAsync(string filePath = ".nb_conversation_history.json")

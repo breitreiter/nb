@@ -29,6 +29,7 @@ public class Program
     private static GrepTool _grepTool = null!;
     private static ListDirTool _listDirTool = null!;
     private static FetchUrlTool _fetchUrlTool = null!;
+    private static ApplyPatchTool _applyPatchTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static KitManager _kitManager = new KitManager();
     private static LineEditor _lineEditor = new LineEditor
@@ -270,6 +271,7 @@ public class Program
             _grepTool = new GrepTool(_shellEnvironment);
             _listDirTool = new ListDirTool(_shellEnvironment);
             _fetchUrlTool = new FetchUrlTool();
+            _applyPatchTool = new ApplyPatchTool(_shellEnvironment);
         }
 
         // Check for trust mode from config
@@ -303,7 +305,7 @@ public class Program
         var maxContextTokens = ResolveMaxContextTokens(config, activeProviderName);
         var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
