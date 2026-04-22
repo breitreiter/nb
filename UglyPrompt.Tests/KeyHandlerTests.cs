@@ -454,4 +454,95 @@ public class KeyHandlerTests
         h.Handle(Ctrl(ConsoleKey.T));
         Assert.Equal("ab", h.Text);
     }
+
+    // --- soft-wrap + history regression repro ---
+
+    private class GridConsole : IConsoleAdapter
+    {
+        public int CursorLeft { get; set; }
+        public int CursorTop { get; set; }
+        public int BufferWidth { get; init; } = 10;
+        public int BufferHeight { get; init; } = 40;
+        private readonly char[,] _cells = new char[40, 10];
+
+        public GridConsole()
+        {
+            for (int r = 0; r < 40; r++)
+                for (int c = 0; c < 10; c++)
+                    _cells[r, c] = ' ';
+        }
+
+        public void SetCursorPosition(int left, int top) { CursorLeft = left; CursorTop = top; }
+
+        public void Write(string value)
+        {
+            foreach (char c in value)
+            {
+                if (c == '\n') { CursorTop++; CursorLeft = 0; }
+                else
+                {
+                    _cells[CursorTop, CursorLeft] = c;
+                    if (++CursorLeft >= BufferWidth) { CursorLeft = 0; CursorTop++; }
+                }
+            }
+        }
+
+        public string Row(int r)
+        {
+            var buf = new char[BufferWidth];
+            for (int c = 0; c < BufferWidth; c++) buf[c] = _cells[r, c];
+            return new string(buf);
+        }
+    }
+
+    [Fact]
+    public void UpArrow_AfterWordWrapMovedText_ClearsOrphanedCells()
+    {
+        // Repro for the "Up arrow replaces only the current line" bug.
+        // When word-wrap moves a partial word to the next line, the preceding
+        // text on the prior row is left behind. ClearLine's Backspace walk
+        // only revisits cells along the cursor path, so those "orphaned"
+        // cells survive and the user sees old text alongside the new entry.
+        var console = new GridConsole();
+        console.SetCursorPosition(2, 0);
+        var h = new KeyHandler(console, new List<string> { "hi" });
+
+        foreach (char c in "hello world this is a test") h.Handle(Char(c));
+
+        h.Handle(Key(ConsoleKey.UpArrow));
+
+        Assert.Equal("hi", h.Text);
+        var allRows = string.Join("|", Enumerable.Range(0, 4).Select(r => console.Row(r)));
+        var hiCount = System.Text.RegularExpressions.Regex.Matches(allRows, "hi").Count;
+        Assert.Equal(1, hiCount);
+        var withoutHi = allRows.Replace("hi", "  ");
+        Assert.Equal(string.Join("|", Enumerable.Repeat(new string(' ', 10), 4)), withoutHi);
+    }
+
+    [Fact]
+    public void UpArrow_AfterSoftWrap_ClearsAllRowsVisitedDuringTyping()
+    {
+        // Repro: buffer width 10, 2-char "prompt" offset, type a long non-space
+        // sequence that wraps across 3 visual rows, then UpArrow to a short
+        // history entry. Every row touched during typing should be erased, and
+        // the new entry should appear exactly once.
+        var console = new GridConsole();
+        console.SetCursorPosition(2, 0);
+        var h = new KeyHandler(console, new List<string> { "hi" });
+
+        // 20 non-space chars: word-wrap moves the first 7 to row 1, remaining
+        // chars fill row 1 and spill into row 2.
+        foreach (char c in new string('A', 20)) h.Handle(Char(c));
+        Assert.Equal(new string('A', 20), h.Text);
+
+        h.Handle(Key(ConsoleKey.UpArrow));
+
+        Assert.Equal("hi", h.Text);
+        var allRows = string.Join("|", new[] { console.Row(0), console.Row(1), console.Row(2) });
+        // Exactly one "hi" anywhere in those three rows, everything else spaces
+        var hiCount = System.Text.RegularExpressions.Regex.Matches(allRows, "hi").Count;
+        Assert.Equal(1, hiCount);
+        var withoutHi = allRows.Replace("hi", "  ");
+        Assert.Equal(new string(' ', 10) + "|" + new string(' ', 10) + "|" + new string(' ', 10), withoutHi);
+    }
 }

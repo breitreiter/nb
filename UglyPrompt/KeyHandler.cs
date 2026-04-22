@@ -16,6 +16,8 @@ internal class KeyHandler
     private ConsoleKeyInfo _keyInfo;
     private readonly Dictionary<string, Action> _keyActions;
     private readonly IConsoleAdapter _console;
+    private readonly int _initialLeft;
+    private readonly int _initialTop;
 
     private bool IsStartOfLine() => _cursorPos == 0;
     private bool IsEndOfLine() => _cursorPos == _cursorLimit;
@@ -59,7 +61,29 @@ internal class KeyHandler
     private void ClearLine()
     {
         MoveCursorEnd();
-        while (!IsStartOfLine()) Backspace();
+        // Walk cells back to the prompt origin, blanking each one. Backspace
+        // counts chars, but word-wrap decouples char count from cells traversed
+        // (it relocates partial words across rows), so counting leaves orphans.
+        while (_console.CursorLeft != _initialLeft || _console.CursorTop != _initialTop)
+        {
+            int newLeft, newTop;
+            if (_console.CursorLeft == 0)
+            {
+                newLeft = _console.BufferWidth - 1;
+                newTop = _console.CursorTop - 1;
+            }
+            else
+            {
+                newLeft = _console.CursorLeft - 1;
+                newTop = _console.CursorTop;
+            }
+            _console.SetCursorPosition(newLeft, newTop);
+            _console.Write(" ");
+            _console.SetCursorPosition(newLeft, newTop);
+        }
+        _text.Clear();
+        _cursorPos = 0;
+        _cursorLimit = 0;
     }
 
     private void WriteNewString(string str)
@@ -222,6 +246,8 @@ internal class KeyHandler
         _history = history ?? new List<string>();
         _historyIndex = _history.Count;
         _text = new StringBuilder();
+        _initialLeft = console.CursorLeft;
+        _initialTop = console.CursorTop;
         _keyActions = new Dictionary<string, Action>
         {
             ["LeftArrow"] = MoveCursorLeft,
