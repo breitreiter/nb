@@ -265,13 +265,23 @@ public class Program
             var bashTimeoutSeconds = int.TryParse(config["BashTimeoutSeconds"], out var bts) ? bts : 120;
             _bashTool = new BashTool(_shellEnvironment, defaultTimeoutSeconds: bashTimeoutSeconds);
             _readFileTool = new ReadFileTool(_shellEnvironment);
-            _writeFileTool = new WriteFileTool(_shellEnvironment);
-            _editFileTool = new EditFileTool(_shellEnvironment);
             _findFilesTool = new FindFilesTool(_shellEnvironment);
             _grepTool = new GrepTool(_shellEnvironment);
             _listDirTool = new ListDirTool(_shellEnvironment);
             _fetchUrlTool = new FetchUrlTool();
-            _applyPatchTool = new ApplyPatchTool(_shellEnvironment);
+
+            var providerConfig = config.GetSection("ChatProviders").GetChildren()
+                .FirstOrDefault(c => string.Equals(c["Name"], config["ActiveProvider"], StringComparison.OrdinalIgnoreCase));
+            var useApplyPatch = string.Equals(providerConfig?["EditToolStyle"], "ApplyPatch", StringComparison.OrdinalIgnoreCase);
+            if (useApplyPatch)
+            {
+                _applyPatchTool = new ApplyPatchTool(_shellEnvironment);
+            }
+            else
+            {
+                _writeFileTool = new WriteFileTool(_shellEnvironment);
+                _editFileTool = new EditFileTool(_shellEnvironment);
+            }
         }
 
         // Check for trust mode from config

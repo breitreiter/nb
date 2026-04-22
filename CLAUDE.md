@@ -220,6 +220,7 @@ The application uses an array-based provider configuration schema:
 - `ActiveProvider` - Selects which provider from the array to use
 - `ChatProviders` - Array of provider configurations, each with a `Name` field matching the provider's implementation
 - Provider-specific fields are read directly from the provider's config object (no nested paths)
+- `EditToolStyle` (optional, per-provider) - Selects the file-edit tool surface exposed to the model. `EditReplace` (default) registers `edit_file` + `write_file`; `ApplyPatch` registers `apply_patch` instead. Mutually exclusive — GPT-family models tend to confuse the two surfaces, so pick one.
 
 ## Important Workflow Reminders
 - When changing the structure of appsettings.json make sure to update appsettings.example.json
