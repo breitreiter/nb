@@ -4,11 +4,6 @@ namespace nb.Shell;
 
 public class ListDirTool
 {
-    private static readonly HashSet<string> SkipDirectories = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".git", "node_modules", "bin", "obj", ".vs", "__pycache__",
-        ".venv", "venv", ".idea", "dist", "build", ".next", ".nuget"
-    };
 
     private readonly ShellEnvironment _env;
 
@@ -33,7 +28,7 @@ public class ListDirTool
                 - path: Directory path (absolute or relative to working directory). Empty string for working directory.
 
                 Returns entries in "type name" format where type is [file] or [dir].
-                Automatically skips: {string.Join(", ", SkipDirectories)}
+                Automatically skips: {string.Join(", ", DefaultSkipDirectories.All)}
                 """
         );
     }
@@ -58,7 +53,7 @@ public class ListDirTool
             foreach (var dir in Directory.GetDirectories(dirPath).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
             {
                 var name = Path.GetFileName(dir);
-                if (!SkipDirectories.Contains(name))
+                if (!DefaultSkipDirectories.All.Contains(name))
                     entries.Add($"[dir]  {name}");
             }
 

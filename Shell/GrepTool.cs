@@ -12,11 +12,6 @@ public class GrepTool
     private const int MaxLineLength = 200;
     private const int BinaryCheckBytes = 8192;
 
-    private static readonly HashSet<string> SkipDirectories = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".git", "node_modules", "bin", "obj", ".vs", "__pycache__",
-        ".venv", "venv", ".idea", "dist", "build", ".next", ".nuget"
-    };
 
     private readonly ShellEnvironment _env;
 
@@ -139,7 +134,7 @@ public class GrepTool
         {
             var matcher = new Matcher();
             matcher.AddInclude($"**/{filePattern}");
-            foreach (var dir in SkipDirectories)
+            foreach (var dir in DefaultSkipDirectories.All)
                 matcher.AddExclude($"{dir}/**");
 
             var dirInfo = new DirectoryInfoWrapper(new DirectoryInfo(searchPath));
@@ -239,7 +234,7 @@ public class GrepTool
                 foreach (var subDir in Directory.GetDirectories(dir))
                 {
                     var dirName = Path.GetFileName(subDir);
-                    if (!SkipDirectories.Contains(dirName))
+                    if (!DefaultSkipDirectories.All.Contains(dirName))
                         stack.Push(subDir);
                 }
             }
