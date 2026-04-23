@@ -9,8 +9,8 @@
     <Authors>Joseph Breitreiter</Authors>
     <Description>A no-frills readline-style console line editor for .NET. Backslash continuation, command completion hints, bracketed paste, and history. A permissively-licensed alternative to PrettyPrompt.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/jbreitreiter/uglyprompt</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/jbreitreiter/uglyprompt</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/breitreiter/nb/tree/master/UglyPrompt</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/breitreiter/nb</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>readline;console;line-editor;prompt;terminal;cli</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
