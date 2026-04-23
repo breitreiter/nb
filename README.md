@@ -1,11 +1,14 @@
 # NotaBene (nb)
 
-A terminal-native AI assistant with deep shell integration, project context awareness, and extensible tooling.
+A thin, terminal-native coding agent with deep shell integration, native file tools, and pluggable AI providers.
 
 ![NotaBene Preview](preview.png)
 
+Primary use case: drop into a project directory and work interactively — read, edit, search, run builds and tests, iterate. Secondary use case: a general-purpose CLI assistant for single-shot prompts, stdin piping, scripting, and whatever else you can bolt onto it. Most of the features below support both.
+
 ## Features
 
+- **Coding Agent Workflow**: Native file and shell tools, per-directory conversation history, read-before-edit guard, project context via `NB.md`, and trust mode for friction-free iteration inside a working directory sandbox.
 - **Multi-Provider AI Support**: Built-in support for Azure OpenAI (Chat Completions and Responses API), OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
 - **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
 - **Terminal Integration**: Native shell access with approval UX. Models can execute commands, with dangerous operations requiring explicit confirmation.
