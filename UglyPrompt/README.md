@@ -23,7 +23,7 @@ while (true)
 }
 ```
 
-`ReadLine` returns `null` on EOF (Ctrl+D), Ctrl+C, or whitespace-only input. It handles backslash continuation internally — the returned string is the fully-joined multi-line value.
+`ReadLine` returns `null` on whitespace-only input. It handles backslash continuation internally — the returned string is the fully-joined multi-line value.
 
 ## Completion Hints
 
@@ -65,7 +65,7 @@ When the current line starts with `/` or `+`, a terse comma-separated list of ma
 | Home / Ctrl+A | Move to start of line |
 | End / Ctrl+E | Move to end of line |
 | Backspace / Ctrl+H | Delete character before cursor |
-| Delete / Ctrl+D | Delete character at cursor (EOF if line empty) |
+| Delete / Ctrl+D | Delete character at cursor |
 | Ctrl+U | Delete to start of line |
 | Ctrl+K | Delete to end of line |
 | Ctrl+W | Delete word before cursor |
