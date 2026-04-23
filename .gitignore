@@ -17,4 +17,6 @@ artifacts/
 *.userosscache
 *.sln.docstates
 .nb_conversation_history.json
+.nb_conversation_history.lock
+mcp-tools.json
 TODO.md
