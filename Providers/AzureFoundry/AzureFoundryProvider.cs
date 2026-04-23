@@ -44,6 +44,6 @@ public class AzureFoundryProvider : IChatClientProvider
             new AzureKeyCredential(apiKey),
             options);
 
-        return azureClient.GetOpenAIResponseClient(model).AsIChatClient();
+        return azureClient.GetResponsesClient().AsIChatClient(model);
     }
 }

@@ -23,7 +23,7 @@ public class GeminiProvider : IChatClientProvider
         var apiKey = config["ApiKey"] ?? throw new InvalidOperationException("ApiKey is required for Gemini provider");
         var model = config["Model"] ?? "gemini-2.0-flash-exp";
 
-        var chatClient = new GeminiChatClient(apiKey, model);
+        var chatClient = new GeminiChatClient(apiKey: apiKey, model: model);
 
         return chatClient;
     }

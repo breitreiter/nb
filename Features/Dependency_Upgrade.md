@@ -1,6 +1,6 @@
 # Dependency Upgrade: M.E.AI 10.x + MCP SDK 1.x + Official Anthropic SDK
 
-Status: Proposed
+Status: Implemented (2026-04-23)
 
 ---
 
@@ -147,3 +147,32 @@ Only if things go smoothly:
 - [Official Anthropic .NET SDK](https://github.com/anthropics/anthropic-sdk-csharp)
 - [MCP OAuth feature doc](Features/MCP_OAuth.md)
 - [Streaming feature doc](Features/Streaming_Output.md)
+
+## Revisions
+
+### 2026-04-23 — Implemented
+
+Executed the plan on branch `dependency-upgrade-2026-04`. Final package versions:
+
+| Package | Landed at |
+|---|---|
+| `Microsoft.Extensions.AI` / `.Abstractions` / `.OpenAI` | 10.5.0 (GA) |
+| `ModelContextProtocol` | 1.2.0 (GA) |
+| `Anthropic.SDK` (community) | Removed |
+| `Anthropic` (official) | 12.16.0 |
+| `Microsoft.Extensions.Configuration*` | 10.0.0 (GA) |
+| `Microsoft.Extensions.Hosting` | 10.0.0 (GA) |
+| `Microsoft.Extensions.Configuration.Abstractions` | 10.0.0 (was 9.0.0) |
+| `OpenAI` | 2.10.0 (was 2.5.0 — bumped to satisfy M.E.AI.OpenAI 10.5.0) |
+| `Azure.AI.OpenAI` | 2.9.0-beta.1 (was 2.3.0-beta.2 — still the only modern option on beta channel) |
+| `Mscc.GenerativeAI.Microsoft` | 3.1.0 (was 2.8.15 — supports M.E.AI 10.x from 3.0 onward) |
+
+Deviations from the plan:
+
+- **AzureFoundry provider** — not accounted for in the original doc (added after it was written). Received the same bumps as AzureOpenAI. Required a call-site fix: `GetOpenAIResponseClient(model)` → `GetResponsesClient().AsIChatClient(model)` — Azure renamed the accessor and the model param moved from the client factory to the `AsIChatClient` call.
+- **Gemini call-site fix** — `Mscc.GenerativeAI.Microsoft` 3.x made the Vertex AI constructor's middle parameters nullable, which now collides with the Google AI constructor for a 2-arg call. Fixed by using named arguments (`new GeminiChatClient(apiKey: apiKey, model: model)`).
+- **Anthropic call-site rewrite** — official SDK uses a ClientOptions constructor, not an apiKey constructor. Landed on `new AnthropicClient(new ClientOptions()) { ApiKey = apiKey }` + `anthropicClient.AsIChatClient(model)`. Default model updated from `claude-3-7-sonnet` to `claude-sonnet-4-6`.
+- **Phase 2 (MCP) went smoother than expected** — no call-site changes needed in `McpManager.cs` or `mcp-tester/Program.cs`. The APIs we use (`McpClient.CreateAsync`, `ListToolsAsync`, `ListResourcesAsync`, transport types, server builder fluent API) survived intact from 0.4.0-preview.2 → 1.2.0.
+- **No conversation history migration needed** — existing `.nb_conversation_history.json` files loaded fine with M.E.AI 10.x.
+
+Validation: all 216 tests pass (173 in `nb.Tests` + 43 in `UglyPrompt.Tests`). `--dump-tools` successfully enumerated the mcp-tester's tool catalog. A live Anthropic chat turn completed end-to-end.
