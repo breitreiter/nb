@@ -12,11 +12,11 @@ public class MarkdownRendererTests
     public void ApplyInline_Bold(string input, string expected) =>
         Assert.Equal(expected, MarkdownRenderer.ApplyInline(input));
 
-    // Italic
+    // Italic markers are not rendered — asterisks pass through literally.
     [Theory]
-    [InlineData("*hello*", "[italic]hello[/]")]
-    [InlineData("say *hello* world", "say [italic]hello[/] world")]
-    public void ApplyInline_Italic(string input, string expected) =>
+    [InlineData("*hello*", "*hello*")]
+    [InlineData("say *hello* world", "say *hello* world")]
+    public void ApplyInline_ItalicNotRendered(string input, string expected) =>
         Assert.Equal(expected, MarkdownRenderer.ApplyInline(input));
 
     // Inline code — content must come through verbatim, including special chars
@@ -43,12 +43,12 @@ public class MarkdownRendererTests
         Assert.Equal("see [cyan]List[[int]][/] type", result);
     }
 
-    // Bold and italic together
+    // Bold plus literal italic markers
     [Fact]
-    public void ApplyInline_BoldAndItalic()
+    public void ApplyInline_BoldWithLiteralAsterisks()
     {
         var result = MarkdownRenderer.ApplyInline("**bold** and *italic*");
-        Assert.Equal("[bold]bold[/] and [italic]italic[/]", result);
+        Assert.Equal("[bold]bold[/] and *italic*", result);
     }
 
     // Plain text passthrough

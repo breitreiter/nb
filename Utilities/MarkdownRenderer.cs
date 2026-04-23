@@ -1,67 +1,113 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using Spectre.Console;
 
 namespace nb.Utilities;
 
 /// <summary>
-/// Renders a subset of Markdown to the terminal using Spectre.Console.
-/// Handles headings, bold, italic, inline code, fenced code blocks, and HRs.
+/// Line-fed markdown renderer for terminal output. Handles headings, HRs, fenced
+/// code blocks, and inline bold / code. Designed to be fed incrementally: call
+/// <see cref="Append"/> with arbitrary chunks and <see cref="Finish"/> at the end.
 /// </summary>
-internal static partial class MarkdownRenderer
+internal sealed partial class MarkdownRenderer
 {
+    private bool _inCodeBlock;
+    private readonly StringBuilder _pending = new();
+
+    public void Append(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        _pending.Append(text);
+
+        while (true)
+        {
+            int nl = -1;
+            for (int i = 0; i < _pending.Length; i++)
+            {
+                if (_pending[i] == '\n') { nl = i; break; }
+            }
+            if (nl < 0) break;
+
+            var line = _pending.ToString(0, nl);
+            _pending.Remove(0, nl + 1);
+            RenderLine(line.TrimEnd('\r'));
+        }
+    }
+
+    public void Finish()
+    {
+        if (_pending.Length > 0)
+        {
+            RenderLine(_pending.ToString().TrimEnd('\r'));
+            _pending.Clear();
+        }
+
+        // Close any dangling code block so the top rule doesn't look orphaned.
+        if (_inCodeBlock)
+        {
+            AnsiConsole.Write(new Rule().RuleStyle(Style.Parse("grey")));
+            _inCodeBlock = false;
+        }
+    }
+
     public static void Render(string markdown)
     {
-        // Split on fenced code blocks first — content inside is literal.
-        // FencePattern captures (lang, code) pairs; segments interleave text/lang/code.
-        var segments = FencePattern().Split(markdown);
-
-        for (int i = 0; i < segments.Length; i++)
-        {
-            if (i % 3 == 0)
-                RenderText(segments[i]);
-            else if (i % 3 == 2)
-                RenderCodeBlock(segments[i - 1], segments[i]);
-            // i % 3 == 1 is the lang capture — consumed above
-        }
+        var r = new MarkdownRenderer();
+        r.Append(markdown);
+        r.Finish();
     }
 
-    private static void RenderText(string text)
+    private void RenderLine(string line)
     {
-        foreach (var rawLine in text.Split('\n'))
+        if (_inCodeBlock)
         {
-            var line = rawLine.TrimEnd('\r');
-
-            if (HrPattern().IsMatch(line))
+            if (IsFence(line))
             {
                 AnsiConsole.Write(new Rule().RuleStyle(Style.Parse("grey")));
-                continue;
+                _inCodeBlock = false;
             }
-
-            var heading = HeadingPattern().Match(line);
-            if (heading.Success)
+            else
             {
-                var level = heading.Groups[1].Length;
-                var content = ApplyInline(heading.Groups[2].Value);
-                var style = level == 1 ? "bold underline" : level == 2 ? "bold" : "bold dim";
-                AnsiConsole.MarkupLine($"[{style}]{content}[/]");
-                continue;
+                AnsiConsole.WriteLine(line);
             }
-
-            AnsiConsole.MarkupLine(ApplyInline(line));
+            return;
         }
+
+        if (IsFence(line))
+        {
+            var lang = line.TrimStart()[3..].Trim();
+            var top = new Rule().RuleStyle(Style.Parse("grey")).LeftJustified();
+            if (!string.IsNullOrWhiteSpace(lang))
+                top.Title = $"[grey]{Markup.Escape(lang)}[/]";
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(top);
+            _inCodeBlock = true;
+            return;
+        }
+
+        if (HrPattern().IsMatch(line))
+        {
+            AnsiConsole.Write(new Rule().RuleStyle(Style.Parse("grey")));
+            return;
+        }
+
+        var heading = HeadingPattern().Match(line);
+        if (heading.Success)
+        {
+            var level = heading.Groups[1].Length;
+            var content = ApplyInline(heading.Groups[2].Value);
+            var style = level == 1 ? "bold underline" : level == 2 ? "bold" : "bold dim";
+            AnsiConsole.MarkupLine($"[{style}]{content}[/]");
+            return;
+        }
+
+        AnsiConsole.MarkupLine(ApplyInline(line));
     }
 
-    private static void RenderCodeBlock(string lang, string code)
+    private static bool IsFence(string line)
     {
-        var trimmed = code.Trim('\n').TrimEnd('\r', '\n');
-        var topRule = new Rule().RuleStyle(Style.Parse("grey")).LeftJustified();
-        if (!string.IsNullOrWhiteSpace(lang))
-            topRule.Title = $"[grey]{Markup.Escape(lang.Trim())}[/]";
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(topRule);
-        AnsiConsole.WriteLine(trimmed);
-        AnsiConsole.Write(new Rule().RuleStyle(Style.Parse("grey")));
+        var t = line.TrimStart();
+        return t.Length >= 3 && t[0] == '`' && t[1] == '`' && t[2] == '`';
     }
 
     internal static string ApplyInline(string text)
@@ -74,20 +120,14 @@ internal static partial class MarkdownRenderer
             return $"\x00{codes.Count - 1}\x00";
         });
 
-        // Escape for Spectre markup, then apply bold/italic.
         text = Markup.Escape(text);
         text = BoldPattern().Replace(text, "[bold]$1[/]");
-        text = ItalicPattern().Replace(text, "[italic]$1[/]");
 
-        // Restore inline code spans.
         for (int i = 0; i < codes.Count; i++)
             text = text.Replace($"\x00{i}\x00", $"[cyan]{Markup.Escape(codes[i])}[/]");
 
         return text;
     }
-
-    [GeneratedRegex(@"```([^\n]*)\n(.*?)```", RegexOptions.Singleline)]
-    private static partial Regex FencePattern();
 
     [GeneratedRegex(@"^(#{1,6})\s+(.+)$")]
     private static partial Regex HeadingPattern();
@@ -100,7 +140,4 @@ internal static partial class MarkdownRenderer
 
     [GeneratedRegex(@"\*\*(.+?)\*\*")]
     private static partial Regex BoldPattern();
-
-    [GeneratedRegex(@"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")]
-    private static partial Regex ItalicPattern();
 }

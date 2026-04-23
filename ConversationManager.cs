@@ -225,12 +225,40 @@ public class ConversationManager
 
             // Microsoft.Extensions.AI handles token limits cleanly without experimental methods
 
-            // Make API call with status spinner
-            var response = await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .SpinnerStyle(Style.Parse(UIColors.SpectreMuted))
-                .StartAsync("Thinking...", async ctx =>
-                    await _client.GetResponseAsync(_conversationHistory, requestOptions));
+            // Stream the response. Prose renders incrementally through MarkdownRenderer;
+            // tool-call content accumulates silently and gets executed after the stream ends.
+            // Spinner is shown only until the first update arrives (TTFB indicator).
+            var renderer = new MarkdownRenderer();
+            var updates = new List<ChatResponseUpdate>();
+            var stream = _client.GetStreamingResponseAsync(_conversationHistory, requestOptions);
+            var enumerator = stream.GetAsyncEnumerator();
+            ChatResponse response;
+            try
+            {
+                var hasMore = await AnsiConsole.Status()
+                    .Spinner(Spinner.Known.Dots)
+                    .SpinnerStyle(Style.Parse(UIColors.SpectreMuted))
+                    .StartAsync("Thinking...", async _ => await enumerator.MoveNextAsync());
+
+                while (hasMore)
+                {
+                    var update = enumerator.Current;
+                    updates.Add(update);
+                    var text = update.Text;
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        renderer.Append(text);
+                    }
+                    hasMore = await enumerator.MoveNextAsync();
+                }
+            }
+            finally
+            {
+                renderer.Finish();
+                await enumerator.DisposeAsync();
+            }
+
+            response = updates.ToChatResponse();
 
             // Handle tool calls if present - check if any message has tool calls
             var hasToolCalls = response.Messages.Any(m => m.Contents.Any(c => c is FunctionCallContent));
@@ -713,9 +741,8 @@ public class ConversationManager
 
                 if (!string.IsNullOrEmpty(assistantMessage))
                 {
-                    // Add assistant response to conversation history
+                    // Text was already streamed through MarkdownRenderer above.
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, assistantMessage));
-                    RenderMarkdown(assistantMessage);
                 }
 
                 // Pending-todos reminder: if the model tries to end the turn with
