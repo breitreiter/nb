@@ -50,6 +50,7 @@ public class Program
     private static bool _dumpTools = false;
     private static bool _showHelp = false;
     private static bool _trustMode = false;
+    private static bool _debugStream = false;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -186,6 +187,10 @@ public class Program
             {
                 _dumpTools = true;
             }
+            else if (args[i] == "--debug-stream")
+            {
+                _debugStream = true;
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -224,6 +229,7 @@ public class Program
             Console.WriteLine("  --nobash                Disable shell tool");
             Console.WriteLine("  --verbose               Enable verbose output");
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
+            Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
@@ -315,7 +321,7 @@ public class Program
         var maxContextTokens = ResolveMaxContextTokens(config, activeProviderName);
         var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();

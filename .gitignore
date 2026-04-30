@@ -18,5 +18,6 @@ artifacts/
 *.sln.docstates
 .nb_conversation_history.json
 .nb_conversation_history.lock
+.nb_turn_dumps/
 mcp-tools.json
 TODO.md

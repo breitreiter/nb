@@ -33,6 +33,7 @@ public class ConversationManager
     private readonly ApprovalPatterns _approvalPatterns;
     private readonly bool _verbose;
     private readonly bool _trustMode;
+    private readonly bool _debugStream;
     private readonly int _maxToolCalls;
     private readonly double _compactionThreshold;
     private int _maxContextTokens;
@@ -70,7 +71,8 @@ public class ConversationManager
         bool trustMode = false,
         int maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
         int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS,
-        double compactionThreshold = DEFAULT_COMPACTION_THRESHOLD)
+        double compactionThreshold = DEFAULT_COMPACTION_THRESHOLD,
+        bool debugStream = false)
     {
         _client = client;
         _mcpManager = mcpManager;
@@ -91,6 +93,7 @@ public class ConversationManager
         _maxToolCalls = trustMode ? Math.Max(maxToolCalls, 50) : maxToolCalls;
         _maxContextTokens = maxContextTokens;
         _compactionThreshold = compactionThreshold;
+        _debugStream = debugStream;
         _todoTool = new TodoTool(_todoManager);
     }
 
@@ -133,7 +136,7 @@ public class ConversationManager
         await SendMessageInternalAsync();
     }
 
-    private async Task SendMessageInternalAsync()
+    private async Task SendMessageInternalAsync(string? injectedReminder = null)
     {
         if (_client == null) return;
 
@@ -230,6 +233,7 @@ public class ConversationManager
             // Spinner is shown only until the first update arrives (TTFB indicator).
             var renderer = new MarkdownRenderer();
             var updates = new List<ChatResponseUpdate>();
+            var updateTrace = new List<Dictionary<string, object?>>();
             var stream = _client.GetStreamingResponseAsync(_conversationHistory, requestOptions);
             var enumerator = stream.GetAsyncEnumerator();
             ChatResponse response;
@@ -244,6 +248,7 @@ public class ConversationManager
                 {
                     var update = enumerator.Current;
                     updates.Add(update);
+                    updateTrace.Add(SnapshotUpdate(update, updateTrace.Count));
                     var text = update.Text;
                     if (!string.IsNullOrEmpty(text))
                     {
@@ -262,6 +267,10 @@ public class ConversationManager
 
             // Handle tool calls if present - check if any message has tool calls
             var hasToolCalls = response.Messages.Any(m => m.Contents.Any(c => c is FunctionCallContent));
+
+            // Diagnostic dump: capture suspicious turns (or every turn under --debug-stream)
+            // for the GPT-5x early-end bug. See bugs/Streaming_GPT5_Early_Turn_End.md.
+            await MaybeWriteTurnDumpAsync(updates, updateTrace, response, hasToolCalls, injectedReminder);
             if (hasToolCalls)
             {
                 // Check if we've exceeded max tool calls
@@ -724,16 +733,18 @@ public class ConversationManager
                 }
 
                 // Inject a reminder if the model is looping
+                string? nextInjectedReminder = null;
                 if (_doomLoopDetector.DetectLoop() is int reps)
                 {
                     var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and ask the user for clarification.</system_reminder>";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Loop detected ({reps} reps); reminding model[/]");
                     _doomLoopDetector.Reset();
+                    nextInjectedReminder = "loop";
                 }
 
                 // Get another response after tool execution
-                await SendMessageInternalAsync();
+                await SendMessageInternalAsync(nextInjectedReminder);
             }
             else
             {
@@ -762,7 +773,7 @@ public class ConversationManager
                         _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
                         _lastRemindedTodos = currentSet;
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Pending todos; reminding model[/]");
-                        await SendMessageInternalAsync();
+                        await SendMessageInternalAsync("todos");
                     }
                 }
             }
@@ -777,6 +788,169 @@ public class ConversationManager
 
     private static void RenderMarkdown(string markdown) =>
         MarkdownRenderer.Render(markdown);
+
+    private static Dictionary<string, object?> SnapshotUpdate(ChatResponseUpdate update, int index)
+    {
+        var contentTypes = new List<string>();
+        var functionCalls = new List<Dictionary<string, object?>>();
+        int textChars = 0;
+        if (update.Contents != null)
+        {
+            foreach (var c in update.Contents)
+            {
+                contentTypes.Add(c.GetType().Name);
+                switch (c)
+                {
+                    case TextContent tc:
+                        textChars += tc.Text?.Length ?? 0;
+                        break;
+                    case FunctionCallContent fcc:
+                        functionCalls.Add(new Dictionary<string, object?>
+                        {
+                            ["name"] = fcc.Name,
+                            ["callId"] = fcc.CallId,
+                            ["argChars"] = fcc.Arguments == null ? 0 : JsonSerializer.Serialize(fcc.Arguments).Length,
+                        });
+                        break;
+                }
+            }
+        }
+        return new Dictionary<string, object?>
+        {
+            ["index"] = index,
+            ["finishReason"] = update.FinishReason?.ToString(),
+            ["role"] = update.Role?.ToString(),
+            ["responseId"] = update.ResponseId,
+            ["messageId"] = update.MessageId,
+            ["contentTypes"] = contentTypes,
+            ["textChars"] = textChars,
+            ["functionCalls"] = functionCalls,
+        };
+    }
+
+    private async Task MaybeWriteTurnDumpAsync(
+        List<ChatResponseUpdate> updates,
+        List<Dictionary<string, object?>> updateTrace,
+        ChatResponse response,
+        bool hasToolCalls,
+        string? injectedReminder)
+    {
+        // Counts from raw stream
+        int rawFcc = 0, rawText = 0, rawUsage = 0;
+        foreach (var u in updates)
+        {
+            if (u.Contents == null) continue;
+            foreach (var c in u.Contents)
+            {
+                switch (c)
+                {
+                    case FunctionCallContent: rawFcc++; break;
+                    case TextContent tc: rawText += tc.Text?.Length ?? 0; break;
+                    case UsageContent: rawUsage++; break;
+                }
+            }
+        }
+
+        // Counts from aggregated response
+        int aggFcc = 0, aggText = 0;
+        foreach (var m in response.Messages)
+        {
+            foreach (var c in m.Contents)
+            {
+                switch (c)
+                {
+                    case FunctionCallContent: aggFcc++; break;
+                    case TextContent tc: aggText += tc.Text?.Length ?? 0; break;
+                }
+            }
+        }
+
+        // "Suspicious" signatures of the GPT-5x early-end bug:
+        //  - empty turn: no tool calls AND zero text (a genuine "I give up")
+        //  - reminder no-op: a recursive call after we injected a system_reminder produced
+        //    no tool calls (matches "needs multiple `continue`s" report)
+        //  - aggregation drop: raw stream had FunctionCallContent that ToChatResponse() lost
+        bool emptyTurn = !hasToolCalls && aggText == 0;
+        bool reminderNoOp = injectedReminder != null && !hasToolCalls;
+        bool aggregationDrop = rawFcc > aggFcc;
+        if (!_debugStream && !emptyTurn && !reminderNoOp && !aggregationDrop) return;
+        string reason = aggregationDrop ? "aggregation_drop"
+                      : reminderNoOp ? $"reminder_noop_{injectedReminder}"
+                      : emptyTurn ? "empty_turn"
+                      : "debug_stream";
+
+        var dump = new Dictionary<string, object?>
+        {
+            ["timestamp"] = DateTime.UtcNow.ToString("o"),
+            ["provider"] = _currentProviderName,
+            ["injectedReminder"] = injectedReminder,
+            ["reason"] = reason,
+            ["rawCounts"] = new Dictionary<string, object?>
+            {
+                ["updates"] = updates.Count,
+                ["functionCallContent"] = rawFcc,
+                ["textChars"] = rawText,
+                ["usageContent"] = rawUsage,
+            },
+            ["aggregated"] = new Dictionary<string, object?>
+            {
+                ["messages"] = response.Messages.Count,
+                ["functionCallContent"] = aggFcc,
+                ["textChars"] = aggText,
+                ["finishReason"] = response.FinishReason?.ToString(),
+                ["responseId"] = response.ResponseId,
+                ["usage"] = response.Usage == null ? null : new Dictionary<string, object?>
+                {
+                    ["input"] = response.Usage.InputTokenCount,
+                    ["output"] = response.Usage.OutputTokenCount,
+                    ["total"] = response.Usage.TotalTokenCount,
+                },
+            },
+            ["updateTrace"] = updateTrace,
+            ["rawResponseRepresentation"] = TrySerializeRaw(response.RawRepresentation),
+        };
+
+        try
+        {
+            var dir = Path.Combine(Directory.GetCurrentDirectory(), ".nb_turn_dumps");
+            Directory.CreateDirectory(dir);
+            var filename = $"{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}_{(string)dump["reason"]!}.json";
+            var path = Path.Combine(dir, filename);
+            var json = JsonSerializer.Serialize(dump, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            });
+            await File.WriteAllTextAsync(path, json);
+            var rel = Path.Combine(".nb_turn_dumps", filename);
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ turn dump ({(string)dump["reason"]!}): {Markup.Escape(rel)}[/]");
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]turn dump failed: {Markup.Escape(ex.Message)}[/]");
+        }
+    }
+
+    private static object? TrySerializeRaw(object? raw)
+    {
+        if (raw == null) return null;
+        try
+        {
+            // Round-trip through JsonSerializer with a depth cap; provider raw types
+            // (OpenAI/Azure SDK responses) usually serialize cleanly but may carry
+            // non-JSON-friendly fields, so fall back to ToString on failure.
+            return JsonSerializer.SerializeToElement(raw, new JsonSerializerOptions
+            {
+                MaxDepth = 12,
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles,
+            });
+        }
+        catch
+        {
+            return raw.ToString();
+        }
+    }
 
     private static string SerializeArgs(IDictionary<string, object?>? args)
     {
