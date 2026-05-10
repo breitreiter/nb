@@ -1,0 +1,5 @@
+# Project substrate configuration. All keys optional; defaults shown.
+# Uncomment and edit as needed.
+
+# location: imp/                            # substrate location, relative to repo root
+# proposals: ../nb.imp-proposals/     # imp proposal sidecar (gitignored)
