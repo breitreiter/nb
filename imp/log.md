@@ -16,3 +16,7 @@ Substrate initialized via `imp init`. Layout: gnome-maintained
 ## [2026-05-10] tidy | 1 note(s): 1 entry(s), 0 deferred, 0 discarded, 0 failed
 
 Processed inbox: 1 learning(s), 0 reference(s), 0 deferred (cross-boundary), 0 discarded, 0 failed.
+
+## [2026-05-10] tidy | 2 note(s): 1 entry(s), 0 deferred, 0 discarded, 0 failed
+
+Processed inbox: 1 learning(s), 1 reference(s), 0 deferred (cross-boundary), 0 discarded, 0 failed.
