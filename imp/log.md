@@ -20,3 +20,7 @@ Processed inbox: 1 learning(s), 0 reference(s), 0 deferred (cross-boundary), 0 d
 ## [2026-05-10] tidy | 2 note(s): 1 entry(s), 0 deferred, 0 discarded, 0 failed
 
 Processed inbox: 1 learning(s), 1 reference(s), 0 deferred (cross-boundary), 0 discarded, 0 failed.
+
+## [2026-05-10] tidy | 2 note(s): 0 entry(s), 2 proposal(s), 0 discarded, 0 failed
+
+Processed inbox: 0 learning(s), 0 reference(s), 2 proposal(s), 0 discarded, 0 failed.
