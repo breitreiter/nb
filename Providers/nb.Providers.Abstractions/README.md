@@ -46,7 +46,7 @@ Your provider project needs:
 
 ```xml
 <PropertyGroup>
-  <TargetFramework>net8.0</TargetFramework>
+  <TargetFramework>net10.0</TargetFramework>
   <AssemblyName>MyProvider</AssemblyName>
   <RootNamespace>nb.Providers</RootNamespace>
   <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>

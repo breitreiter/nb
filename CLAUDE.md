@@ -82,7 +82,7 @@ The application supports these built-in commands (intercepted before LLM):
 - **Configuration** - Providers configured via `ActiveProvider` + `ChatProviders` array in appsettings.json (see Configuration Schema below)
 - **No Built-in Providers** - All providers are external plugins (AzureOpenAI, Anthropic, OpenAI, Gemini, etc.) loaded at runtime
 - **Runtime Discovery** - Providers are loaded at startup with graceful error handling for missing dependencies
-- **Post-Build Deployment** - Provider projects auto-copy their output to `bin/{Config}/net8.0/providers/{name}/` via post-build events
+- **Post-Build Deployment** - Provider projects auto-copy their output to `bin/{Config}/net10.0/providers/{name}/` via post-build events
 - **⚠️ Assembly Context Gotcha** - Shared types across different `AssemblyLoadContext` instances can cause type mismatch issues. Keep provider interface communication simple and avoid passing complex objects between providers and main app beyond the `IChatClient` interface.
 - **⚠️ CRITICAL: Provider Exclusions** - When adding new provider projects, you MUST add exclusions to `nb.csproj` to prevent the provider files from being included in the main project. Add three exclusion entries for each provider directory:
   ```xml

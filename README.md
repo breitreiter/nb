@@ -50,7 +50,7 @@ Primary use case: drop into a project directory and work interactively — read,
 3. Build and run:
    ```bash
    dotnet build
-   cd bin/Debug/net8.0
+   cd bin/Debug/net10.0
    ./nb
    ```
 
@@ -346,7 +346,7 @@ Both providers accept either the resource root (`https://<name>.cognitiveservice
 
 If Azure shows you an endpoint on `services.ai.azure.com` with a `/api/projects/<project>/...` path, that's the newer Foundry Unified Endpoint and neither current provider targets it directly — open an issue if you need that variant.
 
-All providers are automatically compiled into the `bin/{Config}/net8.0/providers/` directory during build.
+All providers are automatically compiled into the `bin/{Config}/net10.0/providers/` directory during build.
 
 The Mock provider returns "OK" by default, or the value of the `Response` config key. You can also control responses inline by prefixing your message with `MOCK:response=<text>`.
 

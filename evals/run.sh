@@ -3,7 +3,7 @@ set -uo pipefail
 # Note: -e removed to allow individual test failures without stopping the script
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NB_DIR="$(dirname "$SCRIPT_DIR")/bin/Debug/net8.0"
+NB_DIR="$(dirname "$SCRIPT_DIR")/bin/Debug/net10.0"
 NB="$NB_DIR/nb"
 
 # Colors
