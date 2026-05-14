@@ -142,6 +142,16 @@ public class Program
         return sections.Count > 0 ? string.Join("\n\n", sections) : null;
     }
 
+    private static float? ResolveProviderFloat(Microsoft.Extensions.Configuration.IConfiguration config, string providerName, string key)
+    {
+        foreach (var provider in config.GetSection("ChatProviders").GetChildren())
+        {
+            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
+                return float.TryParse(provider[key], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
+        }
+        return null;
+    }
+
     private static int ResolveMaxContextTokens(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
     {
         var providers = config.GetSection("ChatProviders").GetChildren();
@@ -155,6 +165,43 @@ public class Program
             }
         }
         return int.TryParse(config["MaxContextTokens"], out var tokens) ? tokens : 128000;
+    }
+
+    private static string? ResolveActiveModelSlug(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
+    {
+        var providers = config.GetSection("ChatProviders").GetChildren();
+        foreach (var provider in providers)
+        {
+            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var model = provider["Model"] ?? provider["ChatDeploymentName"];
+                return string.IsNullOrEmpty(model) ? null : SlugifyModelName(model);
+            }
+        }
+        return null;
+    }
+
+    private static string SlugifyModelName(string model)
+    {
+        // Lowercase + collapse non-alphanumeric runs to '-'. Keeps "gpt-oss-20b" as-is,
+        // turns "meta-llama/Llama-3.1-8B" into "meta-llama-llama-3-1-8b".
+        var lower = model.ToLowerInvariant();
+        var sb = new System.Text.StringBuilder(lower.Length);
+        var lastWasDash = false;
+        foreach (var ch in lower)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                sb.Append(ch);
+                lastWasDash = false;
+            }
+            else if (!lastWasDash)
+            {
+                sb.Append('-');
+                lastWasDash = true;
+            }
+        }
+        return sb.ToString().Trim('-');
     }
 
     private static string[] ParseFlags(string[] args)
@@ -320,8 +367,10 @@ public class Program
         var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
         var maxContextTokens = ResolveMaxContextTokens(config, activeProviderName);
         var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
+        var temperature = ResolveProviderFloat(config, activeProviderName, "Temperature");
+        var presencePenalty = ResolveProviderFloat(config, activeProviderName, "PresencePenalty");
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream, temperature, presencePenalty);
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
@@ -333,6 +382,16 @@ public class Program
         var providerPromptPath = Path.Combine(AppContext.BaseDirectory, $"system.{activeProviderName}.md");
         if (File.Exists(providerPromptPath))
             fullPrompt += $"\n\n{File.ReadAllText(providerPromptPath)}";
+
+        // Append provider+model-specific prompt if present (e.g. system.LocalLlm.qwen-coder.md).
+        // Lets one provider host multiple models with distinct quirks.
+        var activeModelSlug = ResolveActiveModelSlug(config, activeProviderName);
+        if (!string.IsNullOrEmpty(activeModelSlug))
+        {
+            var modelPromptPath = Path.Combine(AppContext.BaseDirectory, $"system.{activeProviderName}.{activeModelSlug}.md");
+            if (File.Exists(modelPromptPath))
+                fullPrompt += $"\n\n{File.ReadAllText(modelPromptPath)}";
+        }
 
         // Auto-load project context from NB.md in working directory
         var projectContext = LoadProjectContext(_noBash ? "." : _shellEnvironment.ShellCwd);

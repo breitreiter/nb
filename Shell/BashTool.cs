@@ -160,11 +160,11 @@ public class BashTool
     {
         try
         {
-            while (!reader.EndOfStream && !ct.IsCancellationRequested)
+            while (!ct.IsCancellationRequested)
             {
                 var line = await reader.ReadLineAsync(ct);
-                if (line != null)
-                    lines.Add(line);
+                if (line == null) break;
+                lines.Add(line);
             }
         }
         catch (OperationCanceledException)

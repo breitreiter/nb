@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -14,6 +14,7 @@
     <PackageReference Include="itext7" Version="9.3.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0" />
     <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="PxSharp" Version="0.2.0" />
     <PackageReference Include="Spectre.Console" Version="0.52.1-preview.0.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.0" />
@@ -34,6 +35,7 @@
     <Compile Remove="Providers\nb.Providers.Abstractions\**" />
     <Compile Remove="Providers\OpenAI\**" />
     <Compile Remove="Providers\Gemini\**" />
+    <Compile Remove="Providers\LocalLlm\**" />
     <Compile Remove="Providers\Mock\**" />
     <EmbeddedResource Remove="nb-builds\**" />
     <EmbeddedResource Remove="Providers\Anthropic\**" />
@@ -42,6 +44,7 @@
     <EmbeddedResource Remove="Providers\nb.Providers.Abstractions\**" />
     <EmbeddedResource Remove="Providers\OpenAI\**" />
     <EmbeddedResource Remove="Providers\Gemini\**" />
+    <EmbeddedResource Remove="Providers\LocalLlm\**" />
     <EmbeddedResource Remove="Providers\Mock\**" />
     <None Remove="mcp-servers/**" />
     <None Remove="nb-builds\**" />
@@ -51,6 +54,7 @@
     <None Remove="Providers\nb.Providers.Abstractions\**" />
     <None Remove="Providers\OpenAI\**" />
     <None Remove="Providers\Gemini\**" />
+    <None Remove="Providers\LocalLlm\**" />
     <None Remove="Providers\Mock\**" />
   </ItemGroup>
 
@@ -65,6 +69,18 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="system.AzureOpenAI.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="system.LocalLlm.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="system.LocalLlm.qwen2-5-coder-32b.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="system.LocalLlm.gpt-oss-20b.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="system.LocalLlm.qwen3-30b-a3b-instruct-2507-ud-q6-k-xl.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="mcp.json">
@@ -86,7 +102,7 @@
 
   <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
     <ItemGroup>
-      <ProviderDirs Include="$(SolutionDir)bin\$(Configuration)\net8.0\$(RuntimeIdentifier)\providers\**\*.*" />
+      <ProviderDirs Include="$(SolutionDir)bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\providers\**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(ProviderDirs)" DestinationFolder="$(PublishDir)providers\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>

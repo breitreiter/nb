@@ -37,6 +37,24 @@ public class ConversationManager
     private readonly int _maxToolCalls;
     private readonly double _compactionThreshold;
     private int _maxContextTokens;
+    private readonly float? _temperature;
+    private readonly float? _presencePenalty;
+
+    private static readonly System.Text.RegularExpressions.Regex ThinkBlockRegex =
+        new(@"<think>[\s\S]*?</think>", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static string StripThinkBlocks(string text) =>
+        string.IsNullOrEmpty(text) ? text : ThinkBlockRegex.Replace(text, string.Empty).Trim();
+
+    private static AIChatMessage StripThinkBlocksFromMessage(AIChatMessage message)
+    {
+        if (!message.Contents.OfType<TextContent>().Any(t => !string.IsNullOrEmpty(t.Text)))
+            return message;
+        var newContents = message.Contents
+            .Select<AIContent, AIContent>(c => c is TextContent tc ? new TextContent(StripThinkBlocks(tc.Text)) : c)
+            .ToList();
+        return new AIChatMessage(message.Role, newContents);
+    }
     private readonly List<AIChatMessage> _conversationHistory = new();
     private int _toolCallCount = 0;
     private readonly DoomLoopDetector _doomLoopDetector = new();
@@ -72,7 +90,9 @@ public class ConversationManager
         int maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
         int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS,
         double compactionThreshold = DEFAULT_COMPACTION_THRESHOLD,
-        bool debugStream = false)
+        bool debugStream = false,
+        float? temperature = null,
+        float? presencePenalty = null)
     {
         _client = client;
         _mcpManager = mcpManager;
@@ -94,6 +114,8 @@ public class ConversationManager
         _maxContextTokens = maxContextTokens;
         _compactionThreshold = compactionThreshold;
         _debugStream = debugStream;
+        _temperature = temperature;
+        _presencePenalty = presencePenalty;
         _todoTool = new TodoTool(_todoManager);
     }
 
@@ -151,6 +173,8 @@ public class ConversationManager
             var requestOptions = new ChatOptions()
             {
                 MaxOutputTokens = 10000,
+                Temperature = _temperature,
+                PresencePenalty = _presencePenalty,
             };
 
             // Add MCP tools (only from servers referenced by active kits)
@@ -282,8 +306,8 @@ public class ConversationManager
                     return;
                 }
 
-                // Add assistant message with tool calls to history
-                _conversationHistory.AddRange(response.Messages);
+                // Add assistant message with tool calls to history (think blocks stripped)
+                _conversationHistory.AddRange(response.Messages.Select(StripThinkBlocksFromMessage));
 
                 // Collect all tool results in a single list
                 var allToolResults = new List<AIContent>();
@@ -753,7 +777,7 @@ public class ConversationManager
                 if (!string.IsNullOrEmpty(assistantMessage))
                 {
                     // Text was already streamed through MarkdownRenderer above.
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, assistantMessage));
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, StripThinkBlocks(assistantMessage)));
                 }
 
                 // Pending-todos reminder: if the model tries to end the turn with

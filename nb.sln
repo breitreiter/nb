@@ -25,6 +25,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Providers", "Providers", "{
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.AzureFoundryProvider", "Providers\AzureFoundry\nb.Providers.AzureFoundryProvider.csproj", "{FC23A4F8-081C-4ECD-9573-906B56EC54C0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nb.Providers.LocalLlmProvider", "Providers\LocalLlm\nb.Providers.LocalLlmProvider.csproj", "{FA1BCF74-FE96-47A7-83D4-43BFDA7B2020}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -71,6 +73,10 @@ Global
 		{FC23A4F8-081C-4ECD-9573-906B56EC54C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FC23A4F8-081C-4ECD-9573-906B56EC54C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FC23A4F8-081C-4ECD-9573-906B56EC54C0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FA1BCF74-FE96-47A7-83D4-43BFDA7B2020}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FA1BCF74-FE96-47A7-83D4-43BFDA7B2020}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FA1BCF74-FE96-47A7-83D4-43BFDA7B2020}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FA1BCF74-FE96-47A7-83D4-43BFDA7B2020}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

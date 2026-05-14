@@ -21,3 +21,5 @@ artifacts/
 .nb_turn_dumps/
 mcp-tools.json
 TODO.md
+nb.imp-proposals/
+.imp/
