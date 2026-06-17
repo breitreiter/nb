@@ -48,7 +48,7 @@ public class ConfigurationService
     {
         try
         {
-            var systemPromptPath = Path.Combine(AppContext.BaseDirectory, "system.md");
+            var systemPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", "system.md");
             
             if (File.Exists(systemPromptPath))
             {

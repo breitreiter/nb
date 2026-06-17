@@ -379,7 +379,7 @@ public class Program
             : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
 
         // Append provider-specific system prompt if present (e.g. system.AzureFoundry.md)
-        var providerPromptPath = Path.Combine(AppContext.BaseDirectory, $"system.{activeProviderName}.md");
+        var providerPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", $"system.{activeProviderName}.md");
         if (File.Exists(providerPromptPath))
             fullPrompt += $"\n\n{File.ReadAllText(providerPromptPath)}";
 
@@ -388,7 +388,7 @@ public class Program
         var activeModelSlug = ResolveActiveModelSlug(config, activeProviderName);
         if (!string.IsNullOrEmpty(activeModelSlug))
         {
-            var modelPromptPath = Path.Combine(AppContext.BaseDirectory, $"system.{activeProviderName}.{activeModelSlug}.md");
+            var modelPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", $"system.{activeProviderName}.{activeModelSlug}.md");
             if (File.Exists(modelPromptPath))
                 fullPrompt += $"\n\n{File.ReadAllText(modelPromptPath)}";
         }
