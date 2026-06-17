@@ -72,7 +72,7 @@ macOS Gatekeeper will block unsigned applications. See Apple's guide on [safely 
 
 After installation, configure nb for your environment:
 
-1. **AI Provider**: Edit `appsettings.json` with your API keys and endpoints. You can configure multiple providers and switch between them at runtime, but you only need to start with one.
+1. **AI Provider**: Edit `appsettings.json` with your API keys and endpoints. You can configure multiple providers and switch between them at runtime, but you only need to start with one. nb supports local models via HTTP. If your model doesn't have a standard context window size, you'll need to set the `MaxContextTokens` value in `appsettings.json`. nb ships with several prompt extensions for common model, but you can also add your own.
 
 2. **System Prompt** (Optional): Edit `system.md` to customize the default system prompt.
 
