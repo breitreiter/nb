@@ -39,6 +39,7 @@ public class Program
             new("//", "Back"),
             new("/clear", "Clear conversation"),
             new("/edit", "Compose in $EDITOR"),
+            new("/kit", "List or manage active kits"),
             new("/provider", "Switch AI provider"),
             new("/quit", "Quit"),
         }
@@ -51,6 +52,7 @@ public class Program
     private static bool _showHelp = false;
     private static bool _trustMode = false;
     private static bool _debugStream = false;
+    private static bool _clearKits = false;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -238,6 +240,10 @@ public class Program
             {
                 _debugStream = true;
             }
+            else if (args[i] == "--no-kits")
+            {
+                _clearKits = true;
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -277,9 +283,11 @@ public class Program
             Console.WriteLine("  --verbose               Enable verbose output");
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
             Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
+            Console.WriteLine("  --no-kits               Clear any persisted active kits for this directory");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
+            Console.WriteLine("Leading +kit tokens activate kits (e.g. nb +review \"check this\").");
             Console.WriteLine("Stdin is accepted and included as context.");
             return;
         }
@@ -424,6 +432,19 @@ public class Program
         _lineEditor.Kits = _kitManager.Kits.Values
             .Select(k => new CompletionHint(k.Name, k.Description))
             .ToList();
+
+        // Restore kits active in this directory from a previous run, unless the
+        // user asked to clear them. Skip when another session owns the lock so we
+        // don't reconnect servers we won't be allowed to persist.
+        if (_clearKits)
+        {
+            if (File.Exists(ActiveKitsFile)) File.Delete(ActiveKitsFile);
+        }
+        else if (_historyLock.IsOwner)
+        {
+            await RestoreActiveKitsAsync();
+        }
+
         // Initialize refactored services
         _commandProcessor = new CommandProcessor(_conversationManager, _configurationService, _providerManager);
 
@@ -437,9 +458,22 @@ public class Program
         // Execute based on mode
         if (remainingArgs.Length > 0 || stdinContent != null)
         {
-            // Single-shot mode: execute command and exit
-            var userInput = BuildUserInput(remainingArgs, stdinContent);
-            await ExecuteSingleCommand(userInput);
+            // Single-shot mode: activate any leading +kit tokens, then execute.
+            var (kitTokens, promptArgs) = SplitLeadingKits(remainingArgs);
+            bool kitsOk = true;
+            foreach (var token in kitTokens)
+                kitsOk &= await ActivateKitAsync(token);
+
+            var userInput = BuildUserInput(promptArgs, stdinContent);
+            // Don't run on a kit-resolution failure, and don't send an empty prompt
+            // when the invocation was kit-activation only (e.g. `nb +review`).
+            if (kitsOk && !string.IsNullOrWhiteSpace(userInput))
+            {
+                if (IsKitCommand(userInput))
+                    HandleKitCommand(userInput);
+                else
+                    await ExecuteSingleCommand(userInput);
+            }
         }
         else
         {
@@ -456,9 +490,12 @@ public class Program
             }
         }
         
-        // Save conversation history before exit (only if we own the directory lock)
+        // Save conversation history and active kits before exit (only if we own the lock)
         if (_historyLock.IsOwner)
+        {
             await _conversationManager.SaveConversationHistoryAsync();
+            await SaveActiveKitsAsync();
+        }
 
         _historyLock.Dispose();
 
@@ -508,7 +545,14 @@ public class Program
             // Kit activation — returned by the line editor when "+" guard mode selects a kit
             if (userInput.StartsWith("+"))
             {
-                await HandleKitSelectedAsync(userInput);
+                await ActivateKitAsync(userInput);
+                continue;
+            }
+
+            // Kit management command
+            if (IsKitCommand(userInput))
+            {
+                HandleKitCommand(userInput);
                 continue;
             }
 
@@ -539,16 +583,155 @@ public class Program
         }
     }
 
-    private static async Task HandleKitSelectedAsync(string kitName)
+    private const string ActiveKitsFile = ".nb_active_kits.json";
+
+    // Splits leading +kit tokens off the front of the args. Stops at the first
+    // non-+ token so "nb +review check this" → kits ["+review"], rest ["check","this"].
+    private static (string[] kits, string[] rest) SplitLeadingKits(string[] args)
+    {
+        int i = 0;
+        var kits = new List<string>();
+        while (i < args.Length && args[i].StartsWith("+") && args[i].Length > 1)
+            kits.Add(args[i++]);
+        return (kits.ToArray(), args[i..]);
+    }
+
+    // Re-activate kits persisted from a previous session in this directory.
+    // Quiet (announce: false) — restore shouldn't spam the banner area.
+    private static async Task RestoreActiveKitsAsync()
+    {
+        if (!File.Exists(ActiveKitsFile)) return;
+        try
+        {
+            var names = JsonSerializer.Deserialize<string[]>(await File.ReadAllTextAsync(ActiveKitsFile));
+            if (names == null) return;
+            foreach (var name in names)
+                await ActivateKitAsync(name, announce: false);
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Could not restore active kits: {Markup.Escape(ex.Message)}[/]");
+        }
+    }
+
+    // Persist the active-kit set so it survives across single-shot invocations.
+    // Deletes the file when nothing is active so an empty set doesn't linger.
+    private static async Task SaveActiveKitsAsync()
+    {
+        try
+        {
+            var names = _kitManager.ActiveKitNames.ToArray();
+            if (names.Length == 0)
+            {
+                if (File.Exists(ActiveKitsFile)) File.Delete(ActiveKitsFile);
+                return;
+            }
+            await File.WriteAllTextAsync(ActiveKitsFile,
+                JsonSerializer.Serialize(names, new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                }));
+        }
+        catch { /* best-effort; kit state is convenience, not correctness */ }
+    }
+
+    private static bool IsKitCommand(string input)
+    {
+        var t = input.TrimStart();
+        return t == "/kit" || t.StartsWith("/kit ", StringComparison.Ordinal);
+    }
+
+    // /kit              — show active and available kits
+    // /kit clear        — deactivate all kits
+    // /kit drop <name>  — deactivate one kit (drop/remove/off accepted)
+    private static void HandleKitCommand(string input)
+    {
+        var parts = input.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var sub = parts.Length > 1 ? parts[1].ToLowerInvariant() : "";
+
+        switch (sub)
+        {
+            case "":
+                ShowKitStatus();
+                break;
+
+            case "clear":
+                if (_kitManager.ActiveKitNames.Count == 0)
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No kits active.[/]");
+                    break;
+                }
+                _kitManager.ClearActive();
+                _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]All kits deactivated.[/]");
+                break;
+
+            case "drop":
+            case "remove":
+            case "off":
+                if (parts.Length < 3)
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Usage: /kit drop <name>[/]");
+                    break;
+                }
+                var name = parts[2].StartsWith("+") ? parts[2] : "+" + parts[2];
+                if (_kitManager.Deactivate(name))
+                {
+                    _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Deactivated {Markup.Escape(name)}.[/] [{UIColors.SpectreMuted}]MCP tools update on the next message.[/]");
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Not active: {Markup.Escape(name)}[/]");
+                }
+                break;
+
+            default:
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Unknown: /kit {Markup.Escape(sub)}[/] [{UIColors.SpectreMuted}]— use /kit, /kit clear, or /kit drop <name>[/]");
+                break;
+        }
+    }
+
+    private static void ShowKitStatus()
+    {
+        var active = _kitManager.ActiveKitNames;
+        if (active.Count > 0)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]Active kits:[/]");
+            foreach (var n in active)
+            {
+                var desc = _kitManager.Kits.TryGetValue(n, out var k) ? k.Description : "";
+                AnsiConsole.MarkupLine($"  [{UIColors.SpectreSuccess}]{Markup.Escape(n)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(desc)}[/]");
+            }
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No kits active.[/]");
+        }
+
+        var inactive = _kitManager.Kits.Values.Where(k => !active.Contains(k.Name)).ToList();
+        if (inactive.Count > 0)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Available: {string.Join(", ", inactive.Select(k => Markup.Escape(k.Name)))}[/]");
+        }
+    }
+
+    // Activates one kit: sets its prompt context and connects its MCP servers.
+    // Shared by interactive (+) selection, single-shot +kit tokens, and startup
+    // restore — so re-activation always restores prompt AND servers together.
+    // Returns false (and reports) if the kit name is unknown.
+    private static async Task<bool> ActivateKitAsync(string kitName, bool announce = true)
     {
         if (!_kitManager.Activate(kitName))
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Kit not found: {Markup.Escape(kitName)}[/]");
-            return;
+            return false;
         }
 
         var kit = _kitManager.Kits[kitName];
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Kit: {Markup.Escape(kitName)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(kit.Description)}[/]");
+        if (announce)
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Kit: {Markup.Escape(kitName)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(kit.Description)}[/]");
         _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
 
         // Connect any MCP servers declared by this kit that aren't connected yet
@@ -559,11 +742,12 @@ public class Program
                 .ToArray();
             if (pending.Length > 0)
             {
-                AnsiConsole.Markup($"[{UIColors.SpectreMuted}]Connecting MCP: {Markup.Escape(string.Join(", ", pending))}…[/]");
+                if (announce) AnsiConsole.Markup($"[{UIColors.SpectreMuted}]Connecting MCP: {Markup.Escape(string.Join(", ", pending))}…[/]");
                 await _mcpManager.EnsureServersConnectedAsync(pending);
-                AnsiConsole.MarkupLine($" [{UIColors.SpectreSuccess}]done[/]");
+                if (announce) AnsiConsole.MarkupLine($" [{UIColors.SpectreSuccess}]done[/]");
             }
         }
+        return true;
     }
 
     private static async Task ExecuteSingleCommand(string userInput)

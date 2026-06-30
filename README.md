@@ -104,6 +104,7 @@ In interactive mode, you can:
 |---------|-------------|
 | `/clear` | Clear conversation history (preserves system prompt) |
 | `/edit` | Compose message in `$EDITOR` |
+| `/kit` | List active kits, or manage them (`/kit clear`, `/kit drop <name>`) |
 | `/provider` | Switch AI provider |
 | `/quit` | Exit nb |
 
@@ -120,6 +121,14 @@ echo "the air in spring is fresh and clean" | nb "write a sentence that rhymes w
 ```
 
 Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context, and single-shot mode maintains conversation continuity between invocations.
+
+Activate kits inline with leading `+kit` tokens — this is how you reach kit-gated MCP tools in single-shot mode:
+```bash
+nb +review "look at the changes on this branch"
+nb +review +security "audit this diff"   # multiple kits stack
+nb +review                                # activate only, no prompt
+```
+Active kits persist per-directory (in `.nb_active_kits.json`), so they stay in effect across later invocations until you change them with `/kit` or clear them with `--no-kits`. See [Kits](#kits) for details.
 
 nb exposes the current working directory as an MCP root, to help filesystem MCP servers orient themselves.
 
@@ -207,12 +216,20 @@ Kits are contextual prompt bundles that inject domain-specific guidance and opti
 }
 ```
 
-Activate during conversation by typing `+` and selecting from the menu. When a kit is active:
+Activate during conversation by typing `+` and selecting from the menu, or in single-shot mode with leading `+kit` tokens (`nb +review "..."`). When a kit is active:
 - Its prompt is injected into context
 - Any MCP servers specified in `mcpServers` are made available
 - MCP tools from non-active kits are hidden
 
-**MCP gating**: If you have kits configured, MCP tools are only available when their server is listed in an active kit's `mcpServers` array. This prevents tool clutter and helps focus the model.
+**Persistence**: active kits are remembered per-directory in `.nb_active_kits.json`, so a kit activated in one invocation stays active for later ones (including across single-shot calls). This is what makes kit-gated MCP tools usable when scripting.
+
+**Managing active kits** with `/kit`:
+- `/kit` — list active and available kits
+- `/kit drop <name>` — deactivate one kit
+- `/kit clear` — deactivate all kits
+- `nb --no-kits` — clear the persisted set for the current directory
+
+**MCP gating**: If you have kits configured, MCP tools are only available when their server is listed in an active kit's `mcpServers` array. This prevents tool clutter and helps focus the model. The flip side: an MCP server that no kit references — or a setup with no active kit — exposes none of its tools.
 
 ### Command-Line Flags
 
@@ -222,6 +239,7 @@ Activate during conversation by typing `+` and selecting from the menu. When a k
 | `--trust` | Auto-approve file tools and safe bash commands within cwd |
 | `--system <path>` | Load system prompt from a custom file |
 | `--nobash` | Disable all shell and file tools |
+| `--no-kits` | Clear any persisted active kits for the current directory |
 | `--verbose` | Log tool call inputs and outputs (useful for debugging) |
 | `--dump-tools` | Write MCP tool manifest to `mcp-tools.json` and exit |
 
