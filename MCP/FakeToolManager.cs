@@ -85,6 +85,11 @@ public class FakeToolManager
         return _overriddenTools.AsReadOnly();
     }
 
+    public IReadOnlyList<string> GetFakeToolNames()
+    {
+        return _fakeTools.Select(t => t.Name).ToList().AsReadOnly();
+    }
+
     public FakeTool? GetFakeTool(string name)
     {
         return _fakeTools.FirstOrDefault(t => t.Name == name);

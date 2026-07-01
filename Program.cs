@@ -41,6 +41,7 @@ public class Program
             new("/edit", "Compose in $EDITOR"),
             new("/kit", "List or manage active kits"),
             new("/provider", "Switch AI provider"),
+            new("/tools", "List available tools and approval status"),
             new("/quit", "Quit"),
         }
     };
@@ -471,6 +472,8 @@ public class Program
             {
                 if (IsKitCommand(userInput))
                     HandleKitCommand(userInput);
+                else if (userInput.Trim() == "/tools")
+                    HandleToolsCommand();
                 else
                     await ExecuteSingleCommand(userInput);
             }
@@ -553,6 +556,13 @@ public class Program
             if (IsKitCommand(userInput))
             {
                 HandleKitCommand(userInput);
+                continue;
+            }
+
+            // Tool listing command
+            if (userInput.Trim() == "/tools")
+            {
+                HandleToolsCommand();
                 continue;
             }
 
@@ -715,6 +725,38 @@ public class Program
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Available: {string.Join(", ", inactive.Select(k => Markup.Escape(k.Name)))}[/]");
         }
+    }
+
+    private static void HandleToolsCommand()
+    {
+        var tools = _conversationManager.GetAvailableTools();
+        if (tools.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No tools available.[/]");
+            return;
+        }
+
+        var table = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
+        table.AddColumn("Tool");
+        table.AddColumn("Approval");
+
+        foreach (var group in tools.GroupBy(t => t.Group))
+        {
+            table.AddEmptyRow();
+            table.AddRow($"[{UIColors.SpectreInfo}]{Markup.Escape(group.Key)}[/]", "");
+            foreach (var t in group)
+            {
+                var color = t.Approval.StartsWith("auto") ? UIColors.SpectreSuccess : UIColors.SpectreWarning;
+                table.AddRow($"  {Markup.Escape(t.Name)}", $"[{color}]{Markup.Escape(t.Approval)}[/]");
+            }
+        }
+        AnsiConsole.Write(table);
+
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]auto = no prompt · (cwd) within the working-dir sandbox · (trust) needs --trust · (always-allow) listed in mcp.json[/]");
+
+        // Diagnostic: MCP tools surface only through active kits.
+        if (!tools.Any(t => t.Group.StartsWith("MCP")))
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No MCP tools active — they're exposed only via active kits. Use [/][{UIColors.SpectreAccent}]+kit[/][{UIColors.SpectreMuted}] or [/][{UIColors.SpectreAccent}]/kit[/][{UIColors.SpectreMuted}] to activate.[/]");
     }
 
     // Activates one kit: sets its prompt context and connects its MCP servers.

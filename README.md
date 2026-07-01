@@ -106,6 +106,7 @@ In interactive mode, you can:
 | `/edit` | Compose message in `$EDITOR` |
 | `/kit` | List active kits, or manage them (`/kit clear`, `/kit drop <name>`) |
 | `/provider` | Switch AI provider |
+| `/tools` | List available tools by source, with approval status |
 | `/quit` | Exit nb |
 
 ### Single-Shot Mode
@@ -230,6 +231,17 @@ Activate during conversation by typing `+` and selecting from the menu, or in si
 - `nb --no-kits` — clear the persisted set for the current directory
 
 **MCP gating**: If you have kits configured, MCP tools are only available when their server is listed in an active kit's `mcpServers` array. This prevents tool clutter and helps focus the model. The flip side: an MCP server that no kit references — or a setup with no active kit — exposes none of its tools.
+
+### Listing Tools
+
+`/tools` shows every tool currently exposed to the model, grouped by source (native, MCP servers, resources, todo), with each tool's approval status:
+
+- `auto (cwd)` — read-only file tools; auto-approved inside the working-directory sandbox
+- `auto (trust)` — writes and bash; auto-approved only when `--trust` is active
+- `auto (always-allow)` — MCP tools listed in their server's `alwaysAllow`
+- `prompt` — asks for approval on each call
+
+Because MCP tools are kit-gated, `/tools` doubles as a quick check on which kits/servers are actually live — if a server you expected is missing, no active kit references it.
 
 ### Command-Line Flags
 

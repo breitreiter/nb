@@ -126,16 +126,18 @@ public class McpManager : IDisposable
 
         if (serverConfig.AlwaysAllow != null)
         {
-            if (serverConfig.AlwaysAllow.Contains("*"))
-            {
-                foreach (var tool in tools)
-                    _alwaysAllowTools.Add($"{serverName}_{tool.Name}");
-            }
-            else
-            {
-                foreach (var toolName in serverConfig.AlwaysAllow)
-                    _alwaysAllowTools.Add($"{serverName}_{toolName}");
-            }
+            // The model calls tools by their bare name, and approval checks that same
+            // name (functionCall.Name) — so the allow-list must be keyed by the actual
+            // tool name, not a "{server}_{tool}" composite. Match config entries
+            // leniently: the SDK normalizes '-' to '_' in tool names, so "current-time"
+            // in mcp.json must still match the tool exposed as "current_time".
+            bool wildcard = serverConfig.AlwaysAllow.Contains("*");
+            var allow = serverConfig.AlwaysAllow
+                .Select(NormalizeToolName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var tool in tools)
+                if (wildcard || allow.Contains(NormalizeToolName(tool.Name)))
+                    _alwaysAllowTools.Add(tool.Name);
         }
 
         try
@@ -184,6 +186,9 @@ public class McpManager : IDisposable
     {
         return _alwaysAllowTools.Contains(toolName);
     }
+
+    // Tool names in mcp.json may use '-' while the SDK exposes them with '_'.
+    private static string NormalizeToolName(string name) => name.Replace('-', '_');
 
     public IReadOnlyList<ResourceInfo> GetResources()
     {

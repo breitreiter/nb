@@ -200,7 +200,36 @@ it.
 
 ---
 
-## Item 3 — `/tools` command
+## Item 3 — `/tools` command — ✅ IMPLEMENTED
+
+**Status:** Built 2026-06-30. Shipped:
+- `ConversationManager.GetAvailableTools()` returns `ToolDescriptor`
+  (group, name, approval), mirroring the assembly in
+  `SendMessageInternalAsync` (cross-referenced with a sync comment). It's
+  the single source of truth — reads the real tool instances so names
+  match exactly what the model sees.
+- `/tools` handler in `Program.cs` renders a grouped Spectre table with an
+  approval legend, wired into interactive + single-shot. Added to the
+  completion menu.
+- Approval tokens reflect current flags: `auto (cwd)` read-only,
+  `auto (trust)` writes/bash under `--trust`, `auto (always-allow)` MCP
+  allowlist, `prompt` otherwise. Verified the `--trust` flip live.
+- Diagnostic line when no MCP tools are active, pointing at `+kit`/`/kit`.
+
+Verified: native/trust/nobash renders + a live MCP kit (built-in-tester).
+Full suite green (173).
+
+**Bug found + fixed here:** `alwaysAllow` in mcp.json was dead for
+kit-gated tools. The allow-list was keyed `{server}_{tool}` but the LLM
+and the approval check (`ConversationManager.cs:185,623`) use the **bare**
+tool name from `GetToolsForServers` — they never matched, so allow-listed
+MCP tools always prompted. Fixed in `McpManager.cs`: the allow-list is now
+keyed by the actual tool name, and config entries match leniently
+(`-`↔`_`, case-insensitive) so `"current-time"` matches the tool exposed
+as `current_time`. Verified: `echo` and `current_time` now report
+`auto (always-allow)` in `/tools` and skip the approval prompt at runtime.
+Note this is a behavior change — allow-listed MCP tools now actually
+auto-approve.
 
 **Goal:** show all currently-available tools grouped by source, with
 auto-approve status.

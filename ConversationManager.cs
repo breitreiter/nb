@@ -177,6 +177,8 @@ public class ConversationManager
                 PresencePenalty = _presencePenalty,
             };
 
+            // Assemble the tool list. NOTE: GetAvailableTools() mirrors this for the
+            // /tools command — keep the two in sync when adding/removing tools.
             // Add MCP tools (only from servers referenced by active kits)
             var activeServers = GetActiveMcpServers?.Invoke();
             var mcpTools = (activeServers != null && activeServers.Count > 0)
@@ -2065,4 +2067,61 @@ public class ConversationManager
                 _conversationHistory.Insert(1, message);
         }
     }
+
+    // Enumerates the tools currently exposed to the model, grouped by source with
+    // each tool's effective approval status. Mirrors the assembly in
+    // SendMessageInternalAsync — keep the two in sync when adding/removing tools.
+    public IReadOnlyList<ToolDescriptor> GetAvailableTools()
+    {
+        var tools = new List<ToolDescriptor>();
+
+        // MCP tools from servers referenced by active kits, grouped per server
+        var activeServers = (GetActiveMcpServers?.Invoke() ?? new HashSet<string>())
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
+        var mcpToolCount = 0;
+        foreach (var server in activeServers)
+        {
+            foreach (var tool in _mcpManager.GetToolsForServers(new[] { server }))
+            {
+                mcpToolCount++;
+                var approval = _mcpManager.IsAlwaysAllowed(tool.Name) ? "auto (always-allow)" : "prompt";
+                if (_fakeToolManager.GetFakeTool(tool.Name) != null) approval += " · faked";
+                tools.Add(new ToolDescriptor($"MCP · {server}", tool.Name, approval));
+            }
+        }
+
+        // Resource tools are only registered when at least one MCP tool is active
+        if (mcpToolCount > 0)
+        {
+            tools.Add(new ToolDescriptor("Resources", ResourceTools.CreateListResourcesTool(_mcpManager).Name, "auto"));
+            tools.Add(new ToolDescriptor("Resources", ResourceTools.CreateReadResourceTool(_mcpManager).Name, "auto"));
+        }
+
+        // Native tools (all null under --nobash). Read-only tools auto-approve within
+        // the cwd sandbox; writes and bash auto-approve only with trust mode.
+        var write = _trustMode ? "auto (trust)" : "prompt";
+        if (_readFileTool != null) tools.Add(new ToolDescriptor("Native", _readFileTool.CreateTool().Name, "auto (cwd)"));
+        if (_listDirTool != null) tools.Add(new ToolDescriptor("Native", _listDirTool.CreateTool().Name, "auto (cwd)"));
+        if (_findFilesTool != null) tools.Add(new ToolDescriptor("Native", _findFilesTool.CreateTool().Name, "auto (cwd)"));
+        if (_grepTool != null) tools.Add(new ToolDescriptor("Native", _grepTool.CreateTool().Name, "auto (cwd)"));
+        if (_bashTool != null) tools.Add(new ToolDescriptor("Native", _bashTool.CreateTool().Name, write));
+        if (_writeFileTool != null) tools.Add(new ToolDescriptor("Native", _writeFileTool.CreateTool().Name, write));
+        if (_editFileTool != null) tools.Add(new ToolDescriptor("Native", _editFileTool.CreateTool().Name, write));
+        if (_applyPatchTool != null) tools.Add(new ToolDescriptor("Native", _applyPatchTool.CreateTool().Name, write));
+        if (_fetchUrlTool != null) tools.Add(new ToolDescriptor("Native", _fetchUrlTool.CreateTool().Name, "prompt"));
+
+        // Todo tools are always registered
+        tools.Add(new ToolDescriptor("Todo", _todoTool.CreateWriteTool().Name, "auto"));
+        tools.Add(new ToolDescriptor("Todo", _todoTool.CreateReadTool().Name, "auto"));
+
+        // Fake tools that stand alone (overrides already show under their MCP server)
+        var seen = tools.Select(t => t.Name).ToHashSet();
+        foreach (var name in _fakeToolManager.GetFakeToolNames())
+            if (seen.Add(name))
+                tools.Add(new ToolDescriptor("Fake", name, "auto (faked)"));
+
+        return tools;
+    }
 }
+
+public record ToolDescriptor(string Group, string Name, string Approval);
