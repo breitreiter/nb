@@ -48,11 +48,18 @@ promotes this schema from "output/seed format" to *the program
 representation* for the whole system — output, seeds, tasks, `/save`, hooks,
 and the library. Two additions this plan must absorb to serve that role,
 flagged here and folded in on the next revision: **config directives**
-(`config` with provider/model/output, and `system` as first-class events,
-interleaved with turns) and the **run-convention** (a `user` turn with no
-following `assistant` is *pending* and gets executed). The vocabulary and
-round-trip rules below are unchanged by that; they gain two event types and a
-documented evaluation semantics.
+(`provider`/`model`/`output`/`approval` as first-class events, interleaved
+with turns), a **`system` message event** (a *turn* event — a plain
+system-role message — not config; "the system prompt" as a singular owned
+entity is a fiction), and an explicit **`run` event** — the sole invocation
+directive. `user`/`assistant` events always assert history; only `run` invokes
+the model. In a *program* (input) `run` marks where inference happens; in a
+*recorded* transcript (output) each past `run` appears as the `assistant`
+result it produced, which is the source↔output symmetry. (This replaces an
+earlier "trailing unanswered `user` turn executes" convention, which misfired
+on a seed that legitimately ends on a user turn.) The vocabulary and
+round-trip rules below are unchanged by that; they gain the new event types
+and a documented evaluation semantics.
 
 ## What nb actually has today (verified against source + live runs)
 
@@ -332,6 +339,23 @@ Both parent plans promise fail-fast, model-fixable errors
 
 ## Ratified: the system prompt belongs to the spec, never the seed (2026-07-07)
 
+> **Superseded in premise — revisit before ratifying (2026-07-08).**
+> `plans/conversation-program-evaluator.md` establishes that `system` is a
+> plain message directive, not config, and that "the system prompt" as a
+> singular owned entity is a fiction. That knocks out the foundation this
+> section stands on. The sound residue survives: **no magic injection; the
+> default preset carries the system message(s) as explicit directives, visible
+> under `--resolve`; a preset-less program gets none.** But the special-case
+> machinery below — drop a replayed system message, warn about it, `--seed-system`
+> — mostly dissolves: with `system` a plain message, a replayed transcript
+> brings *all* its messages, and a stale one is edited out by the caller who
+> owns it (no message type is special-cased on replay). Rework this section to
+> the preset-floor framing when the schema absorbs the `run`/config/`system`
+> events; the text below is kept for the guardrail reasoning, which still
+> informs the preset design. The rest of the decision (spec-owned prompt, not
+> seed-smuggled) is the same intent, now expressed as "presets carry system,"
+> not "seed-load drops system."
+
 Decision: **seed-load ignores any `system` event in the transcript.** The
 active spec's prompt layers are the sole source of the system prompt
 (honoring `rules/model-policy-in-prompt-layers.md`). This is deliberate: it
@@ -470,7 +494,7 @@ read and dropped. Byte-for-byte the model sees what it saw the first time.
 
 - `plans/conversation-program-evaluator.md` — the thesis that makes this
   schema the system's center (the "bytecode"); source of the config-directive
-  and run-convention additions in the scope note above.
+  and `run`-event additions in the scope note above.
 - `plans/composable-cli-reorientation.md` — parent; Pillars 3/4/5 and the
   hooks section all consume this schema. This doc discharges its "define the
   transcript schema once" obligation.

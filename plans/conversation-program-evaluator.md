@@ -45,8 +45,8 @@ distinct artifact) and promotes the transcript schema from "output format" to
 
 **nb is an evaluator for conversation-programs. The transcript schema is its
 bytecode. The REPL, the CLI, and the library are three front-ends that emit
-the same bytecode. A "run" is nothing more than the evaluator reaching an
-unanswered turn.**
+the same bytecode. A "run" is nothing more than the evaluator reaching a
+`run` directive.**
 
 Everything the composable-CLI plan treats as a separate feature — run specs,
 seeds, the task prompt, `/save`, the library facade — is a projection of this
@@ -57,48 +57,63 @@ document.
 
 A conversation-program is an **ordered stream of directives**. Two kinds:
 
-- **Config directives** (`config` with `provider`/`model`/`output`/…,
-  `system`) — set the envelope going forward. Order matters: a config
-  directive governs every directive after it until overridden.
-- **Turn directives** (`user`, `assistant`, `tool_call`, `tool_result`) —
-  append to the conversation.
+- **Config directives** (`provider`, `model`, `output`, `approval`) — set the
+  envelope going forward. Order matters: a config directive governs every
+  directive after it until overridden.
+- **Turn directives** (`system`, `user`, `assistant`, `tool_call`,
+  `tool_result`) — append a message to the conversation. Note `system` lives
+  here, not in config: it is just a message with the system role, zero or more
+  of them, wherever the author puts them. "The system prompt" as a singular,
+  owned entity is a fiction — there are only system-role messages.
 
-And exactly one evaluation rule:
+And one invocation directive:
 
-- **A `user` turn with no `assistant` turn after it is *pending*.** The
-  evaluator runs the agent loop on it under the current envelope, emits the
-  response, and appends it to the conversation. Answered turns are history;
-  the unanswered tail is the submission. This is the single convention that
-  turns a static transcript into a runnable program — and it is what unifies
-  "seed" (fabricated past) and "task" (live prompt): they are the same events,
-  distinguished only by whether an answer follows.
+- **`run` sends the accumulated conversation to the model**, appends the real
+  response, and continues. It is the *only* directive that triggers
+  inference; every other directive merely asserts state. `run` may carry an
+  inline prompt — `run <text>` is sugar for `user <text>` then `run` — or
+  stand bare to invoke on the state built so far. A program may `run` any
+  number of times, with config directives between runs, which is how
+  mid-stream reconfiguration (cheap model for one turn, expensive for the
+  next) is expressed.
 
-There is no third concept. Construction, configuration, and submission are all
-directives in one stream.
+This makes the seed/script split fall out of a single bit: **a program with no
+`run` is a seed** — pure fabricated state, nothing executes; **a program with
+`run`s is a script.** `user`/`assistant` directives always assert history;
+only `run` invokes. There is no implicit execution and no third concept —
+construction, configuration, and invocation are all directives, and nothing
+runs unless you say `run`. (An earlier draft used an implicit convention —
+"a trailing unanswered `user` turn executes" — but that misfires on a seed
+that legitimately *ends* on a user turn, firing an unwanted run. Explicit
+`run` removes the ambiguity and is what maps to the REPL's enter key.)
 
 ## The worked example, as one program
 
-The six-invocation flow above becomes one document:
+The six-invocation flow above, written in the source syntax (below):
 
-```jsonl
-{"type":"config","provider":"anthropic","model":"claude-sonnet-5"}
-{"type":"system","text":"You are a terse assistant."}
-{"type":"user","text":"fabricated turn 1"}
-{"type":"assistant","text":"fabricated answer 1"}
-{"type":"user","text":"fabricated turn 2"}
-{"type":"assistant","text":"fabricated answer 2"}
-{"type":"user","text":"fabricated turn 3"}
-{"type":"assistant","text":"fabricated answer 3"}
-{"type":"user","text":"the real prompt"}
+```
+provider anthropic
+model claude-sonnet-5
+system you are a terse assistant
+user fabricated turn 1
+assistant fabricated answer 1
+user fabricated turn 2
+assistant fabricated answer 2
+user fabricated turn 3
+assistant fabricated answer 3
+run the real prompt
 ```
 
 ```bash
-resp=$(nb < flow.jsonl)      # one invocation; stdout is only the model response
+resp=$(nb < flow.nb)      # one invocation; stdout is only the model response
 ```
 
-The last `user` is the only unanswered turn, so it is the only one that runs.
-Everything above it is state the caller constructed. The document is a near
--verbatim transcription of the six original steps.
+Every line above `run` asserts state the caller constructed; `run` is the one
+line that invokes the model, and (via the inline-prompt sugar) carries the
+real prompt with it. The document is a near-verbatim transcription of the six
+original steps. It desugars to the JSONL bytecode — same directives as typed
+events, plus an explicit `run` event — which is what `--output jsonl` emits
+and what round-trips.
 
 ## Three surfaces, one program
 
@@ -118,15 +133,19 @@ program*:
       .User("fabricated turn 1").Assistant("fabricated answer 1")
       .User("fabricated turn 2").Assistant("fabricated answer 2")
       .User("fabricated turn 3").Assistant("fabricated answer 3")
-      .User("the real prompt")     // pending
-      .RunAsync();                 // runs it, returns only the response
+      .Run("the real prompt");     // asserts a user turn, invokes, returns the response
   ```
 
-- **REPL** — the same program typed live. `/provider` and `/system` are config
-  directives; a bare line is a pending `user` turn that runs immediately; a
-  new `/assistant "…"` command authors a fabricated turn *without* running
-  (the one affordance the REPL lacks today, and the bridge to hand-authored
-  seeds). The REPL is simply the evaluator in interactive mode.
+  `.User()`/`.Assistant()` assert state; `.Run()` is the only call that
+  invokes — the fluent form of the `run` directive.
+
+- **REPL** — the same program typed live, and this is where `run` earns its
+  keep: **a bare line typed at the prompt is `user <text>` + `run` — the enter
+  key *is* the `run` directive.** `/provider` and `/system` are config
+  directives; a new `/assistant "…"` (and `/user "…"`) command authors a turn
+  *without* invoking — the affordance the REPL lacks today, and the bridge to
+  hand-authored seeds. The REPL is simply the evaluator in interactive mode,
+  with enter bound to `run`.
 
 The rhyme is exact because all three emit the same bytecode. `/save` is the
 proof: it exports a REPL session as the program that reproduces it, which the
@@ -140,7 +159,7 @@ A run spec stops being a distinct artifact and becomes **a reusable prefix of
 config directives** — the leading lines of a program, factored out and named.
 
 ```bash
-nb --spec headless < turns.jsonl    # prepend headless's config directives, then run the turns
+nb --spec headless < turns.nb    # prepend headless's config directives, then run the turns
 ```
 
 `Extends: headless` means "prepend that preset's directives." Reuse survives;
@@ -149,8 +168,59 @@ all three are the same directive schema. The relationship is
 `spec : program :: a function's default arguments : a script`.
 
 `nb -p "task"` (the yolo single-prompt form, see composable-CLI) is now
-definable precisely: a one-directive program — a single pending `user` turn
-under the default envelope.
+definable precisely: a one-directive program — `run task` under the default
+envelope.
+
+## The source syntax: line-oriented directives over the JSONL bytecode
+
+The JSONL above is **bytecode** — canonical, complete, what `--output` emits,
+what round-trips. Nobody hand-writes it (a multi-line prompt strangled with
+`\n` escapes is miserable). The authoring surface is a **line-oriented source
+syntax** that desugars to it — the "reasonable reply" form. The two are the
+source→bytecode layering the thesis already implies; this section draws the
+source layer.
+
+The grammar is one rule: **a line is `<verb> <content>`. The first token is
+always the verb; everything after the first space is content.** Verbs are the
+directive set (`provider`, `model`, `system`, `output`, `user`, `assistant`,
+`tool_call`, `tool_result`, `run`). This borrows the git-rebase-todo /
+Dockerfile / markdown-transcript shape — verb-first, line-oriented, arg-to-end
+-of-line — all large-corpus formats.
+
+- **Collisions resolve by using the syntax, not by escaping it.** Because the
+  first token is *definitionally* the verb, content that begins with a
+  verb-word just names the verb again: `system system design is hard` →
+  verb `system`, content `"system design is hard"`. No fences, no
+  case-sensitivity rule, no ambiguity — position 1 is the verb, period. (The
+  fence and case-sensitivity machinery of earlier drafts had no hand-author
+  consumer and is dropped.)
+
+- **Multi-line is strict: one logical line per turn.** A turn is a single
+  logical line. To span physical lines by hand, use a trailing backslash
+  continuation (`\`), the shell/Dockerfile convention a hand-author can
+  remember to type. There is no block mode and no bare-continuation mode —
+  every physical line either starts with a verb or continues the previous one
+  via an explicit `\`. This keeps "position 1 is always a verb" true without
+  exception, at the cost of making genuine multi-line content deliberate.
+
+- **The escape for content the source can't hold is the bytecode**, not more
+  source syntax. A program with exotic content (embedded transcripts,
+  images, odd tool_result fields) is authored — or generated — as JSONL. The
+  source layer is an *upward-lossy* convenience over a complete instruction
+  set, exactly the assembler relationship.
+
+**Companion requirement — paste support in UglyPrompt.** Strict multi-line
+assumes backslashes, and *pasted* text never has them: paste a three-paragraph
+prompt from a doc or another chat and every physical newline lands as a
+bare line with no verb — a parse error per line. Hand-typing is fine (you add
+the backslashes); paste is the real gap. So the interactive editor
+(UglyPrompt) must grow **multi-line paste handling**: capture a bracketed
+paste as one unit and fold it into the current turn's content (auto-continue
+across its internal newlines) rather than treating each pasted line as a new
+directive. Tracked in `TODO.md`; see also
+`plans/UglyPrompt_Multi_Source_Completions.md`. This is a prerequisite for the
+source syntax being pleasant with real-world pasted content, and it is the one
+place strict multi-line pushes cost onto the editor instead of the format.
 
 ## The boundary: construction is in, composition is out
 
@@ -184,7 +254,8 @@ millions of times. This design invents no syntax; it adopts the industry
 -standard conversation format and adds exactly two things it lacks:
 
 1. **config rows** interleaved with turns, and
-2. **the run-convention** (an unanswered final `user` turn executes).
+2. **an explicit `run` directive** that invokes the model on the accumulated
+   state.
 
 A model authoring one of these is writing the format it is *most* fluent in.
 This is the "in-distribution is a design criterion" principle
@@ -192,45 +263,127 @@ This is the "in-distribution is a design criterion" principle
 the largest possible corpus, and the only novelty is a run-semantics
 convention, not a language.
 
-## Open decision
+## Header-config vs anywhere-config (decided: anywhere)
 
-**Header-config vs anywhere-config.** Does a config directive appear only in a
-leading header, or anywhere in the stream (enabling mid-program provider swap
-— cheap model for one turn, expensive for the next)?
+Where may a **config directive** (`provider`/`model`/`output`/`approval` —
+*not* `system`, which is a message) appear: only in a leading header, or
+anywhere in the stream?
 
-- The worked example needs only the header form.
-- Anywhere-config is nearly free once config is an event, stays hermetic (one
-  document = one deterministic, replayable program — *not* the hidden
-  cross-invocation mutation Pillar 3 deletes), and buys the multi-model case
-  for nothing.
-- Cost: ordering becomes load-bearing ("when did I set the provider").
-  Mitigation: `--resolve` prints the effective envelope at each run point.
+This decision is envelope-config-only. `system` is a turn directive, so
+mid-stream `system` needs no special ruling — it is just a system-role message
+at that point in the conversation, exactly as `user`/`assistant` are messages
+at their points. An earlier draft treated mid-stream `system` as the hard case;
+that was the singular-system-prompt fiction talking. It isn't a case at all.
 
-Recommendation: **anywhere-config**, with `--resolve` as the ordering
-inspector. Revisit only if the ordering semantics prove confusing in practice.
+For envelope config:
+
+- Anywhere-config stays hermetic (one document = one deterministic, replayable
+  program — *not* the hidden cross-invocation mutation Pillar 3 deletes) and
+  buys the multi-model case for nothing: cheap model for one `run`, expensive
+  for the next, in one file. With `run` now explicit, config directives slot
+  naturally between runs.
+- Header-only creates a **cliff**: you'd handle "3 turns, one model" in a
+  single document but be forced back to shell-chaining two invocations the
+  moment you need "3 turns, two models" — reintroducing exactly the
+  multi-invocation fragmentation this whole design collapses.
+- Cost: ordering becomes load-bearing ("which provider is active at this
+  `run`"). Mitigation: `--resolve` prints the effective envelope at each run
+  point.
+
+**Decided: anywhere-config**, with `--resolve` as the ordering inspector.
+Revisit only if ordering semantics prove confusing in practice.
+
+## The system message: no auto-injection; presets carry it; `@file` includes it
+
+Because `system` is just a message, two questions the singular-prompt fiction
+used to hide need explicit answers.
+
+**Is a system message auto-injected when the program writes none? No.** There
+is no magic injection into an arbitrary program. Instead the **default preset**
+— the one resolved for the human / `-p` / bare-prompt path — carries the
+`system` directive(s). The floor is provided explicitly-as-directives and is
+visible under `--resolve`, not conjured behind the program:
+
+- `nb -p "quick question"` → `[default preset's directives, incl. a system
+  directive] + run "quick question"`. You get the nb persona because the preset
+  *says so*.
+- `nb < just-turns.nb` (no preset, no `system`) → **no system message.** Exactly
+  what was written — which is what an eval harness needs: the thing under test
+  isn't silently wrapped in nb's assistant persona.
+
+This keeps the sound half of the old "presets own the prompt, nothing smuggles
+one in" rule while dropping the fiction it rested on.
+
+**Do we support `system @file`, or assume inline copy-paste? `@file` — and it
+is not optional.** The base prompt lives in a file (`prompts/system.md`); a
+preset cannot maintainably inline it as a literal (that copy would drift). Once
+"presets carry system" meets "prompts live in files," presets *must* reference
+files. Add that nobody hand-inlines a long system prompt, and `@file` wins on
+necessity, not just ergonomics. Two properties keep it from being scope-creep:
+
+- **It is a source-layer include that resolves to inline content in the
+  bytecode.** `system @base.md` desugars, at load time, to a `system` event
+  with the file's contents baked in. The JSONL that `--output` emits and that
+  round-trips is therefore self-contained and hermetic — the reference lives
+  only in the source you author in place, where the file is. This is the
+  source→bytecode relationship again: `@file` is a `#include`, resolved away in
+  the canonical form.
+- **It is content-inclusion, not composition-with-dataflow.** `@file` pulls in
+  *content*, never a prior `run`'s *output*, so it does not touch the
+  anti-composition boundary — a preprocessor include, not a workflow.
+
+Inline literal content stays valid; `@file` is sugar over it. Two sub-rules:
+**path resolution** — relative to the program file, falling back to the
+config-layer prompt dirs so presets can reference shipped prompts; and
+**generality** — the include is orthogonal to which directive uses it, so it is
+`@file` on *any* content directive (`user @question.md`, `assistant
+@canned.md`), not a system-only feature. Aligns with
+`plans/At_Mention_Files.md`.
 
 ## Consequences for the other plans
 
 - **`plans/transcript-schema.md` moves to the center of the system.** It is no
   longer "the output/seed format"; it is the program representation for output,
   seeds, tasks, `/save`, hooks, *and* the library. It must gain **config
-  directives** (`config`, `system` as first-class events) and document the
-  **run-convention** (pending-tail execution) as the semantics, not just the
-  syntax. This raises the stakes on ratifying that schema first — it is now the
-  load-bearing artifact of the entire reorientation.
+  directives** (`provider`/`model`/`output`/`approval` as first-class events),
+  a **`system` message event** (a turn event, not config), and an explicit
+  **`run` event** as the invocation semantics — not the implicit pending-tail
+  convention. In a *program* (input), `run` marks where inference happens; in
+  a *recorded* transcript (output), each past `run` shows up as the
+  `assistant` result it produced — the source↔output symmetry. This raises the
+  stakes on ratifying that schema first — it is now the load-bearing artifact
+  of the entire reorientation.
+- **`plans/transcript-schema.md`'s "seed drops the system message" ruling needs
+  revisiting.** That ratified decision — drop a seed's system message, guarded
+  by a warning, a prompt floor, and `--seed-system` — was built on the
+  singular-owned-system-prompt fiction. With `system` a plain message, you
+  don't special-case it on replay: a replayed transcript brings *all* its
+  messages, and a stale one is edited out by the caller who owns it. The sound
+  residue — "no magic injection; presets carry the floor" — survives; the
+  drop-and-warn machinery mostly dissolves. Reconcile before that schema is
+  ratified.
+- **`@file` includes rest on UglyPrompt at-sign completion — mostly already
+  built.** The completion *mechanism* landed in UglyPrompt 0.3.0 (pluggable
+  `CompletionSource`, `@` trigger), which de-risks this dependency. Three gaps
+  remain (tracked in `TODO.md`): nb is pinned to 0.2.2 and must do a *breaking*
+  migration to 0.3.0 (`Commands`/`Kits` were removed for `AddSource(...)`); the
+  0.3.0 completion is **display-only hinting, not tab-to-accept** (active
+  completion — the actual fill-in-the-path UX — is still unbuilt); and its
+  `Lookup` is synchronous, so file enumeration for `@` must stay cheap or block
+  the keystroke loop. The include's *semantics* (source-time resolution to
+  inline bytecode) are independent of the editor and can land first.
 - **`plans/composable-cli-reorientation.md` Pillar 1 is reframed.** "Run spec"
   is a reusable directive-prefix, not a separate document type. The spec schema
   and the transcript schema are one schema viewed in two regions (config
   prefix vs turn stream). The `Task` field is subsumed: it was an attempt to
-  let a spec "carry the work," which is just "the program includes its pending
-  turn."
+  let a spec "carry the work," which is just "the program ends in a `run`."
 - **The library facade (Pillar 5) gains the `Nb.Program()` builder** shown
   above as its primary surface, with `Nb.RunAsync(spec, task)` as sugar for the
-  one-config-prefix-plus-one-pending-turn case.
+  config-prefix-plus-single-`run` case.
 
 ## Related documents
 
 - `plans/transcript-schema.md` — the bytecode this note makes central; must
-  absorb config directives and the run-convention.
+  absorb config directives and the explicit `run` event.
 - `plans/composable-cli-reorientation.md` — parent; Pillar 1 (specs) and
   Pillar 5 (facade) are reframed here; the anti-goal boundary is honored.
