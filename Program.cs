@@ -63,6 +63,10 @@ public class Program
                 .Where(h => h.Name.StartsWith("+" + body, StringComparison.OrdinalIgnoreCase))
                 .ToList()));
 
+        // File mentions (@trigger): word-start, indexed once from the launch
+        // directory then filtered in memory.
+        editor.AddSource(FileMentionSource.Create(Directory.GetCurrentDirectory()));
+
         return editor;
     }
 

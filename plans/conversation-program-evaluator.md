@@ -372,10 +372,14 @@ config-layer prompt dirs so presets can reference shipped prompts; and
   keystroke (the doc's explicit adoption guidance). Framework is aligned too —
   0.4.0 moved to net10, matching nb, and it is published on NuGet. **nb has now
   been migrated to 0.4.0** — the pin is bumped and the `/` command and `+` kit
-  hints are ported to `AddSource(...)` (the `+` source reads kits live). What
-  remains is registering the `@` file source itself. One minor known bug
-  persists — the hint strip is clobbered when input wraps to a new row —
-  relevant to long source-syntax lines but not blocking. The include's
+  hints are ported to `AddSource(...)` (the `+` source reads kits live), and the
+  **`@` file *completion* source is wired and unit-tested** (`FileMentionSource`
+  — lazy index built once from the launch dir, filtered in memory, skip-dirs
+  honored, capped). What remains is the *consumption* half: resolving a typed
+  `@path` into inline file content (the include semantics), which is downstream
+  and not yet built. One minor known bug persists — the hint strip is clobbered
+  when input wraps to a new row — relevant to long source-syntax lines but not
+  blocking. The include's
   *semantics* (source-time resolution to inline bytecode) are independent of
   the editor and can land first.
 - **`plans/composable-cli-reorientation.md` Pillar 1 is reframed.** "Run spec"
