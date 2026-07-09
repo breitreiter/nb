@@ -32,19 +32,39 @@ public class Program
     private static ApplyPatchTool _applyPatchTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
     private static KitManager _kitManager = new KitManager();
-    private static LineEditor _lineEditor = new LineEditor
+    private static readonly List<CompletionHint> _commandHints = new()
     {
-        Commands = new List<CompletionHint>
-        {
-            new("//", "Back"),
-            new("/clear", "Clear conversation"),
-            new("/edit", "Compose in $EDITOR"),
-            new("/kit", "List or manage active kits"),
-            new("/provider", "Switch AI provider"),
-            new("/tools", "List available tools and approval status"),
-            new("/quit", "Quit"),
-        }
+        new("//", "Back"),
+        new("/clear", "Clear conversation"),
+        new("/edit", "Compose in $EDITOR"),
+        new("/kit", "List or manage active kits"),
+        new("/provider", "Switch AI provider"),
+        new("/tools", "List available tools and approval status"),
+        new("/quit", "Quit"),
     };
+
+    private static LineEditor _lineEditor = CreateLineEditor();
+
+    private static LineEditor CreateLineEditor()
+    {
+        var editor = new LineEditor();
+
+        // Slash-commands: line-start trigger, filtered against the static list.
+        editor.AddSource(new CompletionSource('/', TriggerAnchor.LineStart,
+            body => _commandHints
+                .Where(c => c.Name.StartsWith("/" + body, StringComparison.OrdinalIgnoreCase))
+                .ToList()));
+
+        // Kit completions (+trigger): a live view of loaded kits, so kits read
+        // by LoadKits later appear without re-registering the source.
+        editor.AddSource(new CompletionSource('+', TriggerAnchor.LineStart,
+            body => _kitManager.Kits.Values
+                .Select(k => new CompletionHint("+" + k.Name, k.Description))
+                .Where(h => h.Name.StartsWith("+" + body, StringComparison.OrdinalIgnoreCase))
+                .ToList()));
+
+        return editor;
+    }
 
     private static string? _systemPromptOverride = null;
     private static bool _noBash = false;
@@ -428,11 +448,9 @@ public class Program
             AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Another nb session (pid {owner}) owns this directory — history will not be loaded or saved.[/]");
         }
 
-        // Initialize kits
+        // Initialize kits. The line editor's '+' completion source reads
+        // _kitManager.Kits live, so no separate hint registration is needed.
         _kitManager.LoadKits(AppContext.BaseDirectory);
-        _lineEditor.Kits = _kitManager.Kits.Values
-            .Select(k => new CompletionHint(k.Name, k.Description))
-            .ToList();
 
         // Restore kits active in this directory from a previous run, unless the
         // user asked to clear them. Skip when another session owns the lock so we

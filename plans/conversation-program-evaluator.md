@@ -362,16 +362,22 @@ config-layer prompt dirs so presets can reference shipped prompts; and
   residue — "no magic injection; presets carry the floor" — survives; the
   drop-and-warn machinery mostly dissolves. Reconcile before that schema is
   ratified.
-- **`@file` includes rest on UglyPrompt at-sign completion — mostly already
-  built.** The completion *mechanism* landed in UglyPrompt 0.3.0 (pluggable
-  `CompletionSource`, `@` trigger), which de-risks this dependency. Three gaps
-  remain (tracked in `TODO.md`): nb is pinned to 0.2.2 and must do a *breaking*
-  migration to 0.3.0 (`Commands`/`Kits` were removed for `AddSource(...)`); the
-  0.3.0 completion is **display-only hinting, not tab-to-accept** (active
-  completion — the actual fill-in-the-path UX — is still unbuilt); and its
-  `Lookup` is synchronous, so file enumeration for `@` must stay cheap or block
-  the keystroke loop. The include's *semantics* (source-time resolution to
-  inline bytecode) are independent of the editor and can land first.
+- **`@file` includes rest on UglyPrompt at-sign completion — now largely
+  built.** The mechanism landed in UglyPrompt 0.3.0 (pluggable
+  `CompletionSource`, `@` trigger), and **0.4.0 added Tab-to-accept** — the
+  actual fill-in-the-path UX that was the real gap (top-match-only: Tab commits
+  the top candidate, Enter submits, disambiguate by typing more). The
+  sync-`Lookup` worry is resolved *by design*: nb's `@` source should build its
+  file index once and filter in-memory, so there is nothing to block on per
+  keystroke (the doc's explicit adoption guidance). Framework is aligned too —
+  0.4.0 moved to net10, matching nb, and it is published on NuGet. **nb has now
+  been migrated to 0.4.0** — the pin is bumped and the `/` command and `+` kit
+  hints are ported to `AddSource(...)` (the `+` source reads kits live). What
+  remains is registering the `@` file source itself. One minor known bug
+  persists — the hint strip is clobbered when input wraps to a new row —
+  relevant to long source-syntax lines but not blocking. The include's
+  *semantics* (source-time resolution to inline bytecode) are independent of
+  the editor and can land first.
 - **`plans/composable-cli-reorientation.md` Pillar 1 is reframed.** "Run spec"
   is a reusable directive-prefix, not a separate document type. The spec schema
   and the transcript schema are one schema viewed in two regions (config

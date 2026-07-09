@@ -19,7 +19,7 @@
     <PackageReference Include="Spectre.Console" Version="0.52.1-preview.0.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
-    <PackageReference Include="UglyPrompt" Version="0.2.2" />
+    <PackageReference Include="UglyPrompt" Version="0.4.0" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
