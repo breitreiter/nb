@@ -294,8 +294,8 @@ The guarantee, stated so it can be tested:
 > run's history (Representation A) **modulo the enrichment layer** (thinking,
 > approval, structured `result`, trailer, images-beyond-note).
 
-Holds losslessly: user text, assistant text, tool call names + arguments +
-`CallId`, tool result `output` strings, turn grouping.
+Holds losslessly: user text, assistant text, system messages, tool call names
++ arguments + `CallId`, tool result `output` strings, turn grouping.
 
 Deliberately dropped on the way back (and *why it's correct to drop*):
 
@@ -306,9 +306,9 @@ Deliberately dropped on the way back (and *why it's correct to drop*):
 - **approval disposition** — a fact about the *prior* run's policy, not
   conversational content.
 - **image bytes** — v1 limitation; `note` text stands in.
-- **the `system` event** — the consuming run's spec owns the prompt; dropped
-  by default and warned about (see "Ratified: the system prompt belongs to
-  the spec"). `--seed-system` overrides.
+
+`system` events are **not** in this dropped set — they round-trip like any
+other message (see "The system message and the prompt floor").
 
 This is the "images don't round-trip" caveat from the umbrella plan,
 generalized into a **precise, enumerated lossy set** rather than a footnote —
@@ -337,78 +337,79 @@ Both parent plans promise fail-fast, model-fixable errors
 - **`assistant_json` needn't re-validate** against anything — it's advisory;
   the raw text is canonical.
 
-## Ratified: the system prompt belongs to the spec, never the seed (2026-07-07)
+## The system message and the prompt floor (reworked 2026-07-09)
 
-> **Superseded in premise — revisit before ratifying (2026-07-08).**
-> `plans/conversation-program-evaluator.md` establishes that `system` is a
-> plain message directive, not config, and that "the system prompt" as a
-> singular owned entity is a fiction. That knocks out the foundation this
-> section stands on. The sound residue survives: **no magic injection; the
-> default preset carries the system message(s) as explicit directives, visible
-> under `--resolve`; a preset-less program gets none.** But the special-case
-> machinery below — drop a replayed system message, warn about it, `--seed-system`
-> — mostly dissolves: with `system` a plain message, a replayed transcript
-> brings *all* its messages, and a stale one is edited out by the caller who
-> owns it (no message type is special-cased on replay). Rework this section to
-> the preset-floor framing when the schema absorbs the `run`/config/`system`
-> events; the text below is kept for the guardrail reasoning, which still
-> informs the preset design. The rest of the decision (spec-owned prompt, not
-> seed-smuggled) is the same intent, now expressed as "presets carry system,"
-> not "seed-load drops system."
+`plans/conversation-program-evaluator.md` establishes that `system` is a plain
+message directive, not config — "the system prompt" as a singular owned entity
+is a fiction. That dissolves the earlier "seed-load drops the system message"
+ruling and its guardrail machinery (drop-warning, `--seed-system`), and
+replaces it with a simpler, more honest model.
 
-Decision: **seed-load ignores any `system` event in the transcript.** The
-active spec's prompt layers are the sole source of the system prompt
-(honoring `rules/model-policy-in-prompt-layers.md`). This is deliberate: it
-lets a caller feed a synthetic or recorded transcript as *conversational
-premise* without entangling it with *who nb is this run*. The two are
-orthogonal concerns and this keeps them that way — you can fabricate "here's
-what already happened" without also having to reproduce, or accidentally
-override, the prompt.
+**The principle: nothing is silently dropped or injected. A program's system
+context is exactly its `system` events, in order — no more, no less.** A
+replayed transcript brings *all* its messages, `system` included; no message
+type is special-cased on load. If a caller doesn't want a stale system message
+from a recorded transcript, they edit the transcript they own — the same as any
+other stale content.
 
-The hazard this creates, and must defuse: the system prompt is conventionally
-the **first thing** in a transcript, so dropping it silently invites two
-failure modes —
+**The floor is a preset, not an injection.** nb feels helpful for an ad-hoc
+`nb -p "quick question"` because the **default preset** carries the prompt
+layers as explicit `system` directives — nothing is conjured behind the
+program. Concretely, the prompt-layer assembly that today runs hardcoded at
+startup (base + shell-env + provider layer + model-slug layer + NB.md) *moves*
+into the default preset's resolution: each layer becomes a `system` message the
+preset yields when expanded — static layers via `@file` includes
+(`system @prompts/base.md`), computed layers (shell env, model slug,
+NB.md-if-present) materialized by the resolver. This **honors
+`rules/model-policy-in-prompt-layers.md` more literally than the hardcoded
+assembly did**: policy still lives in the prompt layers, now first-class
+`system` directives a preset selects, with zero model branches in the engine —
+presets choose *which* layers apply; they don't move policy into code.
 
-1. **Instructions smuggled into system message 1.** An author writes guidance
-   into the seed's system message expecting it to take effect; it's silently
-   discarded and the run misbehaves.
-2. **Unexpected prompt.** An author feeds a "self-contained" transcript,
-   doesn't realize its system message was dropped, and the run uses a
-   different prompt than they pictured.
+**When the floor applies — the rc-file rule.** The default preset loads only on
+the interactive / `-p` / bare-prompt human path (nb's `.bashrc`). An explicit
+program does *not* load it implicitly:
 
-Guardrails — all required, so the silent drop never bites:
+- `nb -p "hi"` → default preset applies → the floor (nb's persona).
+- `nb < program.nb`, `nb --preset X`, an explicit spec → the default preset is
+  *not* prepended. You get exactly the `system` directives the program/preset
+  carries; a preset-less program gets **no system message** — correct for the
+  eval/harness case, where the thing under test must not be silently wrapped in
+  nb's persona.
 
-- **Loud on drop.** When a seed carries a `system` event that is being
-  ignored, nb warns to stderr, naming the file and the fix:
-  `seed t.jsonl carries a system message; ignoring it — the system prompt
-  comes from the active spec (use --seed-system to honor the seed's, or put
-  instructions in the spec's Prompt.Base).` `--validate`/`--resolve` report
-  the same. This kills failure mode 1 outright: a prompt cannot be *quietly*
-  smuggled through a seed — the attempt is always announced.
-- **A prompt floor, so "missing" can't happen.** Statelessness (umbrella
-  Pillar 3) plus "every field defaults sensibly" (Pillar 1) means the spec
-  *always* yields a system prompt — the empty spec reproduces the built-in
-  baseline. So failure mode 2 degrades to "a different prompt than expected"
-  (which the warning surfaces), never "no prompt at all." The only route to
-  an empty system prompt is setting one explicitly in a spec — a deliberate
-  act, not an accident of seeding.
-- **An explicit escape hatch with defined precedence.** `--seed-system`
-  honors the seed's system message, *replacing* the spec's. Precedence:
-  with the flag, seed-system wins; without it, the spec always wins and the
-  seed's system message is dropped. For the rare case of replaying a
-  transcript with its exact original prompt.
-- **Division of labor, documented for authors.** A seed is *what happened*
-  (conversational premise); a spec is *the envelope* (who nb is, which
-  tools, which prompt). The system message is envelope, so it belongs in the
-  spec's `Prompt.Base` — never hand-authored into a seed. The published
-  seed-format docs must state this in the **first paragraph**, with
-  `--seed-system` as a footnote, not a headline — the default path should
-  teach the right mental model.
+This is the composable-CLI rc-file lineage made concrete ("headless runs must
+never load the chat preset implicitly"): ad-hoc loads the rc-file, program
+invocation doesn't.
 
-Consequence for the output side: `--output jsonl` still emits a `system`
-event (export completeness, human debugging, `--seed-system` replay), but it
-is understood as *documentation of the run that produced the transcript*, not
-an instruction to any run that consumes it.
+**Composition order — a preset is a prefix.** When a preset *is* applied over a
+program (or seed), its directives come first, so its `system` messages precede
+the program's own. Multiple system messages are legal — `system` is just a
+message — and there is **no dedup or merge in the schema**; how a provider
+coalesces several system messages is a downstream provider-layer concern, out
+of scope here. A caller wanting a single source composes for it: don't apply a
+preset, or strip the seed's system message. The schema neither drops nor
+merges; it lays them down in order.
+
+**Transparency replaces drop-and-warn.** The earlier design leaned on a stderr
+warning to keep a silently-dropped system message from biting. With nothing
+dropped, the guardrail becomes visibility: **`--resolve` prints the
+fully-expanded program — every `system` message materialized (files inlined,
+computed layers shown, preset prefix included) in final order.** What runs is
+what you can see. The two failure modes the old design chased are met without
+special-casing a message type:
+
+1. *Instructions "smuggled" into a seed's system message* — no longer dropped,
+   so they simply take effect (they are messages), and `--resolve` shows them.
+   The old fear — silent discard — cannot happen because there is no discard.
+2. *Unexpected / missing prompt* — "missing" is prevented by the floor (the
+   default preset on the human path); "unexpected" is surfaced by `--resolve`.
+   The only route to an empty system context is an explicit program carrying no
+   `system` directive — a deliberate act, exactly as intended for harnesses.
+
+**What this retires:** the seed-load system-drop, its stderr drop-warning, and
+`--seed-system` (there is no drop to opt back into). `--output jsonl` still
+emits `system` events, but they are now just messages in the transcript —
+neither privileged on output nor stripped on input.
 
 ## Open decisions (flag before building)
 
@@ -422,10 +423,11 @@ an instruction to any run that consumes it.
    a transcript (seed) and an effective run-spec. Those are different schemas
    (this one vs the spec schema). Confirm they're sibling files, not one
    envelope.
-3. *(Ratified 2026-07-07 — see "Ratified: the system prompt belongs to the
-   spec, never the seed" above. Seed-load ignores the transcript's `system`
-   event; the spec owns the prompt; a loud stderr warning + a prompt floor +
-   `--seed-system` escape hatch defuse the silent-drop footgun.)*
+3. *(Resolved 2026-07-09 — see "The system message and the prompt floor"
+   above. `system` is a plain message that round-trips; nothing is dropped or
+   injected; the floor is the default preset carrying the prompt layers as
+   `system` directives, loaded only on the human/`-p` path. The earlier
+   seed-drop / drop-warning / `--seed-system` design is retired.)*
 4. **Arguments fidelity.** History reconstruction already coerces JSON number
    arguments to raw strings on load (`ConversationManager.cs:1794`). Decide
    whether the schema preserves original JSON types (cleaner) or inherits that

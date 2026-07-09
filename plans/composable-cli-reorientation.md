@@ -646,14 +646,16 @@ shed a hack at every step.
   `plans/transcript-schema.md`, which should be ratified before this phase
   starts code). This is the big one and lands the "specs, not switches"
   thesis.
-  **Load-bearing invariant for this phase:** the empty spec must reproduce
-  the built-in baseline system prompt — a spec that omits `Prompt.Base`
-  inherits the shipped prompt, never null/empty. `transcript-schema.md`'s
-  ratified "spec owns the system prompt, seed's is dropped" rule leans on
-  this: it's the *prompt floor* that keeps a dropped-seed-system-message from
-  degrading into a *missing* prompt rather than merely an unexpected one. If
-  `Prompt.Base` ever defaults to empty, that footgun silently returns —
-  worth a `rules/` invariant when the spec schema is written.
+  **Load-bearing invariant for this phase:** the *prompt floor* is the
+  **default preset** carrying the prompt layers as explicit `system`
+  directives, loaded only on the human/`-p`/bare path (the rc-file rule).
+  `system` is a plain message, not a singular owned prompt (see
+  `transcript-schema.md`'s "The system message and the prompt floor"): nothing
+  is dropped or injected, so "missing prompt" is impossible on the floored path
+  and, on an explicit program, is a deliberate choice (a preset-less program
+  gets no system message — correct for harnesses). The invariant to hold is
+  that the default preset always resolves to the baseline layers; worth a
+  `rules/` entry when the preset resolver is written.
 - **Phase 4 — JSONL + telemetry.** `--output jsonl` typed event stream with
   `assistant_json` and the result-telemetry event.
 - **Phase 5 — approval policy + sandbox.** Declarative per-profile approval

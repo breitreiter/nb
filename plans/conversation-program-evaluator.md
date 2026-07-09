@@ -353,15 +353,14 @@ config-layer prompt dirs so presets can reference shipped prompts; and
   `assistant` result it produced — the source↔output symmetry. This raises the
   stakes on ratifying that schema first — it is now the load-bearing artifact
   of the entire reorientation.
-- **`plans/transcript-schema.md`'s "seed drops the system message" ruling needs
-  revisiting.** That ratified decision — drop a seed's system message, guarded
-  by a warning, a prompt floor, and `--seed-system` — was built on the
-  singular-owned-system-prompt fiction. With `system` a plain message, you
-  don't special-case it on replay: a replayed transcript brings *all* its
-  messages, and a stale one is edited out by the caller who owns it. The sound
-  residue — "no magic injection; presets carry the floor" — survives; the
-  drop-and-warn machinery mostly dissolves. Reconcile before that schema is
-  ratified.
+- **`plans/transcript-schema.md`'s system-prompt ruling is reworked (done
+  2026-07-09).** The old "seed drops the system message" decision — built on the
+  singular-owned-prompt fiction — is replaced by "The system message and the
+  prompt floor": `system` is a plain message that round-trips, nothing is
+  dropped or injected, the floor is the default preset carrying the prompt
+  layers as `system` directives (loaded only on the human/`-p` path, per the
+  rc-file rule), and transparency (`--resolve`) replaces the drop-and-warn
+  machinery, which is retired along with `--seed-system`.
 - **`@file` includes rest on UglyPrompt at-sign completion — now largely
   built.** The mechanism landed in UglyPrompt 0.3.0 (pluggable
   `CompletionSource`, `@` trigger), and **0.4.0 added Tab-to-accept** — the
