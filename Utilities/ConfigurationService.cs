@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 
@@ -41,7 +42,28 @@ public class ConfigurationService
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .Build();
 
+        ExpandEnvironmentReferences(config);
         return config;
+    }
+
+    // Resolve ${VAR} references in config values against environment variables, so
+    // secrets (e.g. an API key) can live in the environment, never in the JSON.
+    private static void ExpandEnvironmentReferences(IConfigurationRoot config)
+    {
+        var envRef = new Regex(@"\$\{(\w+)\}");
+        foreach (var (key, value) in config.AsEnumerable())
+        {
+            if (string.IsNullOrEmpty(value) || !value.Contains("${")) continue;
+
+            config[key] = envRef.Replace(value, m =>
+            {
+                var name = m.Groups[1].Value;
+                var resolved = Environment.GetEnvironmentVariable(name);
+                if (resolved is null)
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: environment variable '{name}' referenced in appsettings.json is not set[/]");
+                return resolved ?? "";
+            });
+        }
     }
 
     private static string LoadSystemPrompt()

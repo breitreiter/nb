@@ -23,8 +23,15 @@ public class AnthropicProvider : IChatClientProvider
     {
         var apiKey = config["ApiKey"]!;
         var model = config["Model"] ?? "claude-sonnet-4-6";
+        var endpoint = config["Endpoint"];
 
-        var anthropicClient = new AnthropicClient(new ClientOptions()) { ApiKey = apiKey };
+        // An Endpoint points the SDK at a compatible proxy/gateway; the key is then
+        // whatever that proxy expects, sent in the SDK's usual x-api-key header.
+        var options = new ClientOptions();
+        if (!string.IsNullOrEmpty(endpoint))
+            options.BaseUrl = endpoint;
+
+        var anthropicClient = new AnthropicClient(options) { ApiKey = apiKey };
         return anthropicClient.AsIChatClient(model);
     }
 }

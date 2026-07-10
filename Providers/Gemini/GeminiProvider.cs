@@ -23,6 +23,8 @@ public class GeminiProvider : IChatClientProvider
         var apiKey = config["ApiKey"] ?? throw new InvalidOperationException("ApiKey is required for Gemini provider");
         var model = config["Model"] ?? "gemini-2.0-flash-exp";
 
+        // Note: no Endpoint override — the Mscc SDK ignores a custom base URL, so
+        // Gemini can't be routed through a proxy. It talks to Google directly.
         var chatClient = new GeminiChatClient(apiKey: apiKey, model: model);
 
         return chatClient;

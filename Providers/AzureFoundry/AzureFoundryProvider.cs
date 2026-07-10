@@ -33,10 +33,13 @@ public class AzureFoundryProvider : IChatClientProvider
         var apiKey = config["ApiKey"]!;
         var model = config["Model"]!;
 
-        // Accept either the resource root or the full deployment URL —
-        // the Azure SDK only wants the resource base (scheme + host).
+        // Accept either the resource root or the full deployment URL — the Azure SDK
+        // wants the base onto which it appends "openai/responses". Strip that suffix
+        // but KEEP any leading path, so a gateway that adds one still routes.
         var parsed = new Uri(endpoint);
-        var baseUri = new Uri($"{parsed.Scheme}://{parsed.Authority}/");
+        var idx = parsed.AbsolutePath.IndexOf("/openai", StringComparison.OrdinalIgnoreCase);
+        var basePath = idx >= 0 ? parsed.AbsolutePath[..idx] : parsed.AbsolutePath.TrimEnd('/');
+        var baseUri = new Uri($"{parsed.Scheme}://{parsed.Authority}{basePath}/");
 
         var options = new AzureOpenAIClientOptions(AzureOpenAIClientOptions.ServiceVersion.V2025_03_01_Preview);
         var azureClient = new AzureOpenAIClient(
