@@ -4,7 +4,7 @@ using nb.Utilities;
 
 namespace nb;
 
-public enum CommandAction { Exit, Continue, AddToHistory, SendToLlm }
+public enum CommandAction { Exit, Continue, SendToLlm }
 
 public class CommandResult
 {
@@ -13,7 +13,6 @@ public class CommandResult
 
     public static CommandResult Exit() => new() { Action = CommandAction.Exit };
     public static CommandResult Continue() => new() { Action = CommandAction.Continue };
-    public static CommandResult AddToHistory(string input) => new() { Action = CommandAction.AddToHistory, ModifiedInput = input };
     public static CommandResult SendToLlm(string input) => new() { Action = CommandAction.SendToLlm, ModifiedInput = input };
 }
 

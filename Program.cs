@@ -19,7 +19,6 @@ public class Program
     private static ConfigurationService _configurationService = new ConfigurationService();
     private static ProviderManager _providerManager = new ProviderManager();
     private static CommandProcessor _commandProcessor = null!;
-    private static HistoryLock _historyLock = new HistoryLock(".nb_conversation_history.lock");
     private static ShellEnvironment _shellEnvironment = null!;
     private static BashTool _bashTool = null!;
     private static ReadFileTool _readFileTool = null!;
@@ -77,7 +76,6 @@ public class Program
     private static bool _showHelp = false;
     private static bool _trustMode = false;
     private static bool _debugStream = false;
-    private static bool _clearKits = false;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -265,10 +263,6 @@ public class Program
             {
                 _debugStream = true;
             }
-            else if (args[i] == "--no-kits")
-            {
-                _clearKits = true;
-            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -308,7 +302,6 @@ public class Program
             Console.WriteLine("  --verbose               Enable verbose output");
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
             Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
-            Console.WriteLine("  --no-kits               Clear any persisted active kits for this directory");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
@@ -440,33 +433,9 @@ public class Program
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Trust mode active[/] [{UIColors.SpectreMuted}]— auto-approving within {Markup.Escape(_shellEnvironment.ShellCwd)}[/]");
         }
 
-        // Acquire per-directory history lock. If another nb session owns it, skip load/save
-        // so parallel instances don't clobber each other.
-        if (_historyLock.TryAcquire())
-        {
-            await _conversationManager.LoadConversationHistoryAsync();
-        }
-        else
-        {
-            var owner = _historyLock.OwnerPid?.ToString() ?? "unknown";
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Another nb session (pid {owner}) owns this directory — history will not be loaded or saved.[/]");
-        }
-
         // Initialize kits. The line editor's '+' completion source reads
         // _kitManager.Kits live, so no separate hint registration is needed.
         _kitManager.LoadKits(AppContext.BaseDirectory);
-
-        // Restore kits active in this directory from a previous run, unless the
-        // user asked to clear them. Skip when another session owns the lock so we
-        // don't reconnect servers we won't be allowed to persist.
-        if (_clearKits)
-        {
-            if (File.Exists(ActiveKitsFile)) File.Delete(ActiveKitsFile);
-        }
-        else if (_historyLock.IsOwner)
-        {
-            await RestoreActiveKitsAsync();
-        }
 
         // Initialize refactored services
         _commandProcessor = new CommandProcessor(_conversationManager, _configurationService, _providerManager);
@@ -515,15 +484,6 @@ public class Program
             }
         }
         
-        // Save conversation history and active kits before exit (only if we own the lock)
-        if (_historyLock.IsOwner)
-        {
-            await _conversationManager.SaveConversationHistoryAsync();
-            await SaveActiveKitsAsync();
-        }
-
-        _historyLock.Dispose();
-
         // Cleanup MCP clients
         _mcpManager.Dispose();
     }
@@ -608,14 +568,9 @@ public class Program
                     await _conversationManager.SendMessageAsync(result.ModifiedInput!);
                     break;
 
-                case CommandAction.AddToHistory:
-                    _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
-                    break;
             }
         }
     }
-
-    private const string ActiveKitsFile = ".nb_active_kits.json";
 
     // Splits leading +kit tokens off the front of the args. Stops at the first
     // non-+ token so "nb +review check this" → kits ["+review"], rest ["check","this"].
@@ -626,46 +581,6 @@ public class Program
         while (i < args.Length && args[i].StartsWith("+") && args[i].Length > 1)
             kits.Add(args[i++]);
         return (kits.ToArray(), args[i..]);
-    }
-
-    // Re-activate kits persisted from a previous session in this directory.
-    // Quiet (announce: false) — restore shouldn't spam the banner area.
-    private static async Task RestoreActiveKitsAsync()
-    {
-        if (!File.Exists(ActiveKitsFile)) return;
-        try
-        {
-            var names = JsonSerializer.Deserialize<string[]>(await File.ReadAllTextAsync(ActiveKitsFile));
-            if (names == null) return;
-            foreach (var name in names)
-                await ActivateKitAsync(name, announce: false);
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Could not restore active kits: {Markup.Escape(ex.Message)}[/]");
-        }
-    }
-
-    // Persist the active-kit set so it survives across single-shot invocations.
-    // Deletes the file when nothing is active so an empty set doesn't linger.
-    private static async Task SaveActiveKitsAsync()
-    {
-        try
-        {
-            var names = _kitManager.ActiveKitNames.ToArray();
-            if (names.Length == 0)
-            {
-                if (File.Exists(ActiveKitsFile)) File.Delete(ActiveKitsFile);
-                return;
-            }
-            await File.WriteAllTextAsync(ActiveKitsFile,
-                JsonSerializer.Serialize(names, new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-                }));
-        }
-        catch { /* best-effort; kit state is convenience, not correctness */ }
     }
 
     private static bool IsKitCommand(string input)
@@ -833,10 +748,6 @@ public class Program
                 }
                 break;
             
-            case CommandAction.AddToHistory:
-                // Maintain conversation history just like interactive mode
-                _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
-                break;
         }
     }
 }
