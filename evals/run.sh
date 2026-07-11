@@ -88,6 +88,40 @@ run_test_contains() {
     fi
 }
 
+# Validate --output jsonl: stdout alone must be well-formed JSONL, and a slurped
+# jq filter (input is the array of events) must equal the expected value. stderr
+# is discarded, so this asserts the "clean stdout" contract.
+# Args: test_name jq_filter expected_value command...
+run_test_jsonl_stdout() {
+    local name="$1"
+    local filter="$2"
+    local expected="$3"
+    shift 3
+
+    local out
+    out=$(cd "$NB_DIR" && "$@" < /dev/null 2>/dev/null)
+
+    if ! echo "$out" | jq . >/dev/null 2>&1; then
+        echo -e "${RED}FAIL${NC}: $name (stdout is not valid JSONL)"
+        echo "  Output: ${out:0:200}"
+        FAILED=$((FAILED + 1))
+        return 1
+    fi
+
+    local got
+    got=$(echo "$out" | jq -rs "$filter" 2>/dev/null)
+    if [[ "$got" == "$expected" ]]; then
+        echo -e "${GREEN}PASS${NC}: $name"
+        PASSED=$((PASSED + 1))
+        return 0
+    else
+        echo -e "${RED}FAIL${NC}: $name"
+        echo "  jq '$filter' => '$got', expected '$expected'"
+        FAILED=$((FAILED + 1))
+        return 1
+    fi
+}
+
 echo "========================================"
 echo "nb test suite"
 echo "========================================"
@@ -154,6 +188,57 @@ run_test \
     "--system with mock provider" \
     0 \
     "$NB" --system "$SCRIPT_DIR/judge.md" "test"
+
+echo ""
+echo "--- Transcript Schema (--output jsonl / --seed) ---"
+echo ""
+
+# jsonl stdout is clean and the answer is extractable (retires the brace-scan)
+run_test_jsonl_stdout \
+    "jsonl emit: answer extractable from stdout" \
+    '[.[]|select(.type=="assistant_text").text]|last' \
+    "OK" \
+    "$NB" --output jsonl "any prompt"
+
+# first emitted event is the system message
+run_test_jsonl_stdout \
+    "jsonl emit: leads with a system event" \
+    '.[0].type' \
+    "system" \
+    "$NB" --output jsonl "any prompt"
+
+# result trailer is present and last
+run_test_jsonl_stdout \
+    "jsonl emit: ends with a result trailer" \
+    '.[-1].type' \
+    "result" \
+    "$NB" --output jsonl "any prompt"
+
+# --seed replays fabricated history: both seeded user turns + the new one = 2 users
+run_test_jsonl_stdout \
+    "seed: fabricated turns become premise" \
+    '[.[]|select(.type=="user")]|length' \
+    "2" \
+    "$NB" --seed "$SCRIPT_DIR/fixtures/seed-basic.jsonl" --output jsonl "and 3+3?"
+
+# --seed carries the fabricated assistant answer forward
+run_test_jsonl_stdout \
+    "seed: fabricated assistant turn preserved" \
+    '[.[]|select(.type=="assistant_text").text]|any(.=="4")' \
+    "true" \
+    "$NB" --seed "$SCRIPT_DIR/fixtures/seed-basic.jsonl" --output jsonl "and 3+3?"
+
+# an invalid seed (orphan tool_result) fails fast with exit 1
+run_test \
+    "seed: orphan tool_result rejected" \
+    1 \
+    "$NB" --seed "$SCRIPT_DIR/fixtures/seed-orphan.jsonl" "go"
+
+# a missing seed file fails fast with exit 1
+run_test \
+    "seed: missing file rejected" \
+    1 \
+    "$NB" --seed /nonexistent/seed.jsonl "go"
 
 # Config is restored by trap, but do it explicitly for clarity
 restore_config

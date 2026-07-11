@@ -141,6 +141,14 @@ public class ConversationManager
     /// <summary>The live conversation history — the emit source for transcript output.</summary>
     public IReadOnlyList<AIChatMessage> History => _conversationHistory;
 
+    /// <summary>
+    /// Append pre-built messages (a loaded seed transcript) as premise state.
+    /// The messages are inserted as-is; seeded tool rounds do not replay through
+    /// the tool executors, so guards like FileReadTracker stay untouched — the
+    /// agent re-reads before editing, exactly as intended (transcript-schema.md).
+    /// </summary>
+    public void AppendHistory(IEnumerable<AIChatMessage> messages) => _conversationHistory.AddRange(messages);
+
     /// <summary>Summed token usage for the most recent turn (across the tool loop), or null if the provider reported none.</summary>
     public (long input, long output, long total)? LastTurnUsage =>
         _turnHadUsage ? (_turnInputTokens, _turnOutputTokens, _turnTotalTokens) : null;

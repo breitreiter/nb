@@ -78,6 +78,7 @@ public class Program
     private static bool _trustMode = false;
     private static bool _debugStream = false;
     private static string _outputMode = "interactive"; // interactive | jsonl
+    private static string? _seedFile = null;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -274,6 +275,10 @@ public class Program
                     Environment.Exit(1);
                 }
             }
+            else if (args[i] == "--seed" && i + 1 < args.Length)
+            {
+                _seedFile = args[++i];
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -325,6 +330,7 @@ public class Program
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
             Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
             Console.WriteLine("  --output <mode>         Output mode: interactive (default) or jsonl (transcript to stdout, chrome to stderr)");
+            Console.WriteLine("  --seed <file>           Load a transcript (jsonl) as premise history before the prompt runs");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
@@ -478,6 +484,9 @@ public class Program
             bool kitsOk = true;
             foreach (var token in kitTokens)
                 kitsOk &= await ActivateKitAsync(token);
+
+            // Load a seed transcript as premise history (after system + kit context).
+            LoadSeed();
 
             var userInput = BuildUserInput(promptArgs, stdinContent);
             // Don't run on a kit-resolution failure, and don't send an empty prompt
@@ -775,6 +784,43 @@ public class Program
 
         if (_outputMode == "jsonl")
             EmitJsonlTranscript();
+    }
+
+    // Load a --seed transcript and append it as premise history. Fails fast with a
+    // model-fixable error on a missing file or an invalid transcript.
+    private static void LoadSeed()
+    {
+        if (_seedFile == null) return;
+        if (!File.Exists(_seedFile))
+        {
+            Console.Error.WriteLine($"Error: seed file not found: {_seedFile}");
+            Environment.Exit(1);
+        }
+
+        try
+        {
+            var warnings = new List<string>();
+            var messages = TranscriptLoader.Load(File.ReadAllText(_seedFile), warnings);
+            foreach (var w in warnings)
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]seed: {Markup.Escape(w)}[/]");
+
+            // Transitional: nb assembles its own system prompt, so a seed's own
+            // system messages are dropped (with a warning) to avoid a conflicting
+            // second system message. Retires under the preset-floor model, where
+            // system is a plain directive the program owns (transcript-schema.md).
+            var systemCount = messages.Count(m => m.Role == ChatRole.System);
+            if (systemCount > 0)
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]seed: ignored {systemCount} system message(s); nb owns the system prompt[/]");
+            var premise = messages.Where(m => m.Role != ChatRole.System).ToList();
+
+            _conversationManager.AppendHistory(premise);
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Seeded {premise.Count} message(s) from {Markup.Escape(_seedFile)}[/]");
+        }
+        catch (TranscriptFormatException ex)
+        {
+            Console.Error.WriteLine($"Error: invalid seed transcript: {ex.Message}");
+            Environment.Exit(1);
+        }
     }
 
     // Emit the completed conversation as the transcript schema on stdout: core
