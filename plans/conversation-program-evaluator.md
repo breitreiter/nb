@@ -2,7 +2,7 @@
 kind: plan
 title: nb is an evaluator for conversation-programs
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-10
 status: current
 state: exploring
 touches:
@@ -57,9 +57,9 @@ document.
 
 A conversation-program is an **ordered stream of directives**. Two kinds:
 
-- **Config directives** (`provider`, `model`, `output`, `approval`) — set the
-  envelope going forward. Order matters: a config directive governs every
-  directive after it until overridden.
+- **Config directives** (`provider`, `model`, `output`, `approval`, `mcp`) —
+  set the envelope going forward. Order matters: a config directive governs
+  every directive after it until overridden.
 - **Turn directives** (`system`, `user`, `assistant`, `tool_call`,
   `tool_result`) — append a message to the conversation. Note `system` lives
   here, not in config: it is just a message with the system role, zero or more
@@ -182,8 +182,8 @@ source layer.
 
 The grammar is one rule: **a line is `<verb> <content>`. The first token is
 always the verb; everything after the first space is content.** Verbs are the
-directive set (`provider`, `model`, `system`, `output`, `user`, `assistant`,
-`tool_call`, `tool_result`, `run`). This borrows the git-rebase-todo /
+directive set (`provider`, `model`, `system`, `output`, `mcp`, `user`,
+`assistant`, `tool_call`, `tool_result`, `run`). This borrows the git-rebase-todo /
 Dockerfile / markdown-transcript shape — verb-first, line-oriented, arg-to-end
 -of-line — all large-corpus formats.
 
@@ -265,8 +265,8 @@ convention, not a language.
 
 ## Header-config vs anywhere-config (decided: anywhere)
 
-Where may a **config directive** (`provider`/`model`/`output`/`approval` —
-*not* `system`, which is a message) appear: only in a leading header, or
+Where may a **config directive** (`provider`/`model`/`output`/`approval`/`mcp`
+— *not* `system`, which is a message) appear: only in a leading header, or
 anywhere in the stream?
 
 This decision is envelope-config-only. `system` is a turn directive, so
@@ -292,6 +292,47 @@ For envelope config:
 
 **Decided: anywhere-config**, with `--resolve` as the ordering inspector.
 Revisit only if ordering semantics prove confusing in practice.
+
+## The `mcp` directive: the tool surface is envelope config
+
+The umbrella plan's spec carried `Tools.McpServers` ("kits lose their MCP
+monopoly — a spec exposes servers directly"). When specs became a reusable
+prefix of config directives, that field never got a verb. It gets one: **`mcp`
+is a config directive that enables/disables MCP servers by name.**
+
+- **Content is `+name` / `-name` tokens**, any number per line:
+  `mcp +figma`, `mcp -built-in-tester`, `mcp +figma -built-in-tester`. The
+  `+`/`-` shape deliberately rhymes with the existing `+kit` tokens. `mcp none`
+  clears the set — the absolute reset for callers that want a known-empty
+  surface regardless of preset.
+- **Delta semantics, because presets are prefixes.** A preset's `mcp`
+  directives establish a baseline; a program layered after it can add one
+  server or drop one without knowing the preset's full set. Absolute-set
+  semantics would force every program to restate its preset's servers.
+  `--resolve` prints the effective server set at each `run` point, same as the
+  rest of the envelope.
+- **Names refer to servers defined in the config layers (`mcp.json`).** The
+  directive toggles *exposure* of an already-defined server; it does not define
+  servers inline (connection config stays in the config layers, per Pillar 2).
+  An unknown name is a validation error that lists the known server names.
+- **Baseline is empty, floor comes from the preset.** Same rule as the system
+  message: a bare program (`nb < program.nb`, no preset) exposes **no** MCP
+  servers; the default preset on the human path carries whatever `mcp`
+  directives make interactive nb useful. Nothing is conjured behind the
+  program.
+- **Takes effect at the next `run`.** Like all envelope config, `mcp` asserts
+  state for subsequent directives; the evaluator resolves connections lazily
+  when a `run` needs them (today's connect-everything-at-startup becomes
+  per-run resolution). Enabling for one `run` and disabling after is the
+  least-privilege idiom: `mcp +figma` / `run …` / `mcp -figma`.
+- **Exposure, not permission.** Enabling a server puts its tools on the
+  model's tool list; the approval policy (`approval` directive, `alwaysAllow`)
+  still governs each invocation, unchanged.
+
+Open (flagged, not decided here): whether the spec's remaining `Tools` fields —
+native-tool selection and the todo toggle — get a sibling `tools` verb or fold
+into `mcp`'s pattern. Native tools have a different default (on, not off), so
+they are not the same decision.
 
 ## The system message: no auto-injection; presets carry it; `@file` includes it
 
@@ -345,7 +386,8 @@ config-layer prompt dirs so presets can reference shipped prompts; and
 - **`plans/transcript-schema.md` moves to the center of the system.** It is no
   longer "the output/seed format"; it is the program representation for output,
   seeds, tasks, `/save`, hooks, *and* the library. It must gain **config
-  directives** (`provider`/`model`/`output`/`approval` as first-class events),
+  directives** (`provider`/`model`/`output`/`approval`/`mcp` as first-class
+  events),
   a **`system` message event** (a turn event, not config), and an explicit
   **`run` event** as the invocation semantics — not the implicit pending-tail
   convention. In a *program* (input), `run` marks where inference happens; in

@@ -2,7 +2,7 @@
 kind: plan
 title: The transcript schema — nb's one wire format for output, seeds, export, and hooks
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-10
 status: current
 state: exploring
 touches:
@@ -48,8 +48,10 @@ promotes this schema from "output/seed format" to *the program
 representation* for the whole system — output, seeds, tasks, `/save`, hooks,
 and the library. Two additions this plan must absorb to serve that role,
 flagged here and folded in on the next revision: **config directives**
-(`provider`/`model`/`output`/`approval` as first-class events, interleaved
-with turns), a **`system` message event** (a *turn* event — a plain
+(`provider`/`model`/`output`/`approval`/`mcp` as first-class events,
+interleaved with turns; `mcp` toggles MCP-server exposure via `+name`/`-name`
+tokens — see the evaluator plan's "The `mcp` directive" section), a
+**`system` message event** (a *turn* event — a plain
 system-role message — not config; "the system prompt" as a singular owned
 entity is a fiction), and an explicit **`run` event** — the sole invocation
 directive. `user`/`assistant` events always assert history; only `run` invokes
