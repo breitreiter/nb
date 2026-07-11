@@ -4,6 +4,7 @@ using Spectre.Console;
 using nb.Providers;
 using nb.MCP;
 using nb.Shell;
+using nb.Transcript;
 using nb.Utilities;
 using UglyPrompt;
 
@@ -76,6 +77,7 @@ public class Program
     private static bool _showHelp = false;
     private static bool _trustMode = false;
     private static bool _debugStream = false;
+    private static string _outputMode = "interactive"; // interactive | jsonl
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -263,6 +265,15 @@ public class Program
             {
                 _debugStream = true;
             }
+            else if (args[i] == "--output" && i + 1 < args.Length)
+            {
+                _outputMode = args[++i].ToLowerInvariant();
+                if (_outputMode is not ("interactive" or "jsonl"))
+                {
+                    Console.Error.WriteLine($"Error: unknown --output mode '{_outputMode}'. Valid modes: interactive, jsonl.");
+                    Environment.Exit(1);
+                }
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -289,6 +300,17 @@ public class Program
         // Parse flags (--approve, --system) before processing other args
         var remainingArgs = ParseFlags(args);
 
+        // Machine-output modes send all chrome (banners, streamed render, tool
+        // noise, approval prompts) to stderr so stdout carries only the
+        // transcript. One seam: every AnsiConsole.* call relocates with this.
+        if (_outputMode == "jsonl")
+        {
+            AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Out = new AnsiConsoleOutput(Console.Error),
+            });
+        }
+
         if (_showHelp)
         {
             Console.WriteLine("Usage: nb [options] [prompt]");
@@ -302,6 +324,7 @@ public class Program
             Console.WriteLine("  --verbose               Enable verbose output");
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
             Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
+            Console.WriteLine("  --output <mode>         Output mode: interactive (default) or jsonl (transcript to stdout, chrome to stderr)");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
@@ -739,7 +762,7 @@ public class Program
             case CommandAction.Exit:
                 // Exit command processed, just return
                 return;
-            
+
             case CommandAction.Continue:
                 // Check if this was a non-command that should go to LLM
                 if (!userInput.TrimStart().StartsWith("/"))
@@ -747,7 +770,25 @@ public class Program
                     await _conversationManager.SendMessageAsync(userInput);
                 }
                 break;
-            
+
         }
+
+        if (_outputMode == "jsonl")
+            EmitJsonlTranscript();
+    }
+
+    // Emit the completed conversation as the transcript schema on stdout: core
+    // events from history plus a run-level result trailer with token usage.
+    // Chrome has already been diverted to stderr (see the --output seam in Main).
+    private static void EmitJsonlTranscript()
+    {
+        var events = TranscriptMapper.FromHistory(_conversationManager.History);
+        UsageInfo? usage = _conversationManager.LastTurnUsage is { } u
+            ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total }
+            : null;
+
+        var all = new List<TranscriptEvent>(events) { TranscriptMapper.ResultTrailer(events, "ok", usage) };
+        Console.Out.Write(TranscriptSerializer.Serialize(all));
+        Console.Out.Flush();
     }
 }

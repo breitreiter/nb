@@ -57,6 +57,10 @@ public class ConversationManager
     }
     private readonly List<AIChatMessage> _conversationHistory = new();
     private int _toolCallCount = 0;
+    private long _turnInputTokens;
+    private long _turnOutputTokens;
+    private long _turnTotalTokens;
+    private bool _turnHadUsage;
     private readonly DoomLoopDetector _doomLoopDetector = new();
     private readonly ToolErrorTracker _errorTracker = new();
     private readonly TodoManager _todoManager = new();
@@ -134,12 +138,21 @@ public class ConversationManager
         _conversationHistory.Add(new AIChatMessage(ChatRole.System, systemPrompt));
     }
 
+    /// <summary>The live conversation history — the emit source for transcript output.</summary>
+    public IReadOnlyList<AIChatMessage> History => _conversationHistory;
+
+    /// <summary>Summed token usage for the most recent turn (across the tool loop), or null if the provider reported none.</summary>
+    public (long input, long output, long total)? LastTurnUsage =>
+        _turnHadUsage ? (_turnInputTokens, _turnOutputTokens, _turnTotalTokens) : null;
+
     public async Task SendMessageAsync(string userMessage)
     {
         if (_client == null) return;
 
         // Reset per-turn trackers
         _toolCallCount = 0;
+        _turnInputTokens = _turnOutputTokens = _turnTotalTokens = 0;
+        _turnHadUsage = false;
         _doomLoopDetector.Reset();
         _errorTracker.Reset();
         _lastRemindedTodos = null;
@@ -282,6 +295,16 @@ public class ConversationManager
             }
 
             response = updates.ToChatResponse();
+
+            // Accumulate token usage across the turn's model round-trips (the
+            // tool loop recurses through SendMessageInternalAsync).
+            if (response.Usage is { } usage)
+            {
+                _turnInputTokens += usage.InputTokenCount ?? 0;
+                _turnOutputTokens += usage.OutputTokenCount ?? 0;
+                _turnTotalTokens += usage.TotalTokenCount ?? 0;
+                _turnHadUsage = true;
+            }
 
             // Handle tool calls if present - check if any message has tool calls
             var hasToolCalls = response.Messages.Any(m => m.Contents.Any(c => c is FunctionCallContent));
