@@ -2,9 +2,9 @@
 kind: plan
 title: The transcript schema — nb's one wire format for output, seeds, export, and hooks
 created: 2026-07-07
-updated: 2026-07-10
+updated: 2026-07-11
 status: current
-state: exploring
+state: active
 touches:
   files:
     - ConversationManager.cs
@@ -48,9 +48,10 @@ promotes this schema from "output/seed format" to *the program
 representation* for the whole system — output, seeds, tasks, `/save`, hooks,
 and the library. Two additions this plan must absorb to serve that role,
 flagged here and folded in on the next revision: **config directives**
-(`provider`/`model`/`output`/`approval`/`mcp` as first-class events,
-interleaved with turns; `mcp` toggles MCP-server exposure via `+name`/`-name`
-tokens — see the evaluator plan's "The `mcp` directive" section), a
+(`provider`/`model`/`output`/`approval`/`mcp`/`tools` as first-class events,
+interleaved with turns; `mcp` toggles MCP-server exposure and `tools` the
+native-tool surface, both via `+name`/`-name` tokens — see the evaluator plan's
+"The `mcp` directive" and "The `tools` directive" sections), a
 **`system` message event** (a *turn* event — a plain
 system-role message — not config; "the system prompt" as a singular owned
 entity is a fiction), and an explicit **`run` event** — the sole invocation
@@ -413,31 +414,42 @@ special-casing a message type:
 emits `system` events, but they are now just messages in the transcript —
 neither privileged on output nor stripped on input.
 
-## Open decisions (flag before building)
+## Decisions (locked 2026-07-11 unless noted)
 
-1. **Does `--output jsonl` interleave `thinking` and `tool_result.output` in
-   full, or cap sizes?** A 5 MB bash output as a JSON string is legal but
-   ugly. Proposal: emit full by default (the seed needs it), offer
-   `--max-output-bytes` that truncates *with a `truncated:true` marker* — but
-   truncation breaks round-trip, so it must be opt-in and loud. Decide whether
-   truncation belongs here or only in the porcelain path.
-2. **One file or two for `/save`?** The umbrella plan's `/save` exports *both*
-   a transcript (seed) and an effective run-spec. Those are different schemas
-   (this one vs the spec schema). Confirm they're sibling files, not one
-   envelope.
+All record-shaping decisions are now ratified; S1 (the type hierarchy +
+serializer) may proceed against them.
+
+1. **Large outputs: full by default, opt-in loud truncation.** `--output jsonl`
+   emits `tool_result.output` and `thinking` in **full** — the seed needs them
+   byte-for-byte, so the round-trip guarantee depends on it. `--max-output-bytes`
+   is the opt-in escape: it truncates *with a `truncated:true` marker*, and
+   because that breaks round-trip it must be explicitly requested, never a
+   default. Truncation lives in the jsonl path as this opt-in only; the
+   porcelain path keeps its own display-oriented truncation independently (it
+   carries no round-trip promise). *(locked 2026-07-11)*
+2. **`/save` writes two sibling files.** A transcript (seed, this schema) and an
+   effective run-spec/preset (the spec schema) are different schemas and stay
+   **separate sibling files**, not one envelope — record → edit → replay wants
+   the transcript standalone, and the preset is reusable across transcripts.
+   *(locked 2026-07-11)*
 3. *(Resolved 2026-07-09 — see "The system message and the prompt floor"
    above. `system` is a plain message that round-trips; nothing is dropped or
    injected; the floor is the default preset carrying the prompt layers as
    `system` directives, loaded only on the human/`-p` path. The earlier
    seed-drop / drop-warning / `--seed-system` design is retired.)*
-4. **Arguments fidelity.** History reconstruction already coerces JSON number
-   arguments to raw strings on load (`ConversationManager.cs:1794`). Decide
-   whether the schema preserves original JSON types (cleaner) or inherits that
-   quirk. Preserving types is the right call for a public contract.
-5. **Event `type` names.** `assistant_text` vs `assistant`; `tool_call` vs
-   `call`. Lock the vocabulary once — it's the public surface. Recommend the
-   verbose forms already in `headless-machine-output.md` (they read well in
-   `jq` selectors: `select(.type=="tool_call")`).
+4. **Arguments preserve their original JSON types.** The schema keeps
+   `tool_call.arguments` values as their true JSON types (numbers stay numbers,
+   bools stay bools) — the right call for a versioned public contract. This
+   **drops** the current load-time coercion of JSON numbers to raw strings
+   (`ConversationManager.cs:1794`); the seed loader must round-trip types
+   faithfully rather than inherit that quirk. *(locked 2026-07-11)*
+5. **Event `type` names: the verbose forms.** `user`, `assistant_text`,
+   `tool_call`, `tool_result`, `thinking`, `assistant_json`, `result` — the
+   forms already in `headless-machine-output.md`. Verbose over terse
+   (`assistant`/`call`/`result`) because they read well in `jq` selectors
+   (`select(.type=="tool_call")`) and `assistant_text` doesn't collide with the
+   `assistant` *turn directive* in the source syntax. This is the public
+   surface; locked. *(locked 2026-07-11)*
 
 ## Relationship to the parent plans + phasing
 

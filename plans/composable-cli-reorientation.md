@@ -2,9 +2,9 @@
 kind: plan
 title: Composable-CLI reorientation — nb as an automation tool first
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-11
 status: current
-state: exploring
+state: active
 touches:
   files:
     - Program.cs
@@ -617,6 +617,17 @@ system by writing config. Hook paths are trust-gated like writes — never
 auto-approved out of a model-generated spec.
 
 ## Phasing
+
+**Status (2026-07-11).** Design ratified: this plan and its two children
+(`conversation-program-evaluator.md`, `transcript-schema.md`) are now
+`state: active`, and the transcript-schema record-shaping decisions are locked
+(verbose event names, JSON-typed arguments, full-output-by-default, two-file
+`/save`, sibling `mcp`/`tools` config verbs). **Landed early, out of phase
+order:** Phase 3's *deletion half* — `HistoryLock`, `.nb_conversation_history.json`
+save/load, and `.nb_active_kits.json` persistence are removed; every invocation
+is already stateless. Next up is the schema keystone (transcript-schema S1:
+types + serializer + golden round-trip tests), which both Phase 3 (seeds) and
+Phase 4 (jsonl) build on.
 
 Ordered so each phase delivers standalone value and the weaver harness can
 shed a hack at every step.

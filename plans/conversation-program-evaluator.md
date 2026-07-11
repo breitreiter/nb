@@ -2,9 +2,9 @@
 kind: plan
 title: nb is an evaluator for conversation-programs
 created: 2026-07-07
-updated: 2026-07-10
+updated: 2026-07-11
 status: current
-state: exploring
+state: active
 touches:
   files:
     - Program.cs
@@ -57,9 +57,9 @@ document.
 
 A conversation-program is an **ordered stream of directives**. Two kinds:
 
-- **Config directives** (`provider`, `model`, `output`, `approval`, `mcp`) —
-  set the envelope going forward. Order matters: a config directive governs
-  every directive after it until overridden.
+- **Config directives** (`provider`, `model`, `output`, `approval`, `mcp`,
+  `tools`) — set the envelope going forward. Order matters: a config directive
+  governs every directive after it until overridden.
 - **Turn directives** (`system`, `user`, `assistant`, `tool_call`,
   `tool_result`) — append a message to the conversation. Note `system` lives
   here, not in config: it is just a message with the system role, zero or more
@@ -182,7 +182,7 @@ source layer.
 
 The grammar is one rule: **a line is `<verb> <content>`. The first token is
 always the verb; everything after the first space is content.** Verbs are the
-directive set (`provider`, `model`, `system`, `output`, `mcp`, `user`,
+directive set (`provider`, `model`, `system`, `output`, `mcp`, `tools`, `user`,
 `assistant`, `tool_call`, `tool_result`, `run`). This borrows the git-rebase-todo /
 Dockerfile / markdown-transcript shape — verb-first, line-oriented, arg-to-end
 -of-line — all large-corpus formats.
@@ -265,8 +265,9 @@ convention, not a language.
 
 ## Header-config vs anywhere-config (decided: anywhere)
 
-Where may a **config directive** (`provider`/`model`/`output`/`approval`/`mcp`
-— *not* `system`, which is a message) appear: only in a leading header, or
+Where may a **config directive**
+(`provider`/`model`/`output`/`approval`/`mcp`/`tools` — *not* `system`, which
+is a message) appear: only in a leading header, or
 anywhere in the stream?
 
 This decision is envelope-config-only. `system` is a turn directive, so
@@ -329,10 +330,37 @@ is a config directive that enables/disables MCP servers by name.**
   model's tool list; the approval policy (`approval` directive, `alwaysAllow`)
   still governs each invocation, unchanged.
 
-Open (flagged, not decided here): whether the spec's remaining `Tools` fields —
-native-tool selection and the todo toggle — get a sibling `tools` verb or fold
-into `mcp`'s pattern. Native tools have a different default (on, not off), so
-they are not the same decision.
+## The `tools` directive: the native-tool surface is envelope config (decided 2026-07-11)
+
+The spec's remaining `Tools` fields — native-tool selection and the todo
+toggle — get their **own verb, a sibling to `mcp`**, rather than folding into
+it. Same delta grammar, one deliberate asymmetry in the baseline:
+
+- **Content is `+name` / `-name` tokens**, mirroring `mcp` and `+kit`:
+  `tools -bash`, `tools -bash -grep`, `tools +bash`. `tools none` drops the
+  whole native surface — the eval case that wants a pure-reasoning model with
+  no tools at all.
+- **Baseline is all-native-on, not off.** This is the one intended difference
+  from `mcp` (whose baseline is empty): the native tools are nb's built-in
+  surface and useful by default, so tokens *remove* from a full set and re-add.
+  A bare program still gets the native tools unless it says otherwise — which
+  is exactly why this couldn't fold into `mcp`'s default-off pattern.
+- **The todo tool is a named member of the native set**, toggled the same way
+  (`tools -todo`), not a bespoke boolean — one grammar, no special case.
+- **Delta semantics and `--resolve` visibility**, identical to `mcp`: a preset
+  establishes the surface, a program layered after it adds or drops one tool
+  without restating the set, and `--resolve` prints the effective native-tool
+  set at each `run` point.
+- **Names are the built-in tool names** (`bash`, `read_file`, `write_file`,
+  `edit_file`, `find_files`, `grep`, `list_dir`, `fetch_url`, `apply_patch`,
+  `todo`). An unknown name is a validation error that lists the known set. The
+  existing **`--nobash` flag becomes sugar for `tools none`** (it already
+  disables the entire native surface, `Program.cs:342`, not just bash — the
+  flag is a misnomer preserved for compatibility). `EditToolStyle`
+  (`edit_file` vs `apply_patch`) stays a config-layer concern, not a per-token
+  toggle.
+- **Exposure, not permission** — same as `mcp`: enabling a tool lists it for
+  the model; the approval policy still governs each invocation, unchanged.
 
 ## The system message: no auto-injection; presets carry it; `@file` includes it
 
@@ -386,8 +414,8 @@ config-layer prompt dirs so presets can reference shipped prompts; and
 - **`plans/transcript-schema.md` moves to the center of the system.** It is no
   longer "the output/seed format"; it is the program representation for output,
   seeds, tasks, `/save`, hooks, *and* the library. It must gain **config
-  directives** (`provider`/`model`/`output`/`approval`/`mcp` as first-class
-  events),
+  directives** (`provider`/`model`/`output`/`approval`/`mcp`/`tools` as
+  first-class events),
   a **`system` message event** (a turn event, not config), and an explicit
   **`run` event** as the invocation semantics — not the implicit pending-tail
   convention. In a *program* (input), `run` marks where inference happens; in
