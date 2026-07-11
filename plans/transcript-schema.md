@@ -474,14 +474,20 @@ Concretely it feeds:
 
 Suggested build order for the schema work itself (small, ahead of Phase 3):
 
-- **S0 — ratify the vocabulary.** This doc + the two open-decision locks (5,
-  and 3) that change record shape. No code.
-- **S1 — define the types + serializer.** `TranscriptEvent` hierarchy and a
-  reader/writer, unit-tested against the two captured runs in this doc as
-  golden fixtures (round-trip A → jsonl → A). This is the single highest-value
-  artifact: it de-risks Phases 3+4 before either touches
-  `ConversationManager`.
-- **S2 — wire emit + load** behind the umbrella plan's phases.
+- **S0 — ratify the vocabulary. ✅ Done 2026-07-11.** Decisions locked (see
+  "Decisions" above): verbose event names, JSON-typed arguments,
+  full-output-by-default, two-file `/save`, sibling `mcp`/`tools` verbs.
+- **S1 — define the types + serializer. ✅ Done 2026-07-11.**
+  `Transcript/TranscriptEvent.cs` (the record hierarchy) and
+  `Transcript/TranscriptSerializer.cs` (JSONL reader/writer), unit-tested in
+  `nb.Tests/TranscriptSerializerTests.cs` against this doc's worked example as a
+  golden round-trip fixture. Self-contained — no `ConversationManager` contact.
+  Structural parsing only (required-field checks, unknown-type warn+skip); the
+  cross-event validation contract is carried into S2 with the seed loader.
+- **S2 — wire emit + load** behind the umbrella plan's phases: the emitter maps
+  `ConversationManager` history → events (Phase 4), and the seed loader maps
+  events → `List<ChatMessage>` with the validation contract (Phase 3). This is
+  where the schema first touches the engine.
 
 ## Worked example: the captured tool run as jsonl
 
