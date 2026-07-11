@@ -484,10 +484,18 @@ Suggested build order for the schema work itself (small, ahead of Phase 3):
   golden round-trip fixture. Self-contained — no `ConversationManager` contact.
   Structural parsing only (required-field checks, unknown-type warn+skip); the
   cross-event validation contract is carried into S2 with the seed loader.
-- **S2 — wire emit + load** behind the umbrella plan's phases: the emitter maps
-  `ConversationManager` history → events (Phase 4), and the seed loader maps
-  events → `List<ChatMessage>` with the validation contract (Phase 3). This is
-  where the schema first touches the engine.
+- **S2 — wire emit + load. ✅ Done 2026-07-11.** Emit:
+  `Transcript/TranscriptMapper.cs` (history → core events) + `--output jsonl`
+  (transcript to stdout, all chrome relocated to stderr via a one-line
+  AnsiConsole redirect; `ConversationManager` gained `History` + per-turn
+  `LastTurnUsage`). Load: `Transcript/TranscriptLoader.cs` (events → history +
+  the validation contract) + `--seed <file>` (premise history before the live
+  prompt; `AppendHistory`; seeded rounds don't replay, so FileReadTracker stays
+  untouched). Round-trip proven by `RoundTrip_EmitLoadEmit_IsStable` and by 7
+  end-to-end cases in `evals/run.sh` (mock provider, jsonl-stdout + seed).
+  **Transitional:** a seed's own `system` messages are dropped with a warning
+  because nb still hardcode-assembles its system prompt; this retires under the
+  preset-floor model, when `system` becomes a program-owned directive.
 
 ## Worked example: the captured tool run as jsonl
 
