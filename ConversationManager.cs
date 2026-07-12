@@ -154,7 +154,16 @@ public class ConversationManager
     /// </summary>
     public string LastOutcome { get; private set; } = Transcript.ExitReasons.Ok;
 
-    public async Task SendMessageAsync(string userMessage)
+    public Task SendMessageAsync(string userMessage) => RunAsync(userMessage);
+
+    /// <summary>
+    /// Execute one <c>run</c> directive: optionally append <paramref name="inlinePrompt"/>
+    /// as a user turn, then invoke the model on the current history. The evaluator
+    /// calls this with the run's inline prompt (or null for a bare run on state
+    /// already built by preceding turn directives). Resets per-turn trackers and
+    /// records <see cref="LastOutcome"/>.
+    /// </summary>
+    public async Task RunAsync(string? inlinePrompt)
     {
         if (_client == null) return;
 
@@ -166,8 +175,8 @@ public class ConversationManager
         _errorTracker.Reset();
         _lastRemindedTodos = null;
 
-        // Add user message to conversation history (no automatic RAG injection)
-        _conversationHistory.Add(new AIChatMessage(ChatRole.User, userMessage));
+        if (inlinePrompt is not null)
+            _conversationHistory.Add(new AIChatMessage(ChatRole.User, inlinePrompt));
 
         LastOutcome = await SendMessageInternalAsync();
     }

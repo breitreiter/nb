@@ -320,6 +320,44 @@ run_test_stdout_contains \
     "$NB" --output porcelain "MOCK:response=$FENCE_RESP"
 
 echo ""
+echo "--- Conversation-program evaluator (Phase 3.3) ---"
+echo ""
+
+# A source-syntax program: system directive + run produce the transcript.
+run_test_jsonl_stdout \
+    "program: source syntax runs the directives" \
+    '[.[]|select(.type=="assistant_text").text]|last' \
+    "hi there" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-basic.nb"
+
+# A bare program gets NO system message (no persona injected).
+run_test_jsonl_stdout \
+    "program: bare program has no system message" \
+    '[.[]|select(.type=="system")]|length' \
+    "0" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-bare.nb"
+
+# Mid-stream model swap: two runs, two models, one invocation.
+run_test_jsonl_stdout \
+    "program: model swaps between runs" \
+    '[.[]|select(.type=="assistant_text").text]|join(",")' \
+    "alpha,beta" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-swap.nb" --output jsonl
+
+# A program whose first line is '{' is read as jsonl bytecode.
+run_test_jsonl_stdout \
+    "program: jsonl bytecode is sniffed and evaluated" \
+    '[.[]|select(.type=="assistant_text").text]|last' \
+    "from bytecode" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog.jsonl"
+
+# An invalid program fails fast with exit 1.
+run_test \
+    "program: invalid directive exits 1" \
+    1 \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-bad.nb"
+
+echo ""
 
 # ----------------------------------------
 # Layer 3: LLM Eval Tests (uses real provider, LLM-as-judge)

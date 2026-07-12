@@ -13,7 +13,8 @@ public class MockProvider : IChatClientProvider
     public IChatClient CreateClient(IConfiguration config)
     {
         var response = config["Response"] ?? "OK";
-        return new MockChatClient(response);
+        var model = config["Model"];
+        return new MockChatClient(response, model);
     }
 }
 
@@ -24,10 +25,12 @@ public class MockProvider : IChatClientProvider
 public class MockChatClient : IChatClient
 {
     private readonly string _defaultResponse;
+    private readonly string? _model;
 
-    public MockChatClient(string defaultResponse = "OK")
+    public MockChatClient(string defaultResponse = "OK", string? model = null)
     {
         _defaultResponse = defaultResponse;
+        _model = model;
     }
 
     public ChatClientMetadata Metadata => new("MockProvider", new Uri("mock://localhost"), "mock-model");
@@ -48,6 +51,11 @@ public class MockChatClient : IChatClient
         // exit-code contract's provider_error path (exit 2) is testable.
         if (lastUserMessage.StartsWith("MOCK:throw", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("mock provider failure");
+
+        // MOCK:model echoes this client's configured model, so a mid-stream model
+        // swap (which rebuilds the client) is observable end-to-end.
+        if (lastUserMessage.StartsWith("MOCK:model", StringComparison.OrdinalIgnoreCase))
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, _model ?? "(none)"));
 
         // MOCK:tool=<name> <arg> scripts a single tool call so approval/tool-loop
         // paths are testable. It fires once: as soon as a tool result is in

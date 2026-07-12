@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using nb.Providers;
 using nb.MCP;
@@ -70,6 +71,7 @@ public class Program
     private static string _outputMode = "interactive"; // interactive | porcelain | jsonl
     private static string? _seedFile = null;
     private static string? _configPath = null;
+    private static string? _programFile = null;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -274,6 +276,10 @@ public class Program
             {
                 _configPath = args[++i];
             }
+            else if (args[i] == "--program" && i + 1 < args.Length)
+            {
+                _programFile = args[++i];
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -299,6 +305,12 @@ public class Program
 
         // Parse flags (--approve, --system) before processing other args
         var remainingArgs = ParseFlags(args);
+
+        // A program run is machine-oriented: default its output to jsonl (the
+        // bytecode) so chrome relocates to stderr like the other machine modes.
+        // An `output` directive in the program can still override the final emit.
+        if (_programFile != null && _outputMode == "interactive")
+            _outputMode = "jsonl";
 
         // Machine-output modes send all chrome (banners, streamed render, tool
         // noise, approval prompts) to stderr so stdout carries only the
@@ -335,6 +347,7 @@ public class Program
             Console.WriteLine("  --output <mode>         Output mode: interactive (default), porcelain (TOOL/RESULT lines + verbatim answer), or jsonl (typed transcript). porcelain/jsonl put the answer on stdout, chrome on stderr");
             Console.WriteLine("  --seed <file>           Load a transcript (jsonl) as premise history before the prompt runs");
             Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
+            Console.WriteLine("  --program <file>        Evaluate a conversation-program (source syntax or jsonl bytecode; '-' for stdin). No default persona; provider/model may switch between runs");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
@@ -443,6 +456,16 @@ public class Program
         var presencePenalty = ResolveProviderFloat(config, activeProviderName, "PresencePenalty");
         _conversationManager = new ConversationManager(
             _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream, temperature, presencePenalty);
+
+        // Program mode: evaluate a conversation-program directly, with no default
+        // persona injected — a bare program gets exactly the system directives it
+        // writes, nothing more (preset-floor comes in Phase 3.4).
+        if (_programFile != null)
+        {
+            await RunProgramAsync(config);
+            _mcpManager.Dispose();
+            return;
+        }
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
@@ -718,5 +741,98 @@ public class Program
         Console.Out.Write(TranscriptPorcelainWriter.Write(events));
         Console.Out.Flush();
         Console.Error.WriteLine(TranscriptPorcelainWriter.Trailer(trailer));
+    }
+
+    // Evaluate a conversation-program (--program): read it, detect source vs
+    // bytecode, walk the directives (config/turns/run, swapping the client on
+    // provider/model changes), then emit the resulting transcript.
+    private static async Task RunProgramAsync(IConfiguration config)
+    {
+        string source;
+        try
+        {
+            source = _programFile == "-"
+                ? await Console.In.ReadToEndAsync()
+                : await File.ReadAllTextAsync(_programFile!);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error: cannot read program '{_programFile}': {ex.Message}");
+            Environment.ExitCode = 1;
+            return;
+        }
+
+        var warnings = new List<string>();
+        IReadOnlyList<TranscriptEvent> program;
+        try
+        {
+            program = LooksLikeJsonl(source)
+                ? TranscriptSerializer.Parse(source, warnings)
+                : ProgramParser.Parse(source, ResolveInclude);
+        }
+        catch (Exception ex) when (ex is TranscriptFormatException or ProgramParseException)
+        {
+            Console.Error.WriteLine($"Error: invalid program: {ex.Message}");
+            Environment.ExitCode = 1;
+            return;
+        }
+
+        var evaluator = new ProgramEvaluator(_conversationManager, BuildProgramClient(config), warnings);
+        await evaluator.EvaluateAsync(program);
+
+        foreach (var w in warnings) Console.Error.WriteLine($"program: {w}");
+
+        // An `output` directive in the program wins over the flag/default.
+        var mode = evaluator.OutputMode ?? _outputMode;
+        if (mode == "porcelain") EmitPorcelainTranscript(); else EmitJsonlTranscript();
+
+        Environment.ExitCode = ExitReasons.ToExitCode(_conversationManager.LastOutcome);
+    }
+
+    // First non-blank, non-comment line starting with '{' => JSONL bytecode.
+    private static bool LooksLikeJsonl(string source)
+    {
+        foreach (var line in source.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0 || t.StartsWith("#")) continue;
+            return t.StartsWith("{");
+        }
+        return false;
+    }
+
+    // (provider, model) -> a chat client for the program evaluator. Either may be
+    // null (fall back to the configured ActiveProvider). A model override is
+    // written into the provider's config block before the client is built.
+    private static Func<string?, string?, IChatClient?> BuildProgramClient(IConfiguration config) =>
+        (provider, model) =>
+        {
+            var name = provider ?? config["ActiveProvider"];
+            if (name != null && model != null) OverrideProviderModel(config, name, model);
+            return _providerManager.TryCreateChatClient(config, name);
+        };
+
+    private static void OverrideProviderModel(IConfiguration config, string providerName, string model)
+    {
+        var children = config.GetSection("ChatProviders").GetChildren().ToList();
+        for (int i = 0; i < children.Count; i++)
+            if (string.Equals(children[i]["Name"], providerName, StringComparison.OrdinalIgnoreCase))
+            {
+                config[$"ChatProviders:{i}:Model"] = model;
+                return;
+            }
+    }
+
+    // Resolve an @file include for the source parser: relative to the program
+    // file's directory (or cwd for a stdin program), fail fast if missing.
+    private static string ResolveInclude(string relPath)
+    {
+        var baseDir = _programFile is not null and not "-"
+            ? Path.GetDirectoryName(Path.GetFullPath(_programFile)) ?? "."
+            : Directory.GetCurrentDirectory();
+        var full = Path.IsPathRooted(relPath) ? relPath : Path.Combine(baseDir, relPath);
+        if (!File.Exists(full))
+            throw new ProgramParseException($"@include not found: {relPath}");
+        return File.ReadAllText(full);
     }
 }
