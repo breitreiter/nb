@@ -153,6 +153,13 @@ public class ConversationManager
     public (long input, long output, long total)? LastTurnUsage =>
         _turnHadUsage ? (_turnInputTokens, _turnOutputTokens, _turnTotalTokens) : null;
 
+    /// <summary>
+    /// The <c>exit_reason</c> of the most recent turn (see <see cref="Transcript.ExitReasons"/>).
+    /// Feeds the jsonl trailer and the process exit code. Defaults to
+    /// <see cref="Transcript.ExitReasons.Ok"/> before any turn runs.
+    /// </summary>
+    public string LastOutcome { get; private set; } = Transcript.ExitReasons.Ok;
+
     public async Task SendMessageAsync(string userMessage)
     {
         if (_client == null) return;
@@ -167,13 +174,16 @@ public class ConversationManager
 
         // Add user message to conversation history (no automatic RAG injection)
         _conversationHistory.Add(new AIChatMessage(ChatRole.User, userMessage));
-        
-        await SendMessageInternalAsync();
+
+        LastOutcome = await SendMessageInternalAsync();
     }
 
-    private async Task SendMessageInternalAsync(string? injectedReminder = null)
+    // Returns the turn's exit_reason (see ExitReasons). The reason propagates up
+    // through the tool-loop recursion so the outermost caller sees why the turn
+    // ended, not just that it did.
+    private async Task<string> SendMessageInternalAsync(string? injectedReminder = null)
     {
-        if (_client == null) return;
+        if (_client == null) return Transcript.ExitReasons.Ok;
 
         // Compact history if approaching context limit
         if (EstimateTokenCount() > (int)(_maxContextTokens * _compactionThreshold))
@@ -328,7 +338,7 @@ public class ConversationManager
                     var limitMessage = "I've reached the maximum number of tool calls for this message. Let me provide a response with the information I have.";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, limitMessage));
                     RenderMarkdown(limitMessage);
-                    return;
+                    return Transcript.ExitReasons.MaxToolCalls;
                 }
 
                 // Add assistant message with tool calls to history (think blocks stripped)
@@ -778,7 +788,7 @@ public class ConversationManager
                     var abortMsg = $"Tool '{offendingTool}' failed {_errorTracker.Limit} times in a row. Aborting this turn to prevent a runaway loop. Review the errors above and try a different approach, or ask the user for help.";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, abortMsg));
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]⛔ {Markup.Escape(abortMsg)}[/]");
-                    return;
+                    return Transcript.ExitReasons.ToolErrorLimit;
                 }
 
                 // Inject a reminder if the model is looping
@@ -793,7 +803,7 @@ public class ConversationManager
                 }
 
                 // Get another response after tool execution
-                await SendMessageInternalAsync(nextInjectedReminder);
+                return await SendMessageInternalAsync(nextInjectedReminder);
             }
             else
             {
@@ -822,14 +832,17 @@ public class ConversationManager
                         _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
                         _lastRemindedTodos = currentSet;
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Pending todos; reminding model[/]");
-                        await SendMessageInternalAsync("todos");
+                        return await SendMessageInternalAsync("todos");
                     }
                 }
             }
+
+            return Transcript.ExitReasons.Ok;
         }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
+            return Transcript.ExitReasons.ProviderError;
         }
     }
 

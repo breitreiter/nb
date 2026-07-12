@@ -784,6 +784,11 @@ public class Program
 
         if (_outputMode == "jsonl")
             EmitJsonlTranscript();
+
+        // The exit-code contract: a single-shot run reports why it ended in $?
+        // (0 ok · 2 provider error · 3 aborted · 4 approval denied). See
+        // Transcript/ExitReasons.cs.
+        Environment.ExitCode = ExitReasons.ToExitCode(_conversationManager.LastOutcome);
     }
 
     // Load a --seed transcript and append it as premise history. Fails fast with a
@@ -833,7 +838,7 @@ public class Program
             ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total }
             : null;
 
-        var all = new List<TranscriptEvent>(events) { TranscriptMapper.ResultTrailer(events, "ok", usage) };
+        var all = new List<TranscriptEvent>(events) { TranscriptMapper.ResultTrailer(events, _conversationManager.LastOutcome, usage) };
         Console.Out.Write(TranscriptSerializer.Serialize(all));
         Console.Out.Flush();
     }

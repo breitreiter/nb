@@ -44,6 +44,11 @@ public class MockChatClient : IChatClient
             .LastOrDefault(m => m.Role == ChatRole.User)?
             .Text ?? "";
 
+        // MOCK:throw simulates a mid-turn provider/model failure so the
+        // exit-code contract's provider_error path (exit 2) is testable.
+        if (lastUserMessage.StartsWith("MOCK:throw", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("mock provider failure");
+
         // Check for special mock instructions in the message
         var response = ParseMockInstruction(lastUserMessage) ?? _defaultResponse;
 

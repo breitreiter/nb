@@ -240,6 +240,29 @@ run_test \
     1 \
     "$NB" --seed /nonexistent/seed.jsonl "go"
 
+echo ""
+echo "--- Exit-code contract (Phase 0) ---"
+echo ""
+
+# a clean single-shot run reports success in $?
+run_test \
+    "exit code: ok run exits 0" \
+    0 \
+    "$NB" "any prompt"
+
+# a mid-turn provider failure surfaces as exit 2 (was silently 0)
+run_test \
+    "exit code: provider error exits 2" \
+    2 \
+    "$NB" "MOCK:throw"
+
+# and the jsonl trailer names the reason
+run_test_jsonl_stdout \
+    "exit reason: provider error tagged in trailer" \
+    '.[-1].exit_reason' \
+    "provider_error" \
+    "$NB" --output jsonl "MOCK:throw"
+
 # Config is restored by trap, but do it explicitly for clarity
 restore_config
 
