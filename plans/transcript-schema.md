@@ -496,6 +496,15 @@ Suggested build order for the schema work itself (small, ahead of Phase 3):
   **Transitional:** a seed's own `system` messages are dropped with a warning
   because nb still hardcode-assembles its system prompt; this retires under the
   preset-floor model, when `system` becomes a program-owned directive.
+- **S3 — config-directive events (Phase 3.1). ✅ Done 2026-07-12.** The
+  "folded in on the next revision" events from the evaluator reframe:
+  `ProviderEvent`/`ModelEvent`/`OutputEvent` (scalar) and
+  `McpEvent`/`ToolsEvent` (a shared `SurfaceDirectiveEvent` base with
+  `add`/`remove`/`reset` delta semantics), plus the already-present `RunEvent`,
+  wired through `TranscriptSerializer` (write + parse) and round-trip-tested.
+  Bytecode only — no evaluator yet. `approval` deferred to Phase 5 with its
+  policy. The event-types jsonc examples above predate this and still show only
+  the turn/tool set.
 
 ## Worked example: the captured tool run as jsonl
 

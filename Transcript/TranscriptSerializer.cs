@@ -85,6 +85,20 @@ public static class TranscriptSerializer
             case RunEvent run:
                 if (run.Prompt is not null) w.WriteString("prompt", run.Prompt);
                 break;
+            case ProviderEvent p:
+                w.WriteString("name", p.Name);
+                break;
+            case ModelEvent md:
+                w.WriteString("name", md.Name);
+                break;
+            case OutputEvent o:
+                w.WriteString("mode", o.Mode);
+                break;
+            case SurfaceDirectiveEvent s:
+                if (s.Reset) w.WriteBoolean("reset", true);
+                WriteStringArray(w, "add", s.Add);
+                WriteStringArray(w, "remove", s.Remove);
+                break;
             case ResultEvent r:
                 WriteResultBody(w, r);
                 break;
@@ -124,6 +138,15 @@ public static class TranscriptSerializer
                 break;
         }
         w.WriteEndObject();
+    }
+
+    private static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)
+    {
+        if (items.Count == 0) return;
+        w.WritePropertyName(name);
+        w.WriteStartArray();
+        foreach (var s in items) w.WriteStringValue(s);
+        w.WriteEndArray();
     }
 
     private static void WriteResultBody(Utf8JsonWriter w, ResultEvent r)
@@ -221,6 +244,16 @@ public static class TranscriptSerializer
                 return new AssistantJsonEvent { Turn = turn, Value = ReadNode(root, "value") };
             case "run":
                 return new RunEvent { Turn = turn, Prompt = GetString(root, "prompt") };
+            case "provider":
+                return new ProviderEvent { Turn = turn, Name = RequireString(root, "name", lineNumber, type) };
+            case "model":
+                return new ModelEvent { Turn = turn, Name = RequireString(root, "name", lineNumber, type) };
+            case "output":
+                return new OutputEvent { Turn = turn, Mode = RequireString(root, "mode", lineNumber, type) };
+            case "mcp":
+                return new McpEvent { Turn = turn, Add = ReadStringArray(root, "add"), Remove = ReadStringArray(root, "remove"), Reset = GetBool(root, "reset") };
+            case "tools":
+                return new ToolsEvent { Turn = turn, Add = ReadStringArray(root, "add"), Remove = ReadStringArray(root, "remove"), Reset = GetBool(root, "reset") };
             case "result":
                 return new ResultEvent
                 {
@@ -288,6 +321,19 @@ public static class TranscriptSerializer
 
     private static JsonNode? ReadNode(JsonElement root, string name) =>
         root.TryGetProperty(name, out var el) ? JsonNode.Parse(el.GetRawText()) : null;
+
+    private static IReadOnlyList<string> ReadStringArray(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.Array)
+            return Array.Empty<string>();
+        var list = new List<string>();
+        foreach (var item in el.EnumerateArray())
+            if (item.ValueKind == JsonValueKind.String) list.Add(item.GetString()!);
+        return list;
+    }
+
+    private static bool GetBool(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.True;
 
     private static string? GetString(JsonElement root, string name) =>
         root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String ? el.GetString() : null;

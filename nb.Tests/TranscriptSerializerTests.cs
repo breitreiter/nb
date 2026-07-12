@@ -253,6 +253,71 @@ public class TranscriptSerializerTests
         Assert.Contains("type", ex.Message);
     }
 
+    // ---- config directives (Phase 3.1) ----
+
+    // A small conversation-program mixing config directives, turns, and a run —
+    // the bytecode the source syntax desugars to.
+    private const string GoldenProgram =
+        """
+        {"type":"provider","turn":null,"name":"anthropic"}
+        {"type":"model","turn":null,"name":"claude-sonnet-5"}
+        {"type":"output","turn":null,"mode":"jsonl"}
+        {"type":"mcp","turn":null,"add":["figma"],"remove":["tester"]}
+        {"type":"tools","turn":null,"reset":true}
+        {"type":"system","turn":0,"text":"you are terse"}
+        {"type":"run","turn":1,"prompt":"the real task"}
+        """;
+
+    [Fact]
+    public void Program_ParsesConfigDirectives_InOrder()
+    {
+        var events = TranscriptSerializer.Parse(GoldenProgram);
+
+        Assert.Equal(7, events.Count);
+        Assert.Equal("anthropic", Assert.IsType<ProviderEvent>(events[0]).Name);
+        Assert.Equal("claude-sonnet-5", Assert.IsType<ModelEvent>(events[1]).Name);
+        Assert.Equal("jsonl", Assert.IsType<OutputEvent>(events[2]).Mode);
+
+        var mcp = Assert.IsType<McpEvent>(events[3]);
+        Assert.Equal(new[] { "figma" }, mcp.Add);
+        Assert.Equal(new[] { "tester" }, mcp.Remove);
+        Assert.False(mcp.Reset);
+
+        var tools = Assert.IsType<ToolsEvent>(events[4]);
+        Assert.True(tools.Reset);
+        Assert.Empty(tools.Add);
+
+        Assert.IsType<SystemEvent>(events[5]);
+        Assert.Equal("the real task", Assert.IsType<RunEvent>(events[6]).Prompt);
+    }
+
+    [Fact]
+    public void ConfigDirectives_RoundTrip()
+    {
+        foreach (var line in NonBlankLines(GoldenProgram))
+        {
+            var reserialized = TranscriptSerializer.SerializeEvent(TranscriptSerializer.ParseLine(line, 1)!);
+            AssertJsonEqual(line, reserialized, "config directive");
+        }
+    }
+
+    [Fact]
+    public void Mcp_OmitsEmptyDeltaFields()
+    {
+        var json = TranscriptSerializer.SerializeEvent(new McpEvent { Add = new[] { "figma" } });
+        Assert.Contains("\"add\"", json);
+        Assert.DoesNotContain("remove", json);
+        Assert.DoesNotContain("reset", json);
+    }
+
+    [Fact]
+    public void Provider_MissingName_Throws()
+    {
+        var ex = Assert.Throws<TranscriptFormatException>(
+            () => TranscriptSerializer.ParseLine("""{"type":"provider","turn":null}""", 1));
+        Assert.Contains("name", ex.Message);
+    }
+
     // ---- helpers ----
 
     private static string[] NonBlankLines(string s) =>

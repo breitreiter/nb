@@ -112,6 +112,57 @@ public sealed record RunEvent : TranscriptEvent
     public string? Prompt { get; init; }
 }
 
+// ---- Config directives -----------------------------------------------------
+// Set the envelope going forward; order matters (a directive governs every
+// directive after it until overridden). Run-level, not conversation messages —
+// Turn is null. See plans/conversation-program-evaluator.md ("The program model").
+
+/// <summary>Select the active provider for subsequent runs.</summary>
+public sealed record ProviderEvent : TranscriptEvent
+{
+    public override string Type => "provider";
+    public required string Name { get; init; }
+}
+
+/// <summary>Select the model for subsequent runs.</summary>
+public sealed record ModelEvent : TranscriptEvent
+{
+    public override string Type => "model";
+    public required string Name { get; init; }
+}
+
+/// <summary>Set the output mode (interactive | porcelain | jsonl) for subsequent runs.</summary>
+public sealed record OutputEvent : TranscriptEvent
+{
+    public override string Type => "output";
+    public required string Mode { get; init; }
+}
+
+/// <summary>
+/// A tool-surface directive with delta semantics: <see cref="Add"/> /
+/// <see cref="Remove"/> toggle named members and <see cref="Reset"/> (the source
+/// <c>none</c> token) clears the surface. Presets establish a baseline; a program
+/// layered after adds or drops without restating the set.
+/// </summary>
+public abstract record SurfaceDirectiveEvent : TranscriptEvent
+{
+    public IReadOnlyList<string> Add { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> Remove { get; init; } = Array.Empty<string>();
+    public bool Reset { get; init; }
+}
+
+/// <summary>Enable/disable MCP servers by name (baseline empty). <c>mcp +figma -tester</c>.</summary>
+public sealed record McpEvent : SurfaceDirectiveEvent
+{
+    public override string Type => "mcp";
+}
+
+/// <summary>Enable/disable native tools by name (baseline all-on). <c>tools -bash</c>, <c>tools none</c>.</summary>
+public sealed record ToolsEvent : SurfaceDirectiveEvent
+{
+    public override string Type => "tools";
+}
+
 /// <summary>Run-level trailer (Turn is null). Not a conversation message — carries telemetry and the exit reason. Ignored on seed-load.</summary>
 public sealed record ResultEvent : TranscriptEvent
 {
