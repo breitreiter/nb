@@ -16,25 +16,10 @@ NC='\033[0m'
 PASSED=0
 FAILED=0
 
-# Test appsettings for mock provider
+# Mock-provider config, passed to every invocation via --config (hermetic: the
+# real bin/appsettings.json is ignored, never mutated). The run_test* helpers
+# inject "--config $MOCK_CONFIG" right after the binary, so tests just pass "$NB".
 MOCK_CONFIG="$SCRIPT_DIR/test-appsettings.json"
-ORIG_CONFIG="$NB_DIR/appsettings.json"
-BACKUP_CONFIG="$NB_DIR/appsettings.backup.json"
-
-setup_mock_provider() {
-    cp "$ORIG_CONFIG" "$BACKUP_CONFIG"
-    cp "$MOCK_CONFIG" "$ORIG_CONFIG"
-}
-
-restore_config() {
-    if [[ -f "$BACKUP_CONFIG" ]]; then
-        cp "$BACKUP_CONFIG" "$ORIG_CONFIG"
-        rm "$BACKUP_CONFIG"
-    fi
-}
-
-# Ensure cleanup on exit
-trap restore_config EXIT
 
 # Run a test (always redirects stdin from /dev/null, runs from NB_DIR)
 # Args: test_name expected_exit_code command...
@@ -46,7 +31,7 @@ run_test() {
     local output
     local actual_exit=0
 
-    output=$(cd "$NB_DIR" && "$@" < /dev/null 2>&1) || actual_exit=$?
+    output=$(cd "$NB_DIR" && "$1" --config "$MOCK_CONFIG" "${@:2}" < /dev/null 2>&1) || actual_exit=$?
 
     if [[ "$actual_exit" -eq "$expected_exit" ]]; then
         echo -e "${GREEN}PASS${NC}: $name"
@@ -72,7 +57,7 @@ run_test_contains() {
     local output
     local actual_exit=0
 
-    output=$(cd "$NB_DIR" && "$@" < /dev/null 2>&1) || actual_exit=$?
+    output=$(cd "$NB_DIR" && "$1" --config "$MOCK_CONFIG" "${@:2}" < /dev/null 2>&1) || actual_exit=$?
 
     if [[ "$actual_exit" -eq "$expected_exit" ]] && [[ "$output" == *"$expected_string"* ]]; then
         echo -e "${GREEN}PASS${NC}: $name"
@@ -97,7 +82,7 @@ run_test_stdout_contains() {
     shift 2
 
     local out
-    out=$(cd "$NB_DIR" && "$@" < /dev/null 2>/dev/null)
+    out=$(cd "$NB_DIR" && "$1" --config "$MOCK_CONFIG" "${@:2}" < /dev/null 2>/dev/null)
 
     if [[ "$out" == *"$expected"* ]]; then
         echo -e "${GREEN}PASS${NC}: $name"
@@ -123,7 +108,7 @@ run_test_jsonl_stdout() {
     shift 3
 
     local out
-    out=$(cd "$NB_DIR" && "$@" < /dev/null 2>/dev/null)
+    out=$(cd "$NB_DIR" && "$1" --config "$MOCK_CONFIG" "${@:2}" < /dev/null 2>/dev/null)
 
     if ! echo "$out" | jq . >/dev/null 2>&1; then
         echo -e "${RED}FAIL${NC}: $name (stdout is not valid JSONL)"
@@ -158,11 +143,8 @@ if [[ ! -x "$NB" ]]; then
     exit 1
 fi
 
-echo -e "${DIM}nb: $NB${NC}"
+echo -e "${DIM}nb: $NB --config $MOCK_CONFIG${NC}"
 echo ""
-
-# Use mock provider for all tests
-setup_mock_provider
 
 # ----------------------------------------
 # Layer 1: Basic sanity tests
@@ -336,9 +318,6 @@ run_test_stdout_contains \
     "porcelain: fenced answer is verbatim (sed-extractable)" \
     '```json' \
     "$NB" --output porcelain "MOCK:response=$FENCE_RESP"
-
-# Config is restored by trap, but do it explicitly for clarity
-restore_config
 
 echo ""
 

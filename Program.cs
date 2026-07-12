@@ -17,7 +17,7 @@ public class Program
     private static McpManager _mcpManager = new McpManager();
     private static FakeToolManager _fakeToolManager = new FakeToolManager();
     private static ConversationManager _conversationManager = null!;
-    private static ConfigurationService _configurationService = new ConfigurationService();
+    private static ConfigurationService _configurationService = null!;
     private static ProviderManager _providerManager = new ProviderManager();
     private static CommandProcessor _commandProcessor = null!;
     private static ShellEnvironment _shellEnvironment = null!;
@@ -79,6 +79,7 @@ public class Program
     private static bool _debugStream = false;
     private static string _outputMode = "interactive"; // interactive | porcelain | jsonl
     private static string? _seedFile = null;
+    private static string? _configPath = null;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -279,6 +280,10 @@ public class Program
             {
                 _seedFile = args[++i];
             }
+            else if (args[i] == "--config" && i + 1 < args.Length)
+            {
+                _configPath = args[++i];
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -339,6 +344,7 @@ public class Program
             Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
             Console.WriteLine("  --output <mode>         Output mode: interactive (default), porcelain (TOOL/RESULT lines + verbatim answer), or jsonl (typed transcript). porcelain/jsonl put the answer on stdout, chrome on stderr");
             Console.WriteLine("  --seed <file>           Load a transcript (jsonl) as premise history before the prompt runs");
+            Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
@@ -359,6 +365,19 @@ public class Program
             Console.Error.WriteLine(outputPath);
             _mcpManager.Dispose();
             return;
+        }
+
+        // Build configuration now that flags are parsed — --config selects a
+        // hermetic single-file config, otherwise the layered install/user/project
+        // resolution applies. A missing --config file is a fatal config error.
+        try
+        {
+            _configurationService = new ConfigurationService(_configPath);
+        }
+        catch (FileNotFoundException)
+        {
+            Console.Error.WriteLine($"Error: config file not found: {_configPath}");
+            Environment.Exit(1);
         }
 
         var config = _configurationService.GetConfiguration();

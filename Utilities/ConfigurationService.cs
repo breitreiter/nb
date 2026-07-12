@@ -9,9 +9,11 @@ public class ConfigurationService
     private readonly IConfiguration _configuration;
     private readonly string _systemPrompt;
 
-    public ConfigurationService()
+    // configPath (from --config) selects a hermetic single-file config; null
+    // uses the layered install/user/project resolution.
+    public ConfigurationService(string? configPath = null)
     {
-        _configuration = LoadConfiguration();
+        _configuration = LoadConfiguration(configPath);
         _systemPrompt = LoadSystemPrompt();
         SetupConsoleEncoding();
     }
@@ -35,15 +37,65 @@ public class ConfigurationService
         Console.OutputEncoding = System.Text.Encoding.UTF8;
     }
 
-    private static IConfiguration LoadConfiguration()
+    private static IConfiguration LoadConfiguration(string? configPath)
     {
-        var config = new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-            .Build();
-
+        var config = BuildConfiguration(configPath, Directory.GetCurrentDirectory());
         ExpandEnvironmentReferences(config);
         return config;
+    }
+
+    // Git-style layered resolution (later wins). With an explicit --config path
+    // the file layers collapse to just that file (hermetic runs); otherwise:
+    // install defaults, then user (~/.config/nb), then the nearest project
+    // .nb/config.json walking up from cwd. The NB_ environment layer is applied
+    // last in every case (NB_ActiveProvider -> ActiveProvider,
+    // NB_ChatProviders__0__ApiKey -> nested), so CI can inject config and keys
+    // without a file. Split out and internal so config resolution is testable.
+    internal static IConfigurationRoot BuildConfiguration(string? configPath, string cwd)
+    {
+        var builder = new ConfigurationBuilder();
+
+        if (configPath != null)
+        {
+            // Named deliberately — fail fast if it's missing (Program surfaces this).
+            builder.AddJsonFile(Path.GetFullPath(configPath), optional: false, reloadOnChange: false);
+        }
+        else
+        {
+            builder.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: true);
+            builder.AddJsonFile(UserConfigPath(), optional: true, reloadOnChange: true);
+
+            var projectConfig = FindProjectConfig(cwd);
+            if (projectConfig != null)
+                builder.AddJsonFile(projectConfig, optional: true, reloadOnChange: true);
+        }
+
+        builder.AddEnvironmentVariables("NB_");
+        return builder.Build();
+    }
+
+    // ~/.config/nb/config.json, honoring XDG_CONFIG_HOME. Returned even if absent
+    // (added as an optional layer); a fresh install simply has no user config yet.
+    private static string UserConfigPath()
+    {
+        var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        var baseDir = string.IsNullOrEmpty(xdg)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config")
+            : xdg;
+        return Path.Combine(baseDir, "nb", "config.json");
+    }
+
+    // Nearest .nb/config.json walking up from cwd — the same upward walk NB.md uses.
+    private static string? FindProjectConfig(string cwd)
+    {
+        var dir = Path.GetFullPath(cwd);
+        while (dir != null)
+        {
+            var candidate = Path.Combine(dir, ".nb", "config.json");
+            if (File.Exists(candidate)) return candidate;
+            dir = Path.GetDirectoryName(dir);
+        }
+        return null;
     }
 
     // Resolve ${VAR} references in config values against environment variables, so
