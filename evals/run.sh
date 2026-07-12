@@ -88,6 +88,30 @@ run_test_contains() {
     fi
 }
 
+# Assert a stdout-only substring (stderr discarded). For porcelain, where the
+# parseable contract lives on stdout and chrome is on stderr.
+# Args: test_name expected_substring command...
+run_test_stdout_contains() {
+    local name="$1"
+    local expected="$2"
+    shift 2
+
+    local out
+    out=$(cd "$NB_DIR" && "$@" < /dev/null 2>/dev/null)
+
+    if [[ "$out" == *"$expected"* ]]; then
+        echo -e "${GREEN}PASS${NC}: $name"
+        PASSED=$((PASSED + 1))
+        return 0
+    else
+        echo -e "${RED}FAIL${NC}: $name"
+        echo "  Expected stdout to contain: $expected"
+        echo "  Output: ${out:0:300}"
+        FAILED=$((FAILED + 1))
+        return 1
+    fi
+}
+
 # Validate --output jsonl: stdout alone must be well-formed JSONL, and a slurped
 # jq filter (input is the array of events) must equal the expected value. stderr
 # is discarded, so this asserts the "clean stdout" contract.
@@ -289,6 +313,29 @@ run_test_jsonl_stdout \
     "$NB" --output jsonl --trust "MOCK:tool=bash touch approval_probe.txt"
 
 rm -f "$NB_DIR/approval_probe.txt"
+
+echo ""
+echo "--- Porcelain output (Phase 1) ---"
+echo ""
+
+# A plain answer: stdout carries the answer (chrome is on stderr).
+run_test_stdout_contains \
+    "porcelain: plain answer on stdout" \
+    "hello world" \
+    "$NB" --output porcelain "MOCK:response=hello world"
+
+# A tool round emits a stable TOOL line on stdout.
+run_test_stdout_contains \
+    "porcelain: tool call becomes a TOOL line" \
+    "TOOL bash echo hi" \
+    "$NB" --output porcelain --trust "MOCK:tool=bash echo hi"
+
+# The headline: a fenced answer passes through verbatim, so sed extracts it.
+FENCE_RESP=$'answer:\n```json\n{"root_cause":"timeout"}\n```'
+run_test_stdout_contains \
+    "porcelain: fenced answer is verbatim (sed-extractable)" \
+    '```json' \
+    "$NB" --output porcelain "MOCK:response=$FENCE_RESP"
 
 # Config is restored by trap, but do it explicitly for clarity
 restore_config

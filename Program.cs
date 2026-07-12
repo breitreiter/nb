@@ -77,7 +77,7 @@ public class Program
     private static bool _showHelp = false;
     private static bool _trustMode = false;
     private static bool _debugStream = false;
-    private static string _outputMode = "interactive"; // interactive | jsonl
+    private static string _outputMode = "interactive"; // interactive | porcelain | jsonl
     private static string? _seedFile = null;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
@@ -269,9 +269,9 @@ public class Program
             else if (args[i] == "--output" && i + 1 < args.Length)
             {
                 _outputMode = args[++i].ToLowerInvariant();
-                if (_outputMode is not ("interactive" or "jsonl"))
+                if (_outputMode is not ("interactive" or "jsonl" or "porcelain"))
                 {
-                    Console.Error.WriteLine($"Error: unknown --output mode '{_outputMode}'. Valid modes: interactive, jsonl.");
+                    Console.Error.WriteLine($"Error: unknown --output mode '{_outputMode}'. Valid modes: interactive, porcelain, jsonl.");
                     Environment.Exit(1);
                 }
             }
@@ -308,7 +308,7 @@ public class Program
         // Machine-output modes send all chrome (banners, streamed render, tool
         // noise, approval prompts) to stderr so stdout carries only the
         // transcript. One seam: every AnsiConsole.* call relocates with this.
-        if (_outputMode == "jsonl")
+        if (_outputMode is "jsonl" or "porcelain")
         {
             AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
             {
@@ -337,7 +337,7 @@ public class Program
             Console.WriteLine("  --verbose               Enable verbose output");
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
             Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
-            Console.WriteLine("  --output <mode>         Output mode: interactive (default) or jsonl (transcript to stdout, chrome to stderr)");
+            Console.WriteLine("  --output <mode>         Output mode: interactive (default), porcelain (TOOL/RESULT lines + verbatim answer), or jsonl (typed transcript). porcelain/jsonl put the answer on stdout, chrome on stderr");
             Console.WriteLine("  --seed <file>           Load a transcript (jsonl) as premise history before the prompt runs");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
@@ -792,6 +792,8 @@ public class Program
 
         if (_outputMode == "jsonl")
             EmitJsonlTranscript();
+        else if (_outputMode == "porcelain")
+            EmitPorcelainTranscript();
 
         // The exit-code contract: a single-shot run reports why it ended in $?
         // (0 ok · 2 provider error · 3 aborted · 4 approval denied). See
@@ -836,18 +838,34 @@ public class Program
         }
     }
 
-    // Emit the completed conversation as the transcript schema on stdout: core
-    // events from history plus a run-level result trailer with token usage.
-    // Chrome has already been diverted to stderr (see the --output seam in Main).
-    private static void EmitJsonlTranscript()
+    // Build the completed conversation as transcript events plus a run-level
+    // result trailer with token usage — the shared input to both machine emits.
+    private static (List<TranscriptEvent> events, ResultEvent trailer) BuildTranscript()
     {
         var events = TranscriptMapper.FromHistory(_conversationManager.History);
         UsageInfo? usage = _conversationManager.LastTurnUsage is { } u
             ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total }
             : null;
+        return (events, TranscriptMapper.ResultTrailer(events, _conversationManager.LastOutcome, usage));
+    }
 
-        var all = new List<TranscriptEvent>(events) { TranscriptMapper.ResultTrailer(events, _conversationManager.LastOutcome, usage) };
+    // Emit the transcript schema as JSONL on stdout (trailer inline). Chrome has
+    // already been diverted to stderr (see the --output seam in Main).
+    private static void EmitJsonlTranscript()
+    {
+        var (events, trailer) = BuildTranscript();
+        var all = new List<TranscriptEvent>(events) { trailer };
         Console.Out.Write(TranscriptSerializer.Serialize(all));
         Console.Out.Flush();
+    }
+
+    // Emit the same events as porcelain text on stdout; the run trailer goes to
+    // stderr so stdout stays parseable (TOOL/RESULT lines + verbatim prose).
+    private static void EmitPorcelainTranscript()
+    {
+        var (events, trailer) = BuildTranscript();
+        Console.Out.Write(TranscriptPorcelainWriter.Write(events));
+        Console.Out.Flush();
+        Console.Error.WriteLine(TranscriptPorcelainWriter.Trailer(trailer));
     }
 }
