@@ -8,9 +8,10 @@ Primary use case: drop into a project directory and work interactively — read,
 
 ## Features
 
-- **Coding Agent Workflow**: Native file and shell tools, per-directory conversation history, read-before-edit guard, project context via `NB.md`, and trust mode for friction-free iteration inside a working directory sandbox.
+- **Coding Agent Workflow**: Native file and shell tools, read-before-edit guard, project context via `NB.md`, and trust mode for friction-free iteration inside a working directory sandbox.
 - **Multi-Provider AI Support**: Built-in support for Azure OpenAI (Chat Completions and Responses API), OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
-- **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Conversation history is stored per-directory, so single-shot mode preserves context between invocations.
+- **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Every invocation is stateless — continuity, when you want it, is explicit (capture `--output jsonl`, replay with `--seed`).
+- **Conversation Programs**: Script configuration, fabricated history, and the live prompt as one directive document (`--program`), with reusable envelope prefixes (`--spec`) and machine-readable output (`--output jsonl`/`porcelain`).
 - **Terminal Integration**: Native shell access with approval UX. Models can execute commands, with dangerous operations requiring explicit confirmation.
 - **Native File Tools**: Cross-platform `read_file`, `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, and `fetch_url` — read-only tools auto-approve within the working directory.
 - **Trust Mode**: `--trust` auto-approves file tools and safe shell commands within the working directory sandbox.
@@ -21,7 +22,7 @@ Primary use case: drop into a project directory and work interactively — read,
 
 ## Prerequisites
 
-- .NET 8.0 or later
+- .NET 10.0 or later
 - API key for at least one supported AI provider:
   - Azure OpenAI
   - OpenAI
@@ -32,7 +33,7 @@ Primary use case: drop into a project directory and work interactively — read,
 
 ### Requirements
 
-- .NET 8 SDK (to build from source) or .NET 8 runtime (for pre-built binaries)
+- .NET 10 SDK (to build from source) or .NET 10 runtime (for pre-built binaries)
 - **Windows only:** [Git for Windows](https://git-scm.com/download/win) — nb uses Git Bash for its shell tool on Windows. PowerShell is not supported, because models mix bash and PowerShell idioms when given a tool named `bash` and produce broken commands. If `bash.exe` isn't found at install time, nb will tell you where to get it.
 
 ### Option 1: Build from Source (Recommended)
@@ -79,6 +80,10 @@ After installation, configure nb for your environment:
 
 4. **Theme** (Optional): Customize colors by editing `theme.json`.
 
+#### Config resolution
+
+Configuration resolves in layers, later winning: install defaults (`appsettings.json` next to the binary) → user config (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`) → the nearest project `.nb/config.json` (found by walking up from the current directory) → `NB_`-prefixed environment variables (`NB_ActiveProvider`, `NB_ChatProviders__0__ApiKey`, …). This keeps API keys out of the install directory and lets a project or CI job set provider/model without editing shared config. Pass `--config <file>` to use a single config file hermetically (ignoring the layers) — handy for isolated test runs.
+
 ## Usage
 
 ### Interactive Mode
@@ -116,9 +121,73 @@ Text piped to stdin is treated as conversation context. nb will read stdin to co
 echo "the air in spring is fresh and clean" | nb "write a sentence that rhymes with this, to create a couplet"
 ```
 
-Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context, and single-shot mode maintains conversation continuity between invocations.
+**Every invocation is stateless** — nb reads and writes no history file, so parallel runs in the same directory just work. When you want continuity, pass it explicitly: capture a run's transcript and hand it back as the premise for the next one.
+```bash
+nb --output jsonl "start a haiku about autumn" > turn1.jsonl
+nb --seed turn1.jsonl "now finish it"
+```
 
 nb exposes the current working directory as an MCP root, to help filesystem MCP servers orient themselves.
+
+### Machine-Readable Output
+
+Two output modes route the model's answer to stdout and all chrome (banners, spinner, tool logs) to stderr, so a script can capture a clean result:
+
+```bash
+nb --output jsonl "…"        # a typed event stream (user/assistant_text/tool_call/… + a result trailer)
+nb --output porcelain "…"    # plain text: TOOL/RESULT lines + the answer verbatim (fenced blocks survive)
+```
+
+Color is disabled automatically when stdout is redirected or `NO_COLOR` is set. The process exit code is meaningful: `0` success, `2` provider error, `3` turn aborted (tool-call budget or repeated failures), `4` approval denied.
+
+### Conversation Programs
+
+A **conversation-program** is an ordered list of directives that builds a conversation and invokes the model — nb's scripting surface, where configuration, fabricated history, and the live prompt are one document instead of three mechanisms.
+
+```
+provider anthropic
+model claude-sonnet-5
+system you are a terse assistant
+user what's 2+2?
+assistant 4
+run and what's the square of that?
+```
+
+```bash
+nb --program flow.nb          # from a file
+nb --program - < flow.nb      # from stdin (a first '{' char is read as jsonl bytecode instead)
+```
+
+Each line is `<verb> <content>`. **Config directives** (`provider`, `model`, `output`, `mcp`, `tools`) set the envelope going forward; **turn directives** (`system`, `user`, `assistant`) append messages; **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a `user` turn then `run`). Because config directives can appear between runs, one file can drive two models:
+
+```
+model haiku
+run quick triage of this log
+model opus
+run now analyze the root cause
+```
+
+A trailing `\` continues content onto the next line, `#` lines are comments, and `@file` as a directive's whole content includes that file. A program is never given nb's default persona — it gets exactly the `system` directives it writes (nothing, if it writes none), which is what an eval harness wants. Programs default to `--output jsonl`.
+
+> The `mcp` and `tools` directives (e.g. `mcp +figma`, `tools none`) are parsed and reported by `--resolve`, but do not yet reshape the tool surface — that wiring is in progress. The `provider`, `model`, `output`, `system`, `user`, `assistant`, and `run` directives are fully live.
+
+**Specs** are reusable prefixes of config directives, prepended to a program or a prompt:
+
+```bash
+nb --spec headless --program eval.nb     # prepend the built-in headless envelope (jsonl output, no persona)
+nb --spec ./my-envelope.nb "do the task"
+```
+
+`--spec` resolves a built-in (`headless`), an explicit file path, or `specs/<name>.nb` in a project `.nb/` directory or `~/.config/nb/`.
+
+**Inspect a program without running it:**
+
+```bash
+nb --validate --program flow.nb    # parse + check (unknown provider, invalid output mode); exit 1 on error
+nb --resolve  --program flow.nb    # print the effective envelope at each run point
+```
+
+The program format and the transcript format are the same schema: `--output jsonl` emits it and `--seed` loads it, so record → edit → replay is native.
 
 ### Shell Commands
 
@@ -203,6 +272,13 @@ Or enable permanently in `appsettings.json`:
 | `--nobash` | Disable all shell and file tools |
 | `--verbose` | Log tool call inputs and outputs (useful for debugging) |
 | `--dump-tools` | Write MCP tool manifest to `mcp-tools.json` and exit |
+| `--output <mode>` | `interactive` (default), `porcelain`, or `jsonl` — see [Machine-Readable Output](#machine-readable-output) |
+| `--config <file>` | Use a single config file hermetically, ignoring the layered resolution |
+| `--seed <file>` | Load a jsonl transcript as premise history before the prompt runs |
+| `--program <file>` | Evaluate a conversation-program (`-` for stdin) — see [Conversation Programs](#conversation-programs) |
+| `--spec <name\|file>` | Prepend a reusable config-directive prefix (built-in `headless`, a path, or `specs/<name>.nb`) |
+| `--validate` | Parse and check a program/spec, run nothing (exit 1 on error) |
+| `--resolve` | Print the effective envelope at each run point, run nothing |
 
 Example combining flags:
 ```bash
