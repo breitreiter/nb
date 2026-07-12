@@ -263,6 +263,33 @@ run_test_jsonl_stdout \
     "provider_error" \
     "$NB" --output jsonl "MOCK:throw"
 
+echo ""
+echo "--- Non-TTY approval (Phase 0) ---"
+echo ""
+
+# A tool needing approval, run headless (stdin is /dev/null) with no --trust,
+# is denied by policy — not a thrown ReadKey. The turn completes (exit 0) and
+# the model gets a structured denial it can route around.
+run_test_jsonl_stdout \
+    "non-tty approval: unapproved bash is denied, not hung" \
+    '[.[]|select(.type=="tool_result").output]|last|contains("non-interactive")' \
+    "true" \
+    "$NB" --output jsonl "MOCK:tool=bash touch approval_probe.txt"
+
+run_test \
+    "non-tty approval: denied turn still exits 0" \
+    0 \
+    "$NB" "MOCK:tool=bash touch approval_probe.txt"
+
+# --trust lifts the denial for a sandbox-safe command: it executes instead.
+run_test_jsonl_stdout \
+    "non-tty approval: --trust auto-approves the same call" \
+    '[.[]|select(.type=="tool_result").output]|last|contains("non-interactive")' \
+    "false" \
+    "$NB" --output jsonl --trust "MOCK:tool=bash touch approval_probe.txt"
+
+rm -f "$NB_DIR/approval_probe.txt"
+
 # Config is restored by trap, but do it explicitly for clarity
 restore_config
 

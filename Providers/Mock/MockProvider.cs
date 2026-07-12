@@ -49,6 +49,22 @@ public class MockChatClient : IChatClient
         if (lastUserMessage.StartsWith("MOCK:throw", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("mock provider failure");
 
+        // MOCK:tool=<name> <arg> scripts a single tool call so approval/tool-loop
+        // paths are testable. It fires once: as soon as a tool result is in
+        // history, we fall through to a plain answer, so the turn terminates
+        // after one round instead of re-emitting the call forever.
+        const string toolPrefix = "MOCK:tool=";
+        bool toolAlreadyRan = chatMessages.Any(m => m.Role == ChatRole.Tool);
+        if (!toolAlreadyRan && lastUserMessage.StartsWith(toolPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var spec = lastUserMessage[toolPrefix.Length..];
+            var parts = spec.Split(' ', 2);
+            var name = parts[0];
+            var arg = parts.Length > 1 ? parts[1] : "";
+            var call = new FunctionCallContent("mock-call-1", name, BuildToolArgs(name, arg));
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, new List<AIContent> { call }));
+        }
+
         // Check for special mock instructions in the message
         var response = ParseMockInstruction(lastUserMessage) ?? _defaultResponse;
 
@@ -60,14 +76,25 @@ public class MockChatClient : IChatClient
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Just yield the full response as a single update
+        // Yield the full response as a single update, carrying ALL content
+        // (text and any function calls) so scripted tool calls survive the
+        // streaming path — not just response.Text.
         var response = await GetResponseAsync(chatMessages, options, cancellationToken);
-        yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
+        yield return new ChatResponseUpdate(ChatRole.Assistant, response.Messages[0].Contents);
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
     public void Dispose() { }
+
+    // Maps a scripted tool name + raw arg to the argument dictionary that tool
+    // expects. Only the tools exercised by tests need entries.
+    private static Dictionary<string, object?> BuildToolArgs(string name, string arg) =>
+        name.ToLowerInvariant() switch
+        {
+            "bash" => new() { ["command"] = arg, ["description"] = "scripted by MockProvider" },
+            _ => new() { ["input"] = arg },
+        };
 
     private static string? ParseMockInstruction(string message)
     {

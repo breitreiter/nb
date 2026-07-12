@@ -655,7 +655,12 @@ public class ConversationManager
                                     // Check if tool is in always-allow list
                                     bool approved = _mcpManager.IsAlwaysAllowed(functionCall.Name);
 
-                                    if (!approved)
+                                    if (!approved && NonInteractive)
+                                    {
+                                        // No terminal to prompt at: deny by policy (Phase 0).
+                                        Console.Error.WriteLine($"[nb] denied: MCP tool '{functionCall.Name}' needs approval, but stdin is not a TTY and it is not in the always-allow list.");
+                                    }
+                                    else if (!approved)
                                     {
                                         // Show tool call details and request approval
                                         var argumentsJson = JsonSerializer.Serialize(functionCall.Arguments, new JsonSerializerOptions { WriteIndented = true });
@@ -687,11 +692,13 @@ public class ConversationManager
 
                                     if (!approved)
                                     {
-                                        var reason = AnsiConsole.Prompt(
-                                            new TextPrompt<string>("Reason for rejection [dim](optional)[/]:")
-                                                .DefaultValue("User declined")
-                                                .AllowEmpty()
-                                        );
+                                        var reason = NonInteractive
+                                            ? "non-interactive session; approval policy denied"
+                                            : AnsiConsole.Prompt(
+                                                new TextPrompt<string>("Reason for rejection [dim](optional)[/]:")
+                                                    .DefaultValue("User declined")
+                                                    .AllowEmpty()
+                                            );
 
                                         var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
                                             ? "Error: User rejected this tool call. Permission denied. Do not retry this action."
@@ -1051,6 +1058,21 @@ public class ConversationManager
         return changes;
     }
 
+    // No interactive terminal to prompt at: approval must be resolved by policy,
+    // not a key press. Anything already cleared by --approve/--trust is handled
+    // before these prompts, so the Phase 0 policy here is a flat deny — reported
+    // to the model as a structured tool error it can route around, never a hang
+    // or a thrown ReadKey. (A richer per-tool policy arrives with Phase 5.)
+    private static bool NonInteractive => Console.IsInputRedirected;
+
+    private static FunctionResultContent DenyNonInteractive(string callId, string what)
+    {
+        Console.Error.WriteLine($"[nb] denied: {what} needs approval, but stdin is not a TTY and nothing pre-approved it.");
+        return new FunctionResultContent(callId,
+            $"Error: {what} requires approval, but this is a non-interactive session (stdin is not a TTY) " +
+            "and no pre-approval (--approve/--trust) matched. Permission denied — do not retry; try a different approach.");
+    }
+
     private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command, string description)
     {
         try
@@ -1102,6 +1124,9 @@ public class ConversationManager
             {
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: {classified.DangerReason}[/]");
             }
+
+            if (NonInteractive)
+                return DenyNonInteractive(callId, $"bash ({classified.Category})");
 
             // Default based on danger level
             var defaultYes = !classified.IsDangerous;
@@ -1333,6 +1358,9 @@ public class ConversationManager
                 }
             }
 
+            if (NonInteractive)
+                return Task.FromResult(DenyNonInteractive(callId, "write_file"));
+
             // Show approval prompt
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Write:[/] {Markup.Escape(fullPath)}");
             AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {lineCount} lines, {byteCount} bytes[/]");
@@ -1398,6 +1426,9 @@ public class ConversationManager
     {
         try
         {
+            if (NonInteractive)
+                return DenyNonInteractive(callId, "fetch_url");
+
             // Show approval prompt — network fetches always require explicit approval
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Fetch:[/] {Markup.Escape(url)}");
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: outbound network request[/]");
@@ -1500,6 +1531,9 @@ public class ConversationManager
                     }
                 }
             }
+
+            if (NonInteractive)
+                return DenyNonInteractive(callId, "edit_file");
 
             // Show approval prompt with diff preview
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Edit:[/] {Markup.Escape(fullPath)}");
@@ -1630,6 +1664,9 @@ public class ConversationManager
             return new FunctionResultContent(callId, summary);
         }
 
+        if (NonInteractive)
+            return DenyNonInteractive(callId, "apply_patch (path outside working directory)");
+
         // Flush any pending input
         while (Console.KeyAvailable) Console.ReadKey(intercept: true);
 
@@ -1731,6 +1768,13 @@ public class ConversationManager
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Symlink escape:[/] [{UIColors.SpectreMuted}]{Markup.Escape(fullPath)} resolves outside working directory[/]");
         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]{toolLabel}:[/] {Markup.Escape(fullPath)}");
         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: path is outside working directory[/]");
+
+        // No terminal to prompt at: deny the out-of-sandbox access deterministically.
+        if (NonInteractive)
+        {
+            Console.Error.WriteLine($"[nb] denied: {toolLabel} on a path outside the working directory (non-interactive session).");
+            return false;
+        }
 
         while (Console.KeyAvailable) Console.ReadKey(intercept: true);
 
