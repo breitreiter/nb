@@ -316,6 +316,14 @@ public class Program
             });
         }
 
+        // Honor NO_COLOR (https://no-color.org): any non-empty value disables
+        // color. Spectre already drops ANSI when output is redirected, but it
+        // does not read NO_COLOR itself, so a user on a TTY who sets it still
+        // gets color without this. Applied after the jsonl swap so it gates
+        // whichever console ends up active.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR")))
+            AnsiConsole.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
+
         if (_showHelp)
         {
             Console.WriteLine("Usage: nb [options] [prompt]");
