@@ -73,6 +73,8 @@ public class Program
     private static string? _configPath = null;
     private static string? _programFile = null;
     private static string? _specName = null;
+    private static bool _validate = false;
+    private static bool _resolve = false;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -285,6 +287,14 @@ public class Program
             {
                 _specName = args[++i];
             }
+            else if (args[i] == "--validate")
+            {
+                _validate = true;
+            }
+            else if (args[i] == "--resolve")
+            {
+                _resolve = true;
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -354,6 +364,8 @@ public class Program
             Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
             Console.WriteLine("  --program <file>        Evaluate a conversation-program (source syntax or jsonl bytecode; '-' for stdin). No default persona; provider/model may switch between runs");
             Console.WriteLine("  --spec <name|file>      Prepend a reusable config-directive prefix (built-in 'headless', a path, or specs/<name>.nb in .nb/ or ~/.config/nb). Composes with --program or a prompt arg");
+            Console.WriteLine("  --validate              Parse and check the program/spec, run nothing (exit 1 on error)");
+            Console.WriteLine("  --resolve               Print the effective envelope at each run point, run nothing");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
@@ -467,7 +479,7 @@ public class Program
         // persona injected — a bare program (or an explicit --spec) gets exactly
         // the directives written, nothing implicit. The default persona is the
         // floor only on the bare human/-p path (rules/preset-floor.md).
-        if (_programFile != null || _specName != null)
+        if (_programFile != null || _specName != null || _validate || _resolve)
         {
             await RunProgramAsync(config, remainingArgs);
             _mcpManager.Dispose();
@@ -757,24 +769,10 @@ public class Program
     private static async Task RunProgramAsync(IConfiguration config, string[] promptArgs)
     {
         var warnings = new List<string>();
-        var program = new List<TranscriptEvent>();
-
+        List<TranscriptEvent> program;
         try
         {
-            if (_specName != null)
-                program.AddRange(ParseProgramSource(ResolveSpecSource(_specName), warnings));
-
-            if (_programFile != null)
-            {
-                var source = _programFile == "-"
-                    ? await Console.In.ReadToEndAsync()
-                    : await File.ReadAllTextAsync(_programFile);
-                program.AddRange(ParseProgramSource(source, warnings));
-            }
-            else if (promptArgs.Length > 0)
-            {
-                program.Add(new RunEvent { Prompt = string.Join(" ", promptArgs) });
-            }
+            program = await BuildProgramAsync(promptArgs, warnings);
         }
         catch (Exception ex) when (ex is TranscriptFormatException or ProgramParseException or FileNotFoundException or SpecNotFoundException)
         {
@@ -782,6 +780,10 @@ public class Program
             Environment.ExitCode = 1;
             return;
         }
+
+        // Inspection modes parse + resolve but run nothing.
+        if (_validate) { ValidateProgram(program, config, warnings); return; }
+        if (_resolve) { ResolveProgram(program); return; }
 
         var evaluator = new ProgramEvaluator(_conversationManager, BuildProgramClient(config), warnings);
         await evaluator.EvaluateAsync(program);
@@ -793,6 +795,105 @@ public class Program
         if (mode == "porcelain") EmitPorcelainTranscript(); else EmitJsonlTranscript();
 
         Environment.ExitCode = ExitReasons.ToExitCode(_conversationManager.LastOutcome);
+    }
+
+    // Assemble the full program: an optional --spec prefix followed by the body
+    // (a --program file, or the prompt args as a single run).
+    private static async Task<List<TranscriptEvent>> BuildProgramAsync(string[] promptArgs, IList<string> warnings)
+    {
+        var program = new List<TranscriptEvent>();
+
+        if (_specName != null)
+            program.AddRange(ParseProgramSource(ResolveSpecSource(_specName), warnings));
+
+        if (_programFile != null)
+        {
+            var source = _programFile == "-"
+                ? await Console.In.ReadToEndAsync()
+                : await File.ReadAllTextAsync(_programFile);
+            program.AddRange(ParseProgramSource(source, warnings));
+        }
+        else if (promptArgs.Length > 0)
+        {
+            program.Add(new RunEvent { Prompt = string.Join(" ", promptArgs) });
+        }
+
+        return program;
+    }
+
+    // --validate: parse succeeded (we got here); report structural warnings and
+    // semantic errors (unknown provider, bad output mode), run nothing. Exit 1 on
+    // any error, 0 otherwise.
+    private static void ValidateProgram(IReadOnlyList<TranscriptEvent> program, IConfiguration config, IList<string> warnings)
+    {
+        var providers = _providerManager.GetConfiguredProviders(config)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var errors = new List<string>();
+
+        foreach (var ev in program)
+        {
+            switch (ev)
+            {
+                case ProviderEvent p when providers.Count > 0 && !providers.Contains(p.Name):
+                    errors.Add($"unknown provider '{p.Name}'. Configured: {string.Join(", ", providers)}.");
+                    break;
+                case OutputEvent o when o.Mode is not ("interactive" or "porcelain" or "jsonl"):
+                    errors.Add($"invalid output mode '{o.Mode}'. Valid: interactive, porcelain, jsonl.");
+                    break;
+            }
+        }
+
+        foreach (var w in warnings) Console.Error.WriteLine($"warning: {w}");
+        foreach (var e in errors) Console.Error.WriteLine($"error: {e}");
+
+        if (errors.Count > 0)
+        {
+            Console.Error.WriteLine($"invalid: {errors.Count} error(s).");
+            Environment.ExitCode = 1;
+        }
+        else
+        {
+            Console.Error.WriteLine($"valid: {program.Count} directive(s).");
+        }
+    }
+
+    // --resolve: walk the directives without invoking, printing the effective
+    // envelope at each run point (the ordering inspector for anywhere-config).
+    private static void ResolveProgram(IReadOnlyList<TranscriptEvent> program)
+    {
+        string provider = "(default)", model = "(default)", output = _outputMode;
+        var mcp = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var toolDeltas = new List<string>();
+        int run = 0;
+
+        foreach (var ev in program)
+        {
+            switch (ev)
+            {
+                case ProviderEvent p: provider = p.Name; break;
+                case ModelEvent m: model = m.Name; break;
+                case OutputEvent o: output = o.Mode; break;
+                case McpEvent mc:
+                    if (mc.Reset) mcp.Clear();
+                    foreach (var r in mc.Remove) mcp.Remove(r);
+                    foreach (var a in mc.Add) mcp.Add(a);
+                    break;
+                case ToolsEvent t:
+                    if (t.Reset) toolDeltas.Add("none");
+                    foreach (var r in t.Remove) toolDeltas.Add("-" + r);
+                    foreach (var a in t.Add) toolDeltas.Add("+" + a);
+                    break;
+                case RunEvent:
+                    run++;
+                    var mcpStr = mcp.Count > 0 ? string.Join(",", mcp) : "(none)";
+                    var toolStr = toolDeltas.Count > 0 ? string.Join(" ", toolDeltas) : "all";
+                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr}");
+                    break;
+            }
+        }
+
+        if (run == 0)
+            Console.WriteLine($"no runs. provider={provider} model={model} output={output}");
     }
 
     // First non-blank, non-comment line starting with '{' => JSONL bytecode.

@@ -383,6 +383,29 @@ run_test \
     "$NB" --spec no-such-spec "MOCK:response=x"
 
 echo ""
+echo "--- validate / resolve (Phase 3.5) ---"
+echo ""
+
+# --validate on a good program runs nothing and exits 0.
+run_test \
+    "validate: good program exits 0" \
+    0 \
+    "$NB" --validate --program "$SCRIPT_DIR/fixtures/prog-basic.nb"
+
+# --validate flags an unknown provider and exits 1.
+run_test_contains \
+    "validate: unknown provider exits 1" \
+    1 \
+    "unknown provider" \
+    "$NB" --validate --program "$SCRIPT_DIR/fixtures/prog-badprovider.nb"
+
+# --resolve prints the effective envelope at each run point.
+run_test_stdout_contains \
+    "resolve: prints per-run envelope" \
+    "run 1:" \
+    "$NB" --resolve --program "$SCRIPT_DIR/fixtures/prog-swap.nb"
+
+echo ""
 
 # ----------------------------------------
 # Layer 3: LLM Eval Tests (uses real provider, LLM-as-judge)
