@@ -72,6 +72,7 @@ public class Program
     private static string? _seedFile = null;
     private static string? _configPath = null;
     private static string? _programFile = null;
+    private static string? _specName = null;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -280,6 +281,10 @@ public class Program
             {
                 _programFile = args[++i];
             }
+            else if (args[i] == "--spec" && i + 1 < args.Length)
+            {
+                _specName = args[++i];
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -309,7 +314,7 @@ public class Program
         // A program run is machine-oriented: default its output to jsonl (the
         // bytecode) so chrome relocates to stderr like the other machine modes.
         // An `output` directive in the program can still override the final emit.
-        if (_programFile != null && _outputMode == "interactive")
+        if ((_programFile != null || _specName != null) && _outputMode == "interactive")
             _outputMode = "jsonl";
 
         // Machine-output modes send all chrome (banners, streamed render, tool
@@ -348,6 +353,7 @@ public class Program
             Console.WriteLine("  --seed <file>           Load a transcript (jsonl) as premise history before the prompt runs");
             Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
             Console.WriteLine("  --program <file>        Evaluate a conversation-program (source syntax or jsonl bytecode; '-' for stdin). No default persona; provider/model may switch between runs");
+            Console.WriteLine("  --spec <name|file>      Prepend a reusable config-directive prefix (built-in 'headless', a path, or specs/<name>.nb in .nb/ or ~/.config/nb). Composes with --program or a prompt arg");
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
@@ -458,11 +464,12 @@ public class Program
             _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream, temperature, presencePenalty);
 
         // Program mode: evaluate a conversation-program directly, with no default
-        // persona injected — a bare program gets exactly the system directives it
-        // writes, nothing more (preset-floor comes in Phase 3.4).
-        if (_programFile != null)
+        // persona injected — a bare program (or an explicit --spec) gets exactly
+        // the directives written, nothing implicit. The default persona is the
+        // floor only on the bare human/-p path (rules/preset-floor.md).
+        if (_programFile != null || _specName != null)
         {
-            await RunProgramAsync(config);
+            await RunProgramAsync(config, remainingArgs);
             _mcpManager.Dispose();
             return;
         }
@@ -743,36 +750,35 @@ public class Program
         Console.Error.WriteLine(TranscriptPorcelainWriter.Trailer(trailer));
     }
 
-    // Evaluate a conversation-program (--program): read it, detect source vs
-    // bytecode, walk the directives (config/turns/run, swapping the client on
-    // provider/model changes), then emit the resulting transcript.
-    private static async Task RunProgramAsync(IConfiguration config)
+    // Evaluate a conversation-program: an optional --spec prefix (a reusable run
+    // of config directives) followed by the body — a --program file, or the
+    // prompt args as a single `run`. Detects source vs bytecode, walks the
+    // directives (swapping the client on provider/model changes), emits.
+    private static async Task RunProgramAsync(IConfiguration config, string[] promptArgs)
     {
-        string source;
-        try
-        {
-            source = _programFile == "-"
-                ? await Console.In.ReadToEndAsync()
-                : await File.ReadAllTextAsync(_programFile!);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Error: cannot read program '{_programFile}': {ex.Message}");
-            Environment.ExitCode = 1;
-            return;
-        }
-
         var warnings = new List<string>();
-        IReadOnlyList<TranscriptEvent> program;
+        var program = new List<TranscriptEvent>();
+
         try
         {
-            program = LooksLikeJsonl(source)
-                ? TranscriptSerializer.Parse(source, warnings)
-                : ProgramParser.Parse(source, ResolveInclude);
+            if (_specName != null)
+                program.AddRange(ParseProgramSource(ResolveSpecSource(_specName), warnings));
+
+            if (_programFile != null)
+            {
+                var source = _programFile == "-"
+                    ? await Console.In.ReadToEndAsync()
+                    : await File.ReadAllTextAsync(_programFile);
+                program.AddRange(ParseProgramSource(source, warnings));
+            }
+            else if (promptArgs.Length > 0)
+            {
+                program.Add(new RunEvent { Prompt = string.Join(" ", promptArgs) });
+            }
         }
-        catch (Exception ex) when (ex is TranscriptFormatException or ProgramParseException)
+        catch (Exception ex) when (ex is TranscriptFormatException or ProgramParseException or FileNotFoundException or SpecNotFoundException)
         {
-            Console.Error.WriteLine($"Error: invalid program: {ex.Message}");
+            Console.Error.WriteLine($"Error: {ex.Message}");
             Environment.ExitCode = 1;
             return;
         }
@@ -799,6 +805,49 @@ public class Program
             return t.StartsWith("{");
         }
         return false;
+    }
+
+    private static IReadOnlyList<TranscriptEvent> ParseProgramSource(string source, IList<string> warnings) =>
+        LooksLikeJsonl(source)
+            ? TranscriptSerializer.Parse(source, warnings)
+            : ProgramParser.Parse(source, ResolveInclude);
+
+    // Built-in specs ship in the box. headless = machine output, no persona.
+    private static readonly Dictionary<string, string> BuiltInSpecs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["headless"] = "output jsonl\n",
+    };
+
+    // Resolve a --spec argument to its source text: an explicit file path, then a
+    // built-in name, then specs/<name>.nb in the project (.nb, upward walk) or
+    // user (~/.config/nb) config layers.
+    private static string ResolveSpecSource(string spec)
+    {
+        if (File.Exists(spec)) return File.ReadAllText(spec);
+        if (BuiltInSpecs.TryGetValue(spec, out var builtin)) return builtin;
+        foreach (var dir in SpecSearchDirs())
+        {
+            var path = Path.Combine(dir, spec + ".nb");
+            if (File.Exists(path)) return File.ReadAllText(path);
+        }
+        throw new SpecNotFoundException(
+            $"unknown spec '{spec}'. Built-in: {string.Join(", ", BuiltInSpecs.Keys)}. " +
+            $"Or give a path, or define specs/{spec}.nb in a .nb dir or ~/.config/nb.");
+    }
+
+    private static IEnumerable<string> SpecSearchDirs()
+    {
+        var dir = Directory.GetCurrentDirectory();
+        while (dir != null)
+        {
+            yield return Path.Combine(dir, ".nb", "specs");
+            dir = Path.GetDirectoryName(dir);
+        }
+        var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        var baseDir = string.IsNullOrEmpty(xdg)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config")
+            : xdg;
+        yield return Path.Combine(baseDir, "nb", "specs");
     }
 
     // (provider, model) -> a chat client for the program evaluator. Either may be
@@ -836,3 +885,6 @@ public class Program
         return File.ReadAllText(full);
     }
 }
+
+/// <summary>Raised when a --spec name resolves to no built-in, path, or config-layer spec file.</summary>
+public sealed class SpecNotFoundException(string message) : Exception(message);

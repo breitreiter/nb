@@ -358,6 +358,31 @@ run_test \
     "$NB" --program "$SCRIPT_DIR/fixtures/prog-bad.nb"
 
 echo ""
+echo "--- Specs (Phase 3.4) ---"
+echo ""
+
+# Built-in 'headless' spec + a prompt arg (the arg becomes a run).
+run_test_jsonl_stdout \
+    "spec: built-in headless runs a prompt arg" \
+    '[.[]|select(.type=="assistant_text").text]|last' \
+    "via spec" \
+    "$NB" --spec headless "MOCK:response=via spec"
+
+# A spec prefix composes with a program: the spec's model directive governs the
+# program's run.
+run_test_jsonl_stdout \
+    "spec: prefix directives apply to the program body" \
+    '[.[]|select(.type=="assistant_text").text]|last' \
+    "gamma" \
+    "$NB" --spec "$SCRIPT_DIR/fixtures/spec-model.nb" --program "$SCRIPT_DIR/fixtures/prog-runmodel.nb"
+
+# An unknown spec name fails fast with exit 1.
+run_test \
+    "spec: unknown name exits 1" \
+    1 \
+    "$NB" --spec no-such-spec "MOCK:response=x"
+
+echo ""
 
 # ----------------------------------------
 # Layer 3: LLM Eval Tests (uses real provider, LLM-as-judge)
