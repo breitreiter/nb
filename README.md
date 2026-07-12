@@ -16,7 +16,6 @@ Primary use case: drop into a project directory and work interactively — read,
 - **Trust Mode**: `--trust` auto-approves file tools and safe shell commands within the working directory sandbox.
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
 - **MCP Server Integration** for extensible tools and resources
-- **Kit System**: Activate contextual prompts and MCP tools with `+` disambiguation (e.g., `+review`, `+testing`)
 - **Line Editor**: Full editing capabilities with history, backslash continuation, and `/edit` for composing in `$EDITOR`
 - **Project Context**: Auto-loads `NB.md` from your working directory to provide project-specific context
 
@@ -78,9 +77,7 @@ After installation, configure nb for your environment:
 
 3. **MCP Servers** (Optional): Copy `mcp.example.json` to `mcp.json` and configure your MCP server connections.
 
-4. **Kits** (Optional): Copy `kits.example.json` to `kits.json` and configure contextual prompt bundles.
-
-5. **Theme** (Optional): Customize colors by editing `theme.json`.
+4. **Theme** (Optional): Customize colors by editing `theme.json`.
 
 ## Usage
 
@@ -92,7 +89,6 @@ nb
 
 In interactive mode, you can:
 - Type naturally to chat with the AI
-- Type `+` to activate kits (contextual prompt/tool bundles)
 - Type `/` to see available slash commands
 - Type `//` to cancel and go back
 - Use backslash (`\`) at end of line to continue on next line
@@ -104,7 +100,6 @@ In interactive mode, you can:
 |---------|-------------|
 | `/clear` | Clear conversation history (preserves system prompt) |
 | `/edit` | Compose message in `$EDITOR` |
-| `/kit` | List active kits, or manage them (`/kit clear`, `/kit drop <name>`) |
 | `/provider` | Switch AI provider |
 | `/tools` | List available tools by source, with approval status |
 | `/quit` | Exit nb |
@@ -122,14 +117,6 @@ echo "the air in spring is fresh and clean" | nb "write a sentence that rhymes w
 ```
 
 Conversation history saves to `.nb_conversation_history.json` in the current working directory. Each directory maintains its own context, and single-shot mode maintains conversation continuity between invocations.
-
-Activate kits inline with leading `+kit` tokens — this is how you reach kit-gated MCP tools in single-shot mode:
-```bash
-nb +review "look at the changes on this branch"
-nb +review +security "audit this diff"   # multiple kits stack
-nb +review                                # activate only, no prompt
-```
-Active kits persist per-directory (in `.nb_active_kits.json`), so they stay in effect across later invocations until you change them with `/kit` or clear them with `--no-kits`. See [Kits](#kits) for details.
 
 nb exposes the current working directory as an MCP root, to help filesystem MCP servers orient themselves.
 
@@ -197,41 +184,6 @@ Or enable permanently in `appsettings.json`:
 
 **Sandboxed**: only operations targeting the cwd (and system temp dirs) are auto-approved. Dangerous commands (`rm -rf`, `sudo`, etc.) always prompt. Also bumps the max tool calls per message to 50.
 
-### Kits
-
-Kits are contextual prompt bundles that inject domain-specific guidance and optionally gate MCP server tools. Configure in `kits.json`:
-
-```json
-{
-  "kits": {
-    "review": {
-      "description": "Code review guidance",
-      "prompt": "Focus on code quality, correctness, security vulnerabilities, and maintainability..."
-    },
-    "testing": {
-      "description": "Testing and QA",
-      "prompt": "Help write and run tests...",
-      "mcpServers": ["test-runner"]
-    }
-  }
-}
-```
-
-Activate during conversation by typing `+` and selecting from the menu, or in single-shot mode with leading `+kit` tokens (`nb +review "..."`). When a kit is active:
-- Its prompt is injected into context
-- Any MCP servers specified in `mcpServers` are made available
-- MCP tools from non-active kits are hidden
-
-**Persistence**: active kits are remembered per-directory in `.nb_active_kits.json`, so a kit activated in one invocation stays active for later ones (including across single-shot calls). This is what makes kit-gated MCP tools usable when scripting.
-
-**Managing active kits** with `/kit`:
-- `/kit` — list active and available kits
-- `/kit drop <name>` — deactivate one kit
-- `/kit clear` — deactivate all kits
-- `nb --no-kits` — clear the persisted set for the current directory
-
-**MCP gating**: If you have kits configured, MCP tools are only available when their server is listed in an active kit's `mcpServers` array. This prevents tool clutter and helps focus the model. The flip side: an MCP server that no kit references — or a setup with no active kit — exposes none of its tools.
-
 ### Listing Tools
 
 `/tools` shows every tool currently exposed to the model, grouped by source (native, MCP servers, resources, todo), with each tool's approval status:
@@ -241,8 +193,6 @@ Activate during conversation by typing `+` and selecting from the menu, or in si
 - `auto (always-allow)` — MCP tools listed in their server's `alwaysAllow`
 - `prompt` — asks for approval on each call
 
-Because MCP tools are kit-gated, `/tools` doubles as a quick check on which kits/servers are actually live — if a server you expected is missing, no active kit references it.
-
 ### Command-Line Flags
 
 | Flag | Description |
@@ -251,7 +201,6 @@ Because MCP tools are kit-gated, `/tools` doubles as a quick check on which kits
 | `--trust` | Auto-approve file tools and safe bash commands within cwd |
 | `--system <path>` | Load system prompt from a custom file |
 | `--nobash` | Disable all shell and file tools |
-| `--no-kits` | Clear any persisted active kits for the current directory |
 | `--verbose` | Log tool call inputs and outputs (useful for debugging) |
 | `--dump-tools` | Write MCP tool manifest to `mcp-tools.json` and exit |
 
@@ -349,7 +298,7 @@ For example, here's a high-contrast theme (WCAG AAA on standard Windows console 
 dotnet publish -c Release -r win-x64 --self-contained
 ```
 
-Include `system.md`, `mcp.json`, `kits.json`, and `theme.json` with your executable for custom configurations.
+Include `system.md`, `mcp.json`, and `theme.json` with your executable for custom configurations.
 
 ## AI Provider Architecture
 

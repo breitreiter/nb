@@ -16,6 +16,13 @@ provenance:
 
 # nb is an evaluator for conversation-programs
 
+> **Revision (2026-07-12): kits removed entirely.** Where this note references
+> kits (the `+kit` tokens, "stacking is what kits are for"), that mechanism is
+> gone — kits are deleted, not demoted. The `mcp` and `tools` directives
+> described here are now the *sole* tool-surface mechanism, not a replacement for
+> a monopoly kits still held. Interim: MCP tools are unexposed until those
+> directives land in Phase 3.
+
 ## Why this note exists
 
 A pressure-test question exposed that the composable-CLI design (and the

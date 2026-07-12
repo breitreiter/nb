@@ -68,12 +68,6 @@ public class ConversationManager
     private HashSet<string>? _lastRemindedTodos = null;
     private string _currentProviderName = "";
 
-    /// <summary>
-    /// Returns the set of MCP server names whose tools should be included in requests.
-    /// When null or returning empty, no MCP tools are included.
-    /// </summary>
-    public Func<HashSet<string>>? GetActiveMcpServers { get; set; }
-
     public ConversationManager(
         IChatClient client,
         McpManager mcpManager,
@@ -202,18 +196,9 @@ public class ConversationManager
 
             // Assemble the tool list. NOTE: GetAvailableTools() mirrors this for the
             // /tools command — keep the two in sync when adding/removing tools.
-            // Add MCP tools (only from servers referenced by active kits)
-            var activeServers = GetActiveMcpServers?.Invoke();
-            var mcpTools = (activeServers != null && activeServers.Count > 0)
-                ? _mcpManager.GetToolsForServers(activeServers).ToList()
-                : new List<AIFunction>();
-
-            // Add native resource tools only if we have active MCP servers
-            if (mcpTools.Count > 0)
-            {
-                mcpTools.Add(ResourceTools.CreateListResourcesTool(_mcpManager));
-                mcpTools.Add(ResourceTools.CreateReadResourceTool(_mcpManager));
-            }
+            // MCP tools are not exposed in this build — the kit gate (their only
+            // access path) was removed; the Phase 3 `mcp` directive re-adds them.
+            var mcpTools = new List<AIFunction>();
 
             // Add bash tool if enabled
             if (_bashTool != null)
@@ -1942,29 +1927,6 @@ public class ConversationManager
         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Conversation history cleared[/]");
     }
 
-    public void SetKitContext(string? kitContent)
-    {
-        const string marker = "[Kit Context]";
-
-        bool hasKitSlot = _conversationHistory.Count > 1
-            && _conversationHistory[1].Role == ChatRole.System
-            && _conversationHistory[1].Text?.StartsWith(marker) == true;
-
-        if (kitContent == null)
-        {
-            if (hasKitSlot)
-                _conversationHistory.RemoveAt(1);
-        }
-        else
-        {
-            var message = new AIChatMessage(ChatRole.System, $"{marker}\n{kitContent}");
-            if (hasKitSlot)
-                _conversationHistory[1] = message;
-            else
-                _conversationHistory.Insert(1, message);
-        }
-    }
-
     // Enumerates the tools currently exposed to the model, grouped by source with
     // each tool's effective approval status. Mirrors the assembly in
     // SendMessageInternalAsync — keep the two in sync when adding/removing tools.
@@ -1972,27 +1934,7 @@ public class ConversationManager
     {
         var tools = new List<ToolDescriptor>();
 
-        // MCP tools from servers referenced by active kits, grouped per server
-        var activeServers = (GetActiveMcpServers?.Invoke() ?? new HashSet<string>())
-            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
-        var mcpToolCount = 0;
-        foreach (var server in activeServers)
-        {
-            foreach (var tool in _mcpManager.GetToolsForServers(new[] { server }))
-            {
-                mcpToolCount++;
-                var approval = _mcpManager.IsAlwaysAllowed(tool.Name) ? "auto (always-allow)" : "prompt";
-                if (_fakeToolManager.GetFakeTool(tool.Name) != null) approval += " · faked";
-                tools.Add(new ToolDescriptor($"MCP · {server}", tool.Name, approval));
-            }
-        }
-
-        // Resource tools are only registered when at least one MCP tool is active
-        if (mcpToolCount > 0)
-        {
-            tools.Add(new ToolDescriptor("Resources", ResourceTools.CreateListResourcesTool(_mcpManager).Name, "auto"));
-            tools.Add(new ToolDescriptor("Resources", ResourceTools.CreateReadResourceTool(_mcpManager).Name, "auto"));
-        }
+        // MCP tools are not exposed in this build (see SendMessageInternalAsync).
 
         // Native tools (all null under --nobash). Read-only tools auto-approve within
         // the cwd sandbox; writes and bash auto-approve only with trust mode.

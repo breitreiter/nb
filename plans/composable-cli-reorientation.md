@@ -21,6 +21,15 @@ provenance:
 
 # Composable-CLI reorientation — nb as an automation tool first
 
+> **Revision (2026-07-12): kits removed entirely.** This plan (Pillar 1, "What
+> this costs") kept kits as demoted prompt/tool *overlays* composing on top of a
+> spec. That's superseded: kits are deleted outright (`KitManager`, `+kit`
+> tokens, `/kit`, `.nb_active_kits.json`, `kits.json`). The tool-focusing use
+> case they served is deprioritized along with nb-as-general-CLI-client, and the
+> `mcp`/`tools` directives (evaluator plan) become the sole tool-surface
+> mechanism. Interim: MCP tools are unexposed until those directives land. The
+> text below is preserved as the original intent.
+
 ## Why this plan exists
 
 nb was born a chat app, spent time as a coding agent, and is settling into

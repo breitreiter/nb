@@ -20,6 +20,12 @@ provenance:
 
 # Onboarding, diagnostics, and kit UX
 
+> **Status (2026-07-12): the kit portions are obsolete — kits are removed.**
+> `KitManager`, `+kit` tokens, `/kit`, and `.nb_active_kits.json` are deleted; the
+> tool surface moves to the evaluator plan's `mcp`/`tools` directives. The
+> onboarding/diagnostics ideas here that are *not* kit-specific may still apply;
+> the kit-UX ideas do not. Preserved as historical intent.
+
 ## Why this plan exists
 
 A cluster of related gaps make nb hard to set up and easy to

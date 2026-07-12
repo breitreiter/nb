@@ -31,13 +31,11 @@ public class Program
     private static FetchUrlTool _fetchUrlTool = null!;
     private static ApplyPatchTool _applyPatchTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
-    private static KitManager _kitManager = new KitManager();
     private static readonly List<CompletionHint> _commandHints = new()
     {
         new("//", "Back"),
         new("/clear", "Clear conversation"),
         new("/edit", "Compose in $EDITOR"),
-        new("/kit", "List or manage active kits"),
         new("/provider", "Switch AI provider"),
         new("/tools", "List available tools and approval status"),
         new("/quit", "Quit"),
@@ -53,14 +51,6 @@ public class Program
         editor.AddSource(new CompletionSource('/', TriggerAnchor.LineStart,
             body => _commandHints
                 .Where(c => c.Name.StartsWith("/" + body, StringComparison.OrdinalIgnoreCase))
-                .ToList()));
-
-        // Kit completions (+trigger): a live view of loaded kits, so kits read
-        // by LoadKits later appear without re-registering the source.
-        editor.AddSource(new CompletionSource('+', TriggerAnchor.LineStart,
-            body => _kitManager.Kits.Values
-                .Select(k => new CompletionHint("+" + k.Name, k.Description))
-                .Where(h => h.Name.StartsWith("+" + body, StringComparison.OrdinalIgnoreCase))
                 .ToList()));
 
         // File mentions (@trigger): word-start, indexed once from the launch
@@ -348,7 +338,6 @@ public class Program
             Console.WriteLine();
             Console.WriteLine("With no arguments, starts interactive mode.");
             Console.WriteLine("With a prompt argument, runs in single-shot mode.");
-            Console.WriteLine("Leading +kit tokens activate kits (e.g. nb +review \"check this\").");
             Console.WriteLine("Stdin is accepted and included as context.");
             return;
         }
@@ -437,7 +426,8 @@ public class Program
             Environment.Exit(1);
         }
 
-        // Load MCP config (no connections yet — servers connect on kit activation)
+        // Load MCP server definitions (no connections — MCP tools are not exposed
+        // in this build; the Phase 3 `mcp` directive will connect on demand).
         _mcpManager.LoadConfig();
 
         // Load fake tools
@@ -481,17 +471,12 @@ public class Program
             fullPrompt += $"\n\n{projectContext}";
 
         _conversationManager.InitializeWithSystemPrompt(fullPrompt);
-        _conversationManager.GetActiveMcpServers = () => _kitManager.GetActiveMcpServers();
 
         // Show trust mode banner
         if (_trustMode)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Trust mode active[/] [{UIColors.SpectreMuted}]— auto-approving within {Markup.Escape(_shellEnvironment.ShellCwd)}[/]");
         }
-
-        // Initialize kits. The line editor's '+' completion source reads
-        // _kitManager.Kits live, so no separate hint registration is needed.
-        _kitManager.LoadKits(AppContext.BaseDirectory);
 
         // Initialize refactored services
         _commandProcessor = new CommandProcessor(_conversationManager, _configurationService, _providerManager);
@@ -506,23 +491,13 @@ public class Program
         // Execute based on mode
         if (remainingArgs.Length > 0 || stdinContent != null)
         {
-            // Single-shot mode: activate any leading +kit tokens, then execute.
-            var (kitTokens, promptArgs) = SplitLeadingKits(remainingArgs);
-            bool kitsOk = true;
-            foreach (var token in kitTokens)
-                kitsOk &= await ActivateKitAsync(token);
-
-            // Load a seed transcript as premise history (after system + kit context).
+            // Load a seed transcript as premise history (after the system prompt).
             LoadSeed();
 
-            var userInput = BuildUserInput(promptArgs, stdinContent);
-            // Don't run on a kit-resolution failure, and don't send an empty prompt
-            // when the invocation was kit-activation only (e.g. `nb +review`).
-            if (kitsOk && !string.IsNullOrWhiteSpace(userInput))
+            var userInput = BuildUserInput(remainingArgs, stdinContent);
+            if (!string.IsNullOrWhiteSpace(userInput))
             {
-                if (IsKitCommand(userInput))
-                    HandleKitCommand(userInput);
-                else if (userInput.Trim() == "/tools")
+                if (userInput.Trim() == "/tools")
                     HandleToolsCommand();
                 else
                     await ExecuteSingleCommand(userInput);
@@ -569,7 +544,7 @@ public class Program
         Console.Write(" " + UIColors.robot_img_2);
         AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
         Console.Write(" " + UIColors.robot_img_3);
-        AnsiConsole.MarkupLine($"  NotaBene 0.10.0β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/[/] [{UIColors.SpectreMuted}]for commands[/] [{UIColors.SpectreAccent}]+[/] [{UIColors.SpectreMuted}]for kits[/]");
+        AnsiConsole.MarkupLine($"  NotaBene 0.10.0β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/[/] [{UIColors.SpectreMuted}]for commands[/]");
         
         while (true)
         {
@@ -585,20 +560,6 @@ public class Program
 
             if (string.IsNullOrWhiteSpace(userInput))
                 continue;
-
-            // Kit activation — returned by the line editor when "+" guard mode selects a kit
-            if (userInput.StartsWith("+"))
-            {
-                await ActivateKitAsync(userInput);
-                continue;
-            }
-
-            // Kit management command
-            if (IsKitCommand(userInput))
-            {
-                HandleKitCommand(userInput);
-                continue;
-            }
 
             // Tool listing command
             if (userInput.Trim() == "/tools")
@@ -631,98 +592,6 @@ public class Program
         }
     }
 
-    // Splits leading +kit tokens off the front of the args. Stops at the first
-    // non-+ token so "nb +review check this" → kits ["+review"], rest ["check","this"].
-    private static (string[] kits, string[] rest) SplitLeadingKits(string[] args)
-    {
-        int i = 0;
-        var kits = new List<string>();
-        while (i < args.Length && args[i].StartsWith("+") && args[i].Length > 1)
-            kits.Add(args[i++]);
-        return (kits.ToArray(), args[i..]);
-    }
-
-    private static bool IsKitCommand(string input)
-    {
-        var t = input.TrimStart();
-        return t == "/kit" || t.StartsWith("/kit ", StringComparison.Ordinal);
-    }
-
-    // /kit              — show active and available kits
-    // /kit clear        — deactivate all kits
-    // /kit drop <name>  — deactivate one kit (drop/remove/off accepted)
-    private static void HandleKitCommand(string input)
-    {
-        var parts = input.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var sub = parts.Length > 1 ? parts[1].ToLowerInvariant() : "";
-
-        switch (sub)
-        {
-            case "":
-                ShowKitStatus();
-                break;
-
-            case "clear":
-                if (_kitManager.ActiveKitNames.Count == 0)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No kits active.[/]");
-                    break;
-                }
-                _kitManager.ClearActive();
-                _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]All kits deactivated.[/]");
-                break;
-
-            case "drop":
-            case "remove":
-            case "off":
-                if (parts.Length < 3)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Usage: /kit drop <name>[/]");
-                    break;
-                }
-                var name = parts[2].StartsWith("+") ? parts[2] : "+" + parts[2];
-                if (_kitManager.Deactivate(name))
-                {
-                    _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Deactivated {Markup.Escape(name)}.[/] [{UIColors.SpectreMuted}]MCP tools update on the next message.[/]");
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Not active: {Markup.Escape(name)}[/]");
-                }
-                break;
-
-            default:
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Unknown: /kit {Markup.Escape(sub)}[/] [{UIColors.SpectreMuted}]— use /kit, /kit clear, or /kit drop <name>[/]");
-                break;
-        }
-    }
-
-    private static void ShowKitStatus()
-    {
-        var active = _kitManager.ActiveKitNames;
-        if (active.Count > 0)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]Active kits:[/]");
-            foreach (var n in active)
-            {
-                var desc = _kitManager.Kits.TryGetValue(n, out var k) ? k.Description : "";
-                AnsiConsole.MarkupLine($"  [{UIColors.SpectreSuccess}]{Markup.Escape(n)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(desc)}[/]");
-            }
-        }
-        else
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No kits active.[/]");
-        }
-
-        var inactive = _kitManager.Kits.Values.Where(k => !active.Contains(k.Name)).ToList();
-        if (inactive.Count > 0)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Available: {string.Join(", ", inactive.Select(k => Markup.Escape(k.Name)))}[/]");
-        }
-    }
-
     private static void HandleToolsCommand()
     {
         var tools = _conversationManager.GetAvailableTools();
@@ -749,43 +618,6 @@ public class Program
         AnsiConsole.Write(table);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]auto = no prompt · (cwd) within the working-dir sandbox · (trust) needs --trust · (always-allow) listed in mcp.json[/]");
-
-        // Diagnostic: MCP tools surface only through active kits.
-        if (!tools.Any(t => t.Group.StartsWith("MCP")))
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No MCP tools active — they're exposed only via active kits. Use [/][{UIColors.SpectreAccent}]+kit[/][{UIColors.SpectreMuted}] or [/][{UIColors.SpectreAccent}]/kit[/][{UIColors.SpectreMuted}] to activate.[/]");
-    }
-
-    // Activates one kit: sets its prompt context and connects its MCP servers.
-    // Shared by interactive (+) selection, single-shot +kit tokens, and startup
-    // restore — so re-activation always restores prompt AND servers together.
-    // Returns false (and reports) if the kit name is unknown.
-    private static async Task<bool> ActivateKitAsync(string kitName, bool announce = true)
-    {
-        if (!_kitManager.Activate(kitName))
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Kit not found: {Markup.Escape(kitName)}[/]");
-            return false;
-        }
-
-        var kit = _kitManager.Kits[kitName];
-        if (announce)
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Kit: {Markup.Escape(kitName)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(kit.Description)}[/]");
-        _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
-
-        // Connect any MCP servers declared by this kit that aren't connected yet
-        if (kit.McpServers.Length > 0)
-        {
-            var pending = kit.McpServers
-                .Except(_mcpManager.GetConnectedServerNames(), StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            if (pending.Length > 0)
-            {
-                if (announce) AnsiConsole.Markup($"[{UIColors.SpectreMuted}]Connecting MCP: {Markup.Escape(string.Join(", ", pending))}…[/]");
-                await _mcpManager.EnsureServersConnectedAsync(pending);
-                if (announce) AnsiConsole.MarkupLine($" [{UIColors.SpectreSuccess}]done[/]");
-            }
-        }
-        return true;
     }
 
     private static async Task ExecuteSingleCommand(string userInput)
