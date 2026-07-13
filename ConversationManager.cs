@@ -205,9 +205,13 @@ public class ConversationManager
 
             // Assemble the tool list. NOTE: GetAvailableTools() mirrors this for the
             // /tools command — keep the two in sync when adding/removing tools.
-            // MCP tools are not exposed in this build — the kit gate (their only
-            // access path) was removed; the Phase 3 `mcp` directive re-adds them.
-            var mcpTools = new List<AIFunction>();
+            // Expose all connected MCP servers' tools (+ resource tools).
+            var mcpTools = _mcpManager.GetTools().ToList();
+            if (mcpTools.Count > 0)
+            {
+                mcpTools.Add(ResourceTools.CreateListResourcesTool(_mcpManager));
+                mcpTools.Add(ResourceTools.CreateReadResourceTool(_mcpManager));
+            }
 
             // Add bash tool if enabled
             if (_bashTool != null)
@@ -1943,7 +1947,19 @@ public class ConversationManager
     {
         var tools = new List<ToolDescriptor>();
 
-        // MCP tools are not exposed in this build (see SendMessageInternalAsync).
+        // MCP tools from all connected servers.
+        var mcpTools = _mcpManager.GetTools();
+        foreach (var tool in mcpTools)
+        {
+            var approval = _mcpManager.IsAlwaysAllowed(tool.Name) ? "auto (always-allow)" : "prompt";
+            if (_fakeToolManager.GetFakeTool(tool.Name) != null) approval += " · faked";
+            tools.Add(new ToolDescriptor("MCP", tool.Name, approval));
+        }
+        if (mcpTools.Count > 0)
+        {
+            tools.Add(new ToolDescriptor("Resources", ResourceTools.CreateListResourcesTool(_mcpManager).Name, "auto"));
+            tools.Add(new ToolDescriptor("Resources", ResourceTools.CreateReadResourceTool(_mcpManager).Name, "auto"));
+        }
 
         // Native tools (all null under --nobash). Read-only tools auto-approve within
         // the cwd sandbox; writes and bash auto-approve only with trust mode.

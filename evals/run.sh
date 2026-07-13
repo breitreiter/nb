@@ -383,6 +383,31 @@ run_test \
     "$NB" --spec no-such-spec "MOCK:response=x"
 
 echo ""
+echo "--- MCP exposure + dispatch (via built-in tester) ---"
+echo ""
+
+# End-to-end: a --mcp manifest connects a real MCP server (the built-in tester),
+# its tools are exposed and (with alwaysAllow ["*"]) auto-approved headlessly, and
+# a scripted call dispatches to the server and returns a real result. Guards the
+# alwaysAllow-keying fix (bare vs server-prefixed name).
+MCP_TESTER="$(dirname "$SCRIPT_DIR")/mcp-servers/mcp-tester/mcp-tester.csproj"
+MCP_MANIFEST="$SCRIPT_DIR/fixtures/mcp-tester.generated.json"
+cat > "$MCP_MANIFEST" <<JSON
+{ "servers": { "tester": { "type": "stdio", "command": "dotnet",
+  "args": ["run","--project","$MCP_TESTER"], "alwaysAllow": ["*"] } } }
+JSON
+
+# The tool call dispatches and returns a real (non-error) result — not denied,
+# not "tool not found".
+run_test_jsonl_stdout \
+    "mcp: manifest tool dispatches and returns a real result" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error")' \
+    "false" \
+    "$NB" --mcp "$MCP_MANIFEST" --output jsonl "MOCK:tool=tester_current_time"
+
+rm -f "$MCP_MANIFEST"
+
+echo ""
 echo "--- validate / resolve (Phase 3.5) ---"
 echo ""
 

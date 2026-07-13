@@ -18,12 +18,13 @@ public class McpManager : IDisposable
     private McpConfig _config = new();
 
     /// <summary>
-    /// Reads mcp.json and caches the config. No network connections are made.
-    /// Call this at startup.
+    /// Reads the MCP manifest and caches the config. No network connections are
+    /// made. <paramref name="manifestPath"/> overrides the default (mcp.json next
+    /// to the binary) — used by --mcp for a per-invocation manifest.
     /// </summary>
-    public void LoadConfig()
+    public void LoadConfig(string? manifestPath = null)
     {
-        try { _config = LoadMcpConfiguration(); }
+        try { _config = LoadMcpConfiguration(manifestPath); }
         catch { _config = new McpConfig(); }
     }
 
@@ -126,18 +127,19 @@ public class McpManager : IDisposable
 
         if (serverConfig.AlwaysAllow != null)
         {
-            // The model calls tools by their bare name, and approval checks that same
-            // name (functionCall.Name) — so the allow-list must be keyed by the actual
-            // tool name, not a "{server}_{tool}" composite. Match config entries
-            // leniently: the SDK normalizes '-' to '_' in tool names, so "current-time"
-            // in mcp.json must still match the tool exposed as "current_time".
+            // Tools are exposed to the model under their "{server}_{tool}" name
+            // (line above), and the model calls — and approval checks — that same
+            // composite name. So the allow-list must be keyed by the composite,
+            // not the bare tool name. Config entries match the bare name leniently:
+            // the SDK normalizes '-' to '_', so "current-time" in the manifest
+            // still matches the tool exposed as "current_time".
             bool wildcard = serverConfig.AlwaysAllow.Contains("*");
             var allow = serverConfig.AlwaysAllow
                 .Select(NormalizeToolName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var tool in tools)
                 if (wildcard || allow.Contains(NormalizeToolName(tool.Name)))
-                    _alwaysAllowTools.Add(tool.Name);
+                    _alwaysAllowTools.Add($"{serverName}_{tool.Name}");
         }
 
         try
@@ -274,11 +276,19 @@ public class McpManager : IDisposable
         }
     }
 
-    private static McpConfig LoadMcpConfiguration()
+    private static McpConfig LoadMcpConfiguration(string? manifestPath)
     {
-        var executablePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-        var executableDirectory = Path.GetDirectoryName(executablePath) ?? Directory.GetCurrentDirectory();
-        var mcpConfigPath = Path.Combine(executableDirectory, "mcp.json");
+        string mcpConfigPath;
+        if (!string.IsNullOrEmpty(manifestPath))
+        {
+            mcpConfigPath = manifestPath;
+        }
+        else
+        {
+            var executablePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+            var executableDirectory = Path.GetDirectoryName(executablePath) ?? Directory.GetCurrentDirectory();
+            mcpConfigPath = Path.Combine(executableDirectory, "mcp.json");
+        }
 
         if (!File.Exists(mcpConfigPath))
         {

@@ -75,6 +75,7 @@ public class Program
     private static string? _specName = null;
     private static bool _validate = false;
     private static bool _resolve = false;
+    private static string? _mcpManifest = null;
 
     private static string BuildUserInput(string[] args, string? stdinContent)
     {
@@ -287,6 +288,10 @@ public class Program
             {
                 _specName = args[++i];
             }
+            else if (args[i] == "--mcp" && i + 1 < args.Length)
+            {
+                _mcpManifest = args[++i];
+            }
             else if (args[i] == "--validate")
             {
                 _validate = true;
@@ -358,6 +363,7 @@ public class Program
             Console.WriteLine("  --nobash                Disable shell tool");
             Console.WriteLine("  --verbose               Enable verbose output");
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
+            Console.WriteLine("  --mcp <file>            Load MCP servers from this manifest instead of mcp.json; their tools are exposed to the model");
             Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
             Console.WriteLine("  --output <mode>         Output mode: interactive (default), porcelain (TOOL/RESULT lines + verbatim answer), or jsonl (typed transcript). porcelain/jsonl put the answer on stdout, chrome on stderr");
             Console.WriteLine("  --seed <file>           Load a transcript (jsonl) as premise history before the prompt runs");
@@ -376,7 +382,7 @@ public class Program
         // --dump-tools: connect to MCP servers, write manifest, exit
         if (_dumpTools)
         {
-            _mcpManager.LoadConfig();
+            _mcpManager.LoadConfig(_mcpManifest);
             await _mcpManager.ConnectAllAsync();
             var manifest = _mcpManager.BuildToolManifest();
             var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
@@ -457,9 +463,8 @@ public class Program
             Environment.Exit(1);
         }
 
-        // Load MCP server definitions (no connections — MCP tools are not exposed
-        // in this build; the Phase 3 `mcp` directive will connect on demand).
-        _mcpManager.LoadConfig();
+        // Load the MCP manifest (--mcp overrides the default mcp.json).
+        _mcpManager.LoadConfig(_mcpManifest);
 
         // Load fake tools
         await _fakeToolManager.LoadFakeToolsAsync();
@@ -485,6 +490,10 @@ public class Program
             _mcpManager.Dispose();
             return;
         }
+
+        // Connect configured MCP servers and expose their tools to the model.
+        // A manifest may auto-approve tools headlessly via alwaysAllow (["*"]).
+        await _mcpManager.ConnectAllAsync();
 
         // Build enhanced system prompt with environment context (skip shell section if --nobash)
         var basePrompt = LoadSystemPrompt();
