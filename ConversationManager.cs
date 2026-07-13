@@ -127,11 +127,6 @@ public class ConversationManager
 
     public string GetCurrentProvider() => _currentProviderName;
 
-    public void InitializeWithSystemPrompt(string systemPrompt)
-    {
-        _conversationHistory.Add(new AIChatMessage(ChatRole.System, systemPrompt));
-    }
-
     /// <summary>The live conversation history — the emit source for transcript output.</summary>
     public IReadOnlyList<AIChatMessage> History => _conversationHistory;
 

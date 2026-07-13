@@ -175,10 +175,11 @@ A trailing `\` continues content onto the next line, `#` lines are comments, and
 
 ```bash
 nb --spec headless --program eval.nb     # prepend the built-in headless envelope (jsonl output, no persona)
+nb --spec chat --program tools.nb        # opt a program into nb's default persona floor
 nb --spec ./my-envelope.nb "do the task"
 ```
 
-`--spec` resolves a built-in (`headless`), an explicit file path, or `specs/<name>.nb` in a project `.nb/` directory or `~/.config/nb/`.
+`--spec` resolves a built-in (`chat` = nb's default persona, `headless` = jsonl output), an explicit file path, or `specs/<name>.nb` in a project `.nb/` directory or `~/.config/nb/`. `chat` is the persona the bare `nb "prompt"` path uses, made requestable by name — `nb "x"` and `nb --spec chat "x"` are equivalent.
 
 **Inspect a program without running it:**
 
@@ -276,7 +277,7 @@ Or enable permanently in `appsettings.json`:
 | `--config <file>` | Use a single config file hermetically, ignoring the layered resolution |
 | `--seed <file>` | Load a jsonl transcript as premise history before the prompt runs |
 | `--program <file>` | Evaluate a conversation-program (`-` for stdin) — see [Conversation Programs](#conversation-programs) |
-| `--spec <name\|file>` | Prepend a reusable config-directive prefix (built-in `headless`, a path, or `specs/<name>.nb`) |
+| `--spec <name\|file>` | Prepend a reusable config-directive prefix (built-in `chat`/`headless`, a path, or `specs/<name>.nb`) |
 | `--validate` | Parse and check a program/spec, run nothing (exit 1 on error) |
 | `--resolve` | Print the effective envelope at each run point, run nothing |
 

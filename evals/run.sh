@@ -234,6 +234,15 @@ run_test_jsonl_stdout \
     "true" \
     "$NB" --seed "$SCRIPT_DIR/fixtures/seed-basic.jsonl" --output jsonl "and 3+3?"
 
+# a seed's own system message now survives (preset-floor clause 3): the default
+# preset contributes one system event, the seed its own = 2. Retires the old
+# "nb owns the system prompt, drop seed system messages" hack.
+run_test_jsonl_stdout \
+    "seed: own system message survives (2 = preset + seed)" \
+    '[.[]|select(.type=="system")]|length' \
+    "2" \
+    "$NB" --seed "$SCRIPT_DIR/fixtures/seed-system.jsonl" --output jsonl "and 3+3?"
+
 # an invalid seed (orphan tool_result) fails fast with exit 1
 run_test \
     "seed: orphan tool_result rejected" \
@@ -375,6 +384,15 @@ run_test_jsonl_stdout \
     '[.[]|select(.type=="assistant_text").text]|last' \
     "gamma" \
     "$NB" --spec "$SCRIPT_DIR/fixtures/spec-model.nb" --program "$SCRIPT_DIR/fixtures/prog-runmodel.nb"
+
+# The computed `chat` built-in floors a program with the default persona: the
+# bare program (prog-runmodel.nb, no system directive) has 0 system events, but
+# --spec chat prepends the persona preset = exactly 1 (rules/preset-floor.md).
+run_test_jsonl_stdout \
+    "spec: chat built-in floors a program with the persona" \
+    '[.[]|select(.type=="system")]|length' \
+    "1" \
+    "$NB" --spec chat --program "$SCRIPT_DIR/fixtures/prog-runmodel.nb" --output jsonl
 
 # An unknown spec name fails fast with exit 1.
 run_test \

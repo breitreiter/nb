@@ -40,13 +40,27 @@ every run. This is the rc-file rule: `ssh host cmd` doesn't source `.bashrc`, an
    dropped or injected (retires the S2 "seed drops system messages" hack once the
    seed path routes through the evaluator).
 
-## Status (2026-07-12)
+## Status (2026-07-13)
+
+All three clauses are realized.
 
 Clause 1 is enforced: the `--program`/`--spec` branch is persona-free
 (`Program.cs`, verified by the "bare program has no system message" eval).
-Clause 2 is **partially** realized: the bare `nb "prompt"` path still assembles
-the persona the old way (`InitializeWithSystemPrompt`) rather than as literal
-default-preset directives routed through the evaluator. Unifying that path — so
-`nb "x"` is literally `[default-preset directives] + run "x"` — is the deferred
-follow-up. Until then the invariant holds behaviorally even though the default
-preset is not yet a first-class directive list.
+
+Clause 2 is realized: the bare `nb "prompt"` path builds the persona as a
+first-class directive list — `BuildDefaultPresetEvents` returns a
+`List<TranscriptEvent>` (today one `SystemEvent`: base prompt + shell-env +
+provider/model prompt layers + NB.md) — and evaluates it through the same
+`ProgramEvaluator` as any program. `InitializeWithSystemPrompt` is gone; the
+persona is no longer an engine-injected prompt but a preset routed through the
+engine. The preset is also a *named* built-in the resolver hands back: `--spec
+chat` returns the same computed `BuildDefaultPresetEvents` (a computed built-in,
+not `BuiltInSpecs` text), so `nb "x"` and `nb --spec chat "x"` produce a
+byte-identical persona and a program can opt into the floor explicitly (`nb
+--spec chat --program p.nb`).
+
+Clause 3 is realized: a `--seed` transcript's own `system` messages now survive
+(`Program.LoadSeed` appends them as premise instead of dropping them with a
+warning). They append after the default preset's persona, no different from any
+other seeded turn. Verified by the "seed: own system message survives" eval
+(count of system events = preset's 1 + seed's 1 = 2).

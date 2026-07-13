@@ -369,7 +369,7 @@ public class Program
             Console.WriteLine("  --seed <file>           Load a transcript (jsonl) as premise history before the prompt runs");
             Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
             Console.WriteLine("  --program <file>        Evaluate a conversation-program (source syntax or jsonl bytecode; '-' for stdin). No default persona; provider/model may switch between runs");
-            Console.WriteLine("  --spec <name|file>      Prepend a reusable config-directive prefix (built-in 'headless', a path, or specs/<name>.nb in .nb/ or ~/.config/nb). Composes with --program or a prompt arg");
+            Console.WriteLine("  --spec <name|file>      Prepend a reusable directive prefix (built-in 'chat' = the default persona, 'headless' = jsonl output; a path; or specs/<name>.nb in .nb/ or ~/.config/nb). Composes with --program or a prompt arg");
             Console.WriteLine("  --validate              Parse and check the program/spec, run nothing (exit 1 on error)");
             Console.WriteLine("  --resolve               Print the effective envelope at each run point, run nothing");
             Console.WriteLine();
@@ -495,33 +495,16 @@ public class Program
         // A manifest may auto-approve tools headlessly via alwaysAllow (["*"]).
         await _mcpManager.ConnectAllAsync();
 
-        // Build enhanced system prompt with environment context (skip shell section if --nobash)
-        var basePrompt = LoadSystemPrompt();
-        var fullPrompt = _noBash
-            ? basePrompt
-            : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
-
-        // Append provider-specific system prompt if present (e.g. system.AzureFoundry.md)
-        var providerPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", $"system.{activeProviderName}.md");
-        if (File.Exists(providerPromptPath))
-            fullPrompt += $"\n\n{File.ReadAllText(providerPromptPath)}";
-
-        // Append provider+model-specific prompt if present (e.g. system.LocalLlm.qwen-coder.md).
-        // Lets one provider host multiple models with distinct quirks.
-        var activeModelSlug = ResolveActiveModelSlug(config, activeProviderName);
-        if (!string.IsNullOrEmpty(activeModelSlug))
-        {
-            var modelPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", $"system.{activeProviderName}.{activeModelSlug}.md");
-            if (File.Exists(modelPromptPath))
-                fullPrompt += $"\n\n{File.ReadAllText(modelPromptPath)}";
-        }
-
-        // Auto-load project context from NB.md in working directory
-        var projectContext = LoadProjectContext(_noBash ? "." : _shellEnvironment.ShellCwd);
-        if (projectContext != null)
-            fullPrompt += $"\n\n{projectContext}";
-
-        _conversationManager.InitializeWithSystemPrompt(fullPrompt);
+        // The default preset: nb's persona (system.md + shell-env + provider/model
+        // prompt layers + NB.md) expressed as first-class directives and evaluated
+        // through the same engine as any conversation-program. This is the floor
+        // for the bare human/-p/single-shot path only — a --program/--spec is
+        // persona-free and never reaches here (rules/preset-floor.md).
+        var presetWarnings = new List<string>();
+        var preset = BuildDefaultPresetEvents(config, activeProviderName);
+        var presetEvaluator = new ProgramEvaluator(_conversationManager, BuildProgramClient(config), presetWarnings);
+        await presetEvaluator.EvaluateAsync(preset);
+        foreach (var w in presetWarnings) Console.Error.WriteLine($"preset: {w}");
 
         // Show trust mode banner
         if (_trustMode)
@@ -721,17 +704,13 @@ public class Program
             foreach (var w in warnings)
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]seed: {Markup.Escape(w)}[/]");
 
-            // Transitional: nb assembles its own system prompt, so a seed's own
-            // system messages are dropped (with a warning) to avoid a conflicting
-            // second system message. Retires under the preset-floor model, where
-            // system is a plain directive the program owns (transcript-schema.md).
-            var systemCount = messages.Count(m => m.Role == ChatRole.System);
-            if (systemCount > 0)
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]seed: ignored {systemCount} system message(s); nb owns the system prompt[/]");
-            var premise = messages.Where(m => m.Role != ChatRole.System).ToList();
-
-            _conversationManager.AppendHistory(premise);
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Seeded {premise.Count} message(s) from {Markup.Escape(_seedFile)}[/]");
+            // A seed's own system messages now survive. Under the preset-floor
+            // model `system` is a plain message, not a singular owned prompt
+            // (rules/preset-floor.md clause 3): the persona arrives as the default
+            // preset's SystemEvent and the seed's system messages append after it
+            // as additional premise, no different from any other seeded turn.
+            _conversationManager.AppendHistory(messages);
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Seeded {messages.Count} message(s) from {Markup.Escape(_seedFile)}[/]");
         }
         catch (TranscriptFormatException ex)
         {
@@ -771,6 +750,43 @@ public class Program
         Console.Error.WriteLine(TranscriptPorcelainWriter.Trailer(trailer));
     }
 
+    // Assemble nb's default persona as a conversation-program preset: the
+    // directives the bare human/-p/single-shot path opts into. Today the persona
+    // is a single system message (base prompt + shell-env section + provider- and
+    // provider+model-specific prompt layers + NB.md project context), so the
+    // preset is one SystemEvent; expressing it as an event list keeps it a
+    // first-class, evaluator-routed directive rather than an engine-injected
+    // prompt (rules/preset-floor.md clause 2).
+    private static List<TranscriptEvent> BuildDefaultPresetEvents(IConfiguration config, string activeProviderName)
+    {
+        var basePrompt = LoadSystemPrompt();
+        var fullPrompt = _noBash
+            ? basePrompt
+            : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
+
+        // Append provider-specific system prompt if present (e.g. system.AzureFoundry.md)
+        var providerPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", $"system.{activeProviderName}.md");
+        if (File.Exists(providerPromptPath))
+            fullPrompt += $"\n\n{File.ReadAllText(providerPromptPath)}";
+
+        // Append provider+model-specific prompt if present (e.g. system.LocalLlm.qwen-coder.md).
+        // Lets one provider host multiple models with distinct quirks.
+        var activeModelSlug = ResolveActiveModelSlug(config, activeProviderName);
+        if (!string.IsNullOrEmpty(activeModelSlug))
+        {
+            var modelPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", $"system.{activeProviderName}.{activeModelSlug}.md");
+            if (File.Exists(modelPromptPath))
+                fullPrompt += $"\n\n{File.ReadAllText(modelPromptPath)}";
+        }
+
+        // Auto-load project context from NB.md in working directory
+        var projectContext = LoadProjectContext(_noBash ? "." : _shellEnvironment.ShellCwd);
+        if (projectContext != null)
+            fullPrompt += $"\n\n{projectContext}";
+
+        return new List<TranscriptEvent> { new SystemEvent { Text = fullPrompt } };
+    }
+
     // Evaluate a conversation-program: an optional --spec prefix (a reusable run
     // of config directives) followed by the body — a --program file, or the
     // prompt args as a single `run`. Detects source vs bytecode, walks the
@@ -781,7 +797,7 @@ public class Program
         List<TranscriptEvent> program;
         try
         {
-            program = await BuildProgramAsync(promptArgs, warnings);
+            program = await BuildProgramAsync(config, promptArgs, warnings);
         }
         catch (Exception ex) when (ex is TranscriptFormatException or ProgramParseException or FileNotFoundException or SpecNotFoundException)
         {
@@ -808,12 +824,12 @@ public class Program
 
     // Assemble the full program: an optional --spec prefix followed by the body
     // (a --program file, or the prompt args as a single run).
-    private static async Task<List<TranscriptEvent>> BuildProgramAsync(string[] promptArgs, IList<string> warnings)
+    private static async Task<List<TranscriptEvent>> BuildProgramAsync(IConfiguration config, string[] promptArgs, IList<string> warnings)
     {
         var program = new List<TranscriptEvent>();
 
         if (_specName != null)
-            program.AddRange(ParseProgramSource(ResolveSpecSource(_specName), warnings));
+            program.AddRange(ResolveSpecEvents(_specName, config, warnings));
 
         if (_programFile != null)
         {
@@ -922,13 +938,24 @@ public class Program
             ? TranscriptSerializer.Parse(source, warnings)
             : ProgramParser.Parse(source, ResolveInclude);
 
-    // Built-in specs ship in the box. headless = machine output, no persona.
+    // Text-source built-in specs ship in the box. headless = machine output, no
+    // persona. (The `chat` built-in is computed, not text — see ResolveSpecEvents.)
     private static readonly Dictionary<string, string> BuiltInSpecs = new(StringComparer.OrdinalIgnoreCase)
     {
         ["headless"] = "output jsonl\n",
     };
 
-    // Resolve a --spec argument to its source text: an explicit file path, then a
+    // Resolve a --spec argument to its events. `chat` is the one computed
+    // built-in: it hands back the default persona preset (the same directives the
+    // bare human/-p path opts into — rules/preset-floor.md clause 2), so a program
+    // can request the persona floor explicitly (`nb --spec chat --program p.nb`).
+    // Every other spec is text, resolved to source and parsed.
+    private static IEnumerable<TranscriptEvent> ResolveSpecEvents(string spec, IConfiguration config, IList<string> warnings) =>
+        string.Equals(spec, "chat", StringComparison.OrdinalIgnoreCase)
+            ? BuildDefaultPresetEvents(config, config["ActiveProvider"] ?? string.Empty)
+            : ParseProgramSource(ResolveSpecSource(spec), warnings);
+
+    // Resolve a text-spec argument to its source: an explicit file path, then a
     // built-in name, then specs/<name>.nb in the project (.nb, upward walk) or
     // user (~/.config/nb) config layers.
     private static string ResolveSpecSource(string spec)
@@ -941,7 +968,7 @@ public class Program
             if (File.Exists(path)) return File.ReadAllText(path);
         }
         throw new SpecNotFoundException(
-            $"unknown spec '{spec}'. Built-in: {string.Join(", ", BuiltInSpecs.Keys)}. " +
+            $"unknown spec '{spec}'. Built-in: chat, {string.Join(", ", BuiltInSpecs.Keys)}. " +
             $"Or give a path, or define specs/{spec}.nb in a .nb dir or ~/.config/nb.");
     }
 
