@@ -420,6 +420,26 @@ run_test_jsonl_stdout \
     "$NB" --program "$SCRIPT_DIR/fixtures/prog-tools-nobash.nb" --output jsonl
 
 echo ""
+echo "--- conversation-program tool rounds (fabricated premise) ---"
+echo ""
+
+# A JSONL program fabricates a tool round (assistant text + tool_call + its
+# tool_result) as premise, then runs. The round enters history — batched via the
+# same loader a seed uses — and round-trips into the emit with its output intact.
+run_test_jsonl_stdout \
+    "tool round: fabricated call/result enters history and emits" \
+    '[.[]|select(.type=="tool_result").output]|first' \
+    "foo.txt bar.txt" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-toolround.jsonl" --output jsonl
+
+# A malformed round (tool_call with no matching tool_result) fails fast at flush
+# with exit 1 — the completed-round contract, same as a bad seed.
+run_test \
+    "tool round: unpaired call exits 1" \
+    1 \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-toolround-bad.jsonl" --output jsonl
+
+echo ""
 echo "--- MCP exposure + dispatch (via built-in tester) ---"
 echo ""
 

@@ -11,9 +11,13 @@ namespace nb;
 /// plans/conversation-program-evaluator.md.
 ///
 /// v1 scope: provider/model/output config, mcp/tools surface directives,
-/// system/user/assistant turns, and run (with mid-stream provider/model swap).
-/// Deferred: tool_call/tool_result turns (bytecode-only; a program that fabricates
-/// tool rounds warns and skips them for now).
+/// system/user/assistant/tool_call/tool_result turns, and run (with mid-stream
+/// provider/model swap). Message-bearing turns buffer and flush through
+/// <see cref="TranscriptLoader.ToHistory"/> at each run (and at the end), so a
+/// turn's assistant text + its tool calls batch into one assistant message and
+/// its results into one tool message — exactly as a seed loads. tool_call/
+/// tool_result are fabricated premise (author them in JSONL; source syntax has no
+/// verb for them), not live invocations.
 /// </summary>
 public sealed class ProgramEvaluator
 {
@@ -25,6 +29,9 @@ public sealed class ProgramEvaluator
     // Surface directives seen so far; re-folded into a ToolSurface before each run
     // so mcp/tools deltas take effect (plans/tool-surface-directives.md).
     private readonly List<SurfaceDirectiveEvent> _surfaceDirectives = new();
+    // Message-bearing events awaiting the next run (or the final flush). Batched
+    // per turn by TranscriptLoader.ToHistory, the same path a seed takes.
+    private readonly List<TranscriptEvent> _turnBuffer = new();
 
     public string? Provider { get; private set; }
     public string? Model { get; private set; }
@@ -57,25 +64,33 @@ public sealed class ProgramEvaluator
                 case SurfaceDirectiveEvent sd:
                     _surfaceDirectives.Add(sd);
                     break;
-                case SystemEvent s:
-                    _conversation.AppendHistory(new[] { new ChatMessage(ChatRole.System, Text(s)) });
-                    break;
-                case UserEvent u:
-                    _conversation.AppendHistory(new[] { new ChatMessage(ChatRole.User, Text(u)) });
-                    break;
-                case AssistantTextEvent a:
-                    _conversation.AppendHistory(new[] { new ChatMessage(ChatRole.Assistant, Text(a)) });
+                case SystemEvent or UserEvent or AssistantTextEvent or ToolCallEvent or ToolResultEvent:
+                    // A message-bearing turn: buffer until the next run flushes it.
+                    _turnBuffer.Add(ev);
                     break;
                 case RunEvent r:
+                    FlushTurns();
                     _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
                     await _conversation.RunAsync(r.Prompt);
-                    break;
-                case ToolCallEvent or ToolResultEvent:
-                    _warnings.Add("tool_call/tool_result in a program are not yet evaluated — skipped");
                     break;
                 // ThinkingEvent / AssistantJsonEvent / ResultEvent: output-only, ignored on input.
             }
         }
+
+        // Trailing turns with no run after them (e.g. the bare-path preset, which is
+        // one system directive and no run) still join the built conversation.
+        FlushTurns();
+    }
+
+    // Batch buffered turns into history via the same loader a seed uses, so a
+    // turn's assistant text + tool calls become one assistant message and its
+    // results one tool message. ToHistory validates tool_call/tool_result pairing
+    // (a program's fabricated rounds must be complete before the run consuming them).
+    private void FlushTurns()
+    {
+        if (_turnBuffer.Count == 0) return;
+        _conversation.AppendHistory(TranscriptLoader.ToHistory(_turnBuffer));
+        _turnBuffer.Clear();
     }
 
     private void SwapClient()
@@ -87,13 +102,5 @@ public sealed class ProgramEvaluator
             return;
         }
         _conversation.SwitchProvider(client, Provider ?? _conversation.GetCurrentProvider());
-    }
-
-    private static string Text(MessageEvent m)
-    {
-        if (m.Text is not null) return m.Text;
-        if (m.Content is { } parts)
-            return string.Concat(parts.OfType<TextPart>().Select(p => p.Text));
-        return "";
     }
 }

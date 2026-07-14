@@ -816,7 +816,18 @@ public class Program
         await _mcpManager.ConnectAllAsync();
 
         var evaluator = new ProgramEvaluator(_conversationManager, BuildProgramClient(config), warnings);
-        await evaluator.EvaluateAsync(program);
+        try
+        {
+            await evaluator.EvaluateAsync(program);
+        }
+        catch (TranscriptFormatException ex)
+        {
+            // A fabricated tool round the program authored is malformed (unpaired
+            // call/result, non-monotonic turns). Fail fast like a bad seed.
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            Environment.ExitCode = 1;
+            return;
+        }
 
         foreach (var w in warnings) Console.Error.WriteLine($"program: {w}");
 
