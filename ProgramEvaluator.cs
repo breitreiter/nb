@@ -10,11 +10,10 @@ namespace nb;
 /// <c>run</c> invokes the model on the accumulated state. See
 /// plans/conversation-program-evaluator.md.
 ///
-/// v1 scope: provider/model/output config, system/user/assistant turns, and run
-/// (with mid-stream provider/model swap). Deferred: mcp/tools effects (tracked in
-/// the resolved envelope for --resolve, but the tool surface is unchanged) and
-/// tool_call/tool_result turns (bytecode-only; a program that fabricates tool
-/// rounds warns and skips them for now).
+/// v1 scope: provider/model/output config, mcp/tools surface directives,
+/// system/user/assistant turns, and run (with mid-stream provider/model swap).
+/// Deferred: tool_call/tool_result turns (bytecode-only; a program that fabricates
+/// tool rounds warns and skips them for now).
 /// </summary>
 public sealed class ProgramEvaluator
 {
@@ -23,6 +22,9 @@ public sealed class ProgramEvaluator
     // (fall back to the configured default). The factory owns config/model override.
     private readonly Func<string?, string?, IChatClient?> _clientFactory;
     private readonly IList<string> _warnings;
+    // Surface directives seen so far; re-folded into a ToolSurface before each run
+    // so mcp/tools deltas take effect (plans/tool-surface-directives.md).
+    private readonly List<SurfaceDirectiveEvent> _surfaceDirectives = new();
 
     public string? Provider { get; private set; }
     public string? Model { get; private set; }
@@ -52,8 +54,8 @@ public sealed class ProgramEvaluator
                 case OutputEvent o:
                     OutputMode = o.Mode;
                     break;
-                case McpEvent or ToolsEvent:
-                    // Tracked for --resolve; the tool surface is not yet reshaped (Phase 3 follow-up).
+                case SurfaceDirectiveEvent sd:
+                    _surfaceDirectives.Add(sd);
                     break;
                 case SystemEvent s:
                     _conversation.AppendHistory(new[] { new ChatMessage(ChatRole.System, Text(s)) });
@@ -65,6 +67,7 @@ public sealed class ProgramEvaluator
                     _conversation.AppendHistory(new[] { new ChatMessage(ChatRole.Assistant, Text(a)) });
                     break;
                 case RunEvent r:
+                    _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
                     await _conversation.RunAsync(r.Prompt);
                     break;
                 case ToolCallEvent or ToolResultEvent:

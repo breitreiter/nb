@@ -131,5 +131,40 @@ ToolSurface {
 
 ## Status
 
-Not started (plan written 2026-07-13). One commit expected; ~120 lines across
-`ProgramEvaluator.cs`, `ConversationManager.cs`, `Program.cs`, plus evals.
+**Implemented 2026-07-13.** Unit 251 (+`ToolSurfaceTests`), evals 40 (+ a
+tool-surface section), 0 warnings.
+
+### Revisions (2026-07-13, during implementation)
+
+Two things changed from the plan above once the code met reality:
+
+1. **The default preset does NOT carry an `McpEvent`.** The plan proposed
+   enumerating connected servers into `BuildDefaultPresetEvents`. Unnecessary: the
+   bare/-p path's preset has no `RunEvent`, so it never calls `SetToolSurface` —
+   the actual run keeps `ConversationManager`'s default `ToolSurface.All` (null
+   MCP = all connected), which already reproduces today's behavior. So the split
+   is cleaner than planned: `ToolSurface.Fold` (programs) is **strict-empty**;
+   `ToolSurface.All` (bare path, never folded) is uncontrolled/all. Consequence:
+   `--spec chat` reproduces the persona floor but not the MCP surface — the
+   program path is *always* strict-empty for MCP, `chat` included. Documented in
+   `rules/preset-floor.md` and the README.
+
+2. **The program path now calls `ConnectAllAsync`.** Previously the `--program`
+   branch returned before connecting MCP, so `mcp +server` had nothing to select.
+   It connects after the `--validate`/`--resolve` short-circuits (inspection stays
+   connection-free).
+
+3. **Bug found + fixed in `McpManager`:** `_toolsByServer` stored *unprefixed*
+   tools while the model calls (and the surface advertises) the `{server}_{tool}`
+   composite. `GetToolsForServers` therefore advertised names the model never
+   uses, so `mcp +server` silently exposed nothing. Now both `_toolsByServer` and
+   `_mcpTools` hold the same prefixed instances.
+
+### How filtering is enforced
+
+The dispatch table in `ConversationManager` still wires every constructed tool
+regardless of the surface, so filtering is enforced by a single **membership
+gate** at the top of tool dispatch: a call whose name is not in the advertised
+`requestOptions.Tools` is refused ("Tool 'x' not found") instead of executed.
+This makes the surface real even when a (mock or misbehaving) model calls a tool
+that was never advertised.

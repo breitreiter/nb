@@ -64,3 +64,10 @@ Clause 3 is realized: a `--seed` transcript's own `system` messages now survive
 warning). They append after the default preset's persona, no different from any
 other seeded turn. Verified by the "seed: own system message survives" eval
 (count of system events = preset's 1 + seed's 1 = 2).
+
+The same "no implicit floor for a program" principle now extends to the MCP tool
+surface (`plans/tool-surface-directives.md`): a program is **strict-empty** for
+MCP — it exposes no servers until it writes `mcp +server` — while the bare
+`nb "prompt"` path keeps exposing every connected server. So `--spec chat`
+reproduces the persona floor but *not* the MCP surface; the equivalence in clause
+2 is persona-only. (Native tools stay all-on for both, filtered by `tools`.)

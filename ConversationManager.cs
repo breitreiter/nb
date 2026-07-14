@@ -67,6 +67,19 @@ public class ConversationManager
     private readonly TodoTool _todoTool;
     private HashSet<string>? _lastRemindedTodos = null;
     private string _currentProviderName = "";
+    private Transcript.ToolSurface _toolSurface = Transcript.ToolSurface.All;
+
+    /// <summary>
+    /// The native tool vocabulary — the names a <c>tools</c> directive toggles.
+    /// (todo and MCP-resource tools are internal bookkeeping and stay off the list.)
+    /// Kept in sync with the assembly in <see cref="SendMessageInternalAsync"/> and
+    /// <see cref="GetAvailableTools"/>.
+    /// </summary>
+    public static readonly IReadOnlyList<string> NativeToolNames = new[]
+    {
+        "bash", "read_file", "write_file", "edit_file",
+        "find_files", "grep", "list_dir", "apply_patch", "fetch_url",
+    };
 
     public ConversationManager(
         IChatClient client,
@@ -126,6 +139,15 @@ public class ConversationManager
     }
 
     public string GetCurrentProvider() => _currentProviderName;
+
+    /// <summary>
+    /// Set the tool surface in effect for subsequent runs — the resolved effect of
+    /// the <c>mcp</c>/<c>tools</c> directives. The evaluator pushes this before each
+    /// run, exactly as a provider change flows through <see cref="SwitchProvider"/>.
+    /// Default (<see cref="Transcript.ToolSurface.All"/>): all native tools, all
+    /// connected MCP servers. See plans/tool-surface-directives.md.
+    /// </summary>
+    public void SetToolSurface(Transcript.ToolSurface surface) => _toolSurface = surface;
 
     /// <summary>The live conversation history — the emit source for transcript output.</summary>
     public IReadOnlyList<AIChatMessage> History => _conversationHistory;
@@ -200,56 +222,62 @@ public class ConversationManager
 
             // Assemble the tool list. NOTE: GetAvailableTools() mirrors this for the
             // /tools command — keep the two in sync when adding/removing tools.
-            // Expose all connected MCP servers' tools (+ resource tools).
-            var mcpTools = _mcpManager.GetTools().ToList();
+            // The _toolSurface (mcp/tools directive effect) gates both surfaces:
+            // MCP is uncontrolled (all connected) unless a directive names servers;
+            // native tools are all-on unless a directive filters them.
+            var mcpTools = (_toolSurface.McpServers is { } servers
+                    ? _mcpManager.GetToolsForServers(servers)
+                    : _mcpManager.GetTools())
+                .ToList();
             if (mcpTools.Count > 0)
             {
                 mcpTools.Add(ResourceTools.CreateListResourcesTool(_mcpManager));
                 mcpTools.Add(ResourceTools.CreateReadResourceTool(_mcpManager));
             }
 
-            // Add bash tool if enabled
-            if (_bashTool != null)
+            // Add native tools if wired (nullable via --nobash etc.) and allowed by
+            // the surface (a tools directive may drop them).
+            if (_bashTool != null && _toolSurface.AllowsNative("bash"))
             {
                 mcpTools.Add(_bashTool.CreateTool());
             }
 
-            if (_readFileTool != null)
+            if (_readFileTool != null && _toolSurface.AllowsNative("read_file"))
             {
                 mcpTools.Add(_readFileTool.CreateTool());
             }
 
-            if (_writeFileTool != null)
+            if (_writeFileTool != null && _toolSurface.AllowsNative("write_file"))
             {
                 mcpTools.Add(_writeFileTool.CreateTool());
             }
 
-            if (_editFileTool != null)
+            if (_editFileTool != null && _toolSurface.AllowsNative("edit_file"))
             {
                 mcpTools.Add(_editFileTool.CreateTool());
             }
 
-            if (_findFilesTool != null)
+            if (_findFilesTool != null && _toolSurface.AllowsNative("find_files"))
             {
                 mcpTools.Add(_findFilesTool.CreateTool());
             }
 
-            if (_grepTool != null)
+            if (_grepTool != null && _toolSurface.AllowsNative("grep"))
             {
                 mcpTools.Add(_grepTool.CreateTool());
             }
 
-            if (_listDirTool != null)
+            if (_listDirTool != null && _toolSurface.AllowsNative("list_dir"))
             {
                 mcpTools.Add(_listDirTool.CreateTool());
             }
 
-            if (_applyPatchTool != null)
+            if (_applyPatchTool != null && _toolSurface.AllowsNative("apply_patch"))
             {
                 mcpTools.Add(_applyPatchTool.CreateTool());
             }
 
-            if (_fetchUrlTool != null)
+            if (_fetchUrlTool != null && _toolSurface.AllowsNative("fetch_url"))
             {
                 mcpTools.Add(_fetchUrlTool.CreateTool());
             }
@@ -347,6 +375,18 @@ public class ConversationManager
                     {
                         try
                         {
+                            // A tool the surface didn't advertise (filtered by an mcp/tools
+                            // directive, or otherwise unknown) is refused here — the dispatch
+                            // table below still wires every constructed tool regardless of the
+                            // surface, so this membership gate is what makes filtering real.
+                            if (!(requestOptions.Tools?.Any(t => t.Name == functionCall.Name) ?? false))
+                            {
+                                var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
+                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
+                                continue;
+                            }
+
                             // Check if this is a native resource tool (always auto-approve, read-only)
                             if (functionCall.Name.StartsWith("nb_"))
                             {

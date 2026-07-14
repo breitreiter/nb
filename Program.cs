@@ -806,9 +806,14 @@ public class Program
             return;
         }
 
-        // Inspection modes parse + resolve but run nothing.
+        // Inspection modes parse + resolve but run nothing (no MCP connect needed).
         if (_validate) { ValidateProgram(program, config, warnings); return; }
         if (_resolve) { ResolveProgram(program); return; }
+
+        // Connect configured MCP servers so an `mcp +server` directive has servers
+        // to select. The tool surface still starts strict-empty (ToolSurface.Fold):
+        // a program with no `mcp` directive exposes none of them.
+        await _mcpManager.ConnectAllAsync();
 
         var evaluator = new ProgramEvaluator(_conversationManager, BuildProgramClient(config), warnings);
         await evaluator.EvaluateAsync(program);
@@ -887,8 +892,7 @@ public class Program
     private static void ResolveProgram(IReadOnlyList<TranscriptEvent> program)
     {
         string provider = "(default)", model = "(default)", output = _outputMode;
-        var mcp = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-        var toolDeltas = new List<string>();
+        var surfaceDirectives = new List<SurfaceDirectiveEvent>();
         int run = 0;
 
         foreach (var ev in program)
@@ -898,20 +902,16 @@ public class Program
                 case ProviderEvent p: provider = p.Name; break;
                 case ModelEvent m: model = m.Name; break;
                 case OutputEvent o: output = o.Mode; break;
-                case McpEvent mc:
-                    if (mc.Reset) mcp.Clear();
-                    foreach (var r in mc.Remove) mcp.Remove(r);
-                    foreach (var a in mc.Add) mcp.Add(a);
-                    break;
-                case ToolsEvent t:
-                    if (t.Reset) toolDeltas.Add("none");
-                    foreach (var r in t.Remove) toolDeltas.Add("-" + r);
-                    foreach (var a in t.Add) toolDeltas.Add("+" + a);
-                    break;
+                case SurfaceDirectiveEvent sd: surfaceDirectives.Add(sd); break;
                 case RunEvent:
                     run++;
-                    var mcpStr = mcp.Count > 0 ? string.Join(",", mcp) : "(none)";
-                    var toolStr = toolDeltas.Count > 0 ? string.Join(" ", toolDeltas) : "all";
+                    // Fold through the same resolver the evaluator runs, so what this
+                    // prints is provably what a run exposes (plans/tool-surface-directives.md).
+                    var surface = ToolSurface.Fold(surfaceDirectives, ConversationManager.NativeToolNames);
+                    var mcpStr = surface.McpServers is { Count: > 0 } s ? string.Join(",", s) : "(none)";
+                    var toolStr = surface.NativeAllow is null
+                        ? "all"
+                        : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
                     Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr}");
                     break;
             }

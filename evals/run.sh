@@ -401,6 +401,25 @@ run_test \
     "$NB" --spec no-such-spec "MOCK:response=x"
 
 echo ""
+echo "--- tool-surface directives (tools/mcp effects) ---"
+echo ""
+
+# `tools none` clears the native surface: a bash call the model makes anyway is
+# refused ("not found") rather than executed (plans/tool-surface-directives.md).
+run_test_jsonl_stdout \
+    "tools: none refuses a native tool call" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error: Tool")' \
+    "true" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-tools-none.nb" --output jsonl
+
+# `tools -bash` drops just bash: the bash call is refused.
+run_test_jsonl_stdout \
+    "tools: -bash refuses the bash call" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error: Tool")' \
+    "true" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-tools-nobash.nb" --output jsonl
+
+echo ""
 echo "--- MCP exposure + dispatch (via built-in tester) ---"
 echo ""
 
@@ -422,6 +441,22 @@ run_test_jsonl_stdout \
     '[.[]|select(.type=="tool_result").output]|last|startswith("Error")' \
     "false" \
     "$NB" --mcp "$MCP_MANIFEST" --output jsonl "MOCK:tool=tester_current_time"
+
+# On the program path an `mcp +tester` directive exposes the server's tool: it
+# dispatches and returns a real (non-error) result.
+run_test_jsonl_stdout \
+    "mcp: +tester directive exposes the server on the program path" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error")' \
+    "false" \
+    "$NB" --mcp "$MCP_MANIFEST" --program "$SCRIPT_DIR/fixtures/prog-mcp-tester.nb" --output jsonl
+
+# Strict-empty baseline: a program with NO mcp directive exposes no MCP tools even
+# though the server is connected, so the same call is refused.
+run_test_jsonl_stdout \
+    "mcp: bare program (no directive) refuses the MCP tool (strict-empty)" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error: Tool")' \
+    "true" \
+    "$NB" --mcp "$MCP_MANIFEST" --program "$SCRIPT_DIR/fixtures/prog-mcp-bare.nb" --output jsonl
 
 rm -f "$MCP_MANIFEST"
 

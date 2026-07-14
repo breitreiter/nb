@@ -169,7 +169,15 @@ run now analyze the root cause
 
 A trailing `\` continues content onto the next line, `#` lines are comments, and `@file` as a directive's whole content includes that file. A program is never given nb's default persona — it gets exactly the `system` directives it writes (nothing, if it writes none), which is what an eval harness wants. Programs default to `--output jsonl`.
 
-> The `mcp` and `tools` directives (e.g. `mcp +figma`, `tools none`) are parsed and reported by `--resolve`, but do not yet reshape the tool surface — that wiring is in progress. The `provider`, `model`, `output`, `system`, `user`, `assistant`, and `run` directives are fully live.
+The `tools` and `mcp` directives reshape the tool surface, with delta tokens (`+name`, `-name`, or the lone `none`):
+
+```
+tools -bash        # drop one native tool (bash, read_file, write_file, edit_file, find_files, grep, list_dir, apply_patch, fetch_url)
+tools none         # no native tools this run
+mcp +figma         # expose the figma MCP server's tools
+```
+
+Native tools are **all-on** by default; a `tools` directive filters them. MCP servers are **strict-empty** for a program: a program exposes no MCP tools unless it names servers with `mcp +server` (the bare `nb "prompt"` path is unaffected — it exposes every connected server, as before). `--resolve` prints the resolved surface at each run point.
 
 **Specs** are reusable prefixes of config directives, prepended to a program or a prompt:
 
@@ -179,7 +187,7 @@ nb --spec chat --program tools.nb        # opt a program into nb's default perso
 nb --spec ./my-envelope.nb "do the task"
 ```
 
-`--spec` resolves a built-in (`chat` = nb's default persona, `headless` = jsonl output), an explicit file path, or `specs/<name>.nb` in a project `.nb/` directory or `~/.config/nb/`. `chat` is the persona the bare `nb "prompt"` path uses, made requestable by name — `nb "x"` and `nb --spec chat "x"` are equivalent.
+`--spec` resolves a built-in (`chat` = nb's default persona, `headless` = jsonl output), an explicit file path, or `specs/<name>.nb` in a project `.nb/` directory or `~/.config/nb/`. `chat` is the persona the bare `nb "prompt"` path uses, made requestable by name — `nb "x"` and `nb --spec chat "x"` produce a byte-identical persona. (They differ only in the MCP surface: the bare path exposes every connected server, while any program — `--spec chat` included — is strict-empty until it names servers with `mcp +server`.)
 
 **Inspect a program without running it:**
 

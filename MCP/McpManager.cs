@@ -120,10 +120,14 @@ public class McpManager : IDisposable
         _mcpClients.Add(client);
         _connectedServerNames.Add(serverName);
 
+        // Expose every tool under its "{server}_{tool}" composite name — the name the
+        // model calls and the surface/approval layers key on. _toolsByServer must hold
+        // the same prefixed instances so an `mcp +server` directive selects tools under
+        // the name the model actually uses (GetToolsForServers).
         var tools = await client.ListToolsAsync();
-        _toolsByServer[serverName] = new List<AIFunction>(tools);
-        foreach (var tool in tools)
-            _mcpTools.Add(tool.WithName($"{serverName}_{tool.Name}"));
+        var prefixed = tools.Select(t => (AIFunction)t.WithName($"{serverName}_{t.Name}")).ToList();
+        _toolsByServer[serverName] = prefixed;
+        _mcpTools.AddRange(prefixed);
 
         if (serverConfig.AlwaysAllow != null)
         {
