@@ -57,10 +57,13 @@ public class ConversationManager
     }
     private readonly List<AIChatMessage> _conversationHistory = new();
     private int _toolCallCount = 0;
-    private long _turnInputTokens;
-    private long _turnOutputTokens;
-    private long _turnTotalTokens;
-    private bool _turnHadUsage;
+    // Token usage accumulated across the whole invocation — every run and every
+    // tool-loop round-trip within it. Never reset per run, so a multi-run program's
+    // trailer reports the aggregate, not just the last run.
+    private long _sessionInputTokens;
+    private long _sessionOutputTokens;
+    private long _sessionTotalTokens;
+    private bool _sessionHadUsage;
     private readonly DoomLoopDetector _doomLoopDetector = new();
     private readonly ToolErrorTracker _errorTracker = new();
     private readonly TodoManager _todoManager = new();
@@ -160,9 +163,9 @@ public class ConversationManager
     /// </summary>
     public void AppendHistory(IEnumerable<AIChatMessage> messages) => _conversationHistory.AddRange(messages);
 
-    /// <summary>Summed token usage for the most recent turn (across the tool loop), or null if the provider reported none.</summary>
-    public (long input, long output, long total)? LastTurnUsage =>
-        _turnHadUsage ? (_turnInputTokens, _turnOutputTokens, _turnTotalTokens) : null;
+    /// <summary>Summed token usage across the whole invocation (all runs, all tool-loop round-trips), or null if the provider reported none.</summary>
+    public (long input, long output, long total)? TotalUsage =>
+        _sessionHadUsage ? (_sessionInputTokens, _sessionOutputTokens, _sessionTotalTokens) : null;
 
     /// <summary>
     /// The <c>exit_reason</c> of the most recent turn (see <see cref="Transcript.ExitReasons"/>).
@@ -184,10 +187,9 @@ public class ConversationManager
     {
         if (_client == null) return;
 
-        // Reset per-turn trackers
+        // Reset per-turn trackers (token usage accumulates across runs — see the
+        // _session* fields — so it is deliberately not reset here).
         _toolCallCount = 0;
-        _turnInputTokens = _turnOutputTokens = _turnTotalTokens = 0;
-        _turnHadUsage = false;
         _doomLoopDetector.Reset();
         _errorTracker.Reset();
         _lastRemindedTodos = null;
@@ -335,14 +337,14 @@ public class ConversationManager
 
             response = updates.ToChatResponse();
 
-            // Accumulate token usage across the turn's model round-trips (the
-            // tool loop recurses through SendMessageInternalAsync).
+            // Accumulate token usage across every model round-trip (the tool loop
+            // recurses through SendMessageInternalAsync) and across every run.
             if (response.Usage is { } usage)
             {
-                _turnInputTokens += usage.InputTokenCount ?? 0;
-                _turnOutputTokens += usage.OutputTokenCount ?? 0;
-                _turnTotalTokens += usage.TotalTokenCount ?? 0;
-                _turnHadUsage = true;
+                _sessionInputTokens += usage.InputTokenCount ?? 0;
+                _sessionOutputTokens += usage.OutputTokenCount ?? 0;
+                _sessionTotalTokens += usage.TotalTokenCount ?? 0;
+                _sessionHadUsage = true;
             }
 
             // Handle tool calls if present - check if any message has tool calls

@@ -400,6 +400,15 @@ run_test \
     1 \
     "$NB" --spec no-such-spec "MOCK:response=x"
 
+# A multi-run program's result trailer reports token usage summed across every
+# run, not just the last (the mock reports 15 total/round-trip, so two plain runs
+# = 30). Guards the session-level (not per-turn) usage accumulation.
+run_test_jsonl_stdout \
+    "usage: multi-run trailer sums usage across runs" \
+    '[.[]|select(.type=="result").usage.total]|first' \
+    "30" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-tworun.nb" --output jsonl
+
 echo ""
 echo "--- tool-surface directives (tools/mcp effects) ---"
 echo ""

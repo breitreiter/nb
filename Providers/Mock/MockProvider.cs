@@ -24,6 +24,12 @@ public class MockProvider : IChatClientProvider
 /// </summary>
 public class MockChatClient : IChatClient
 {
+    // Fixed token usage reported per model round-trip, so tests can assert the
+    // trailer's aggregate (e.g. a two-run program should report 2x these).
+    public const int UsageInput = 10;
+    public const int UsageOutput = 5;
+    public const int UsageTotal = 15;
+
     private readonly string _defaultResponse;
     private readonly string? _model;
 
@@ -89,6 +95,11 @@ public class MockChatClient : IChatClient
         // streaming path — not just response.Text.
         var response = await GetResponseAsync(chatMessages, options, cancellationToken);
         yield return new ChatResponseUpdate(ChatRole.Assistant, response.Messages[0].Contents);
+
+        // A second update carrying usage, so ToChatResponse() aggregates it into
+        // response.Usage the way a real streaming provider reports token counts.
+        var usage = new UsageDetails { InputTokenCount = UsageInput, OutputTokenCount = UsageOutput, TotalTokenCount = UsageTotal };
+        yield return new ChatResponseUpdate(ChatRole.Assistant, new List<AIContent> { new UsageContent(usage) });
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;

@@ -724,7 +724,7 @@ public class Program
     private static (List<TranscriptEvent> events, ResultEvent trailer) BuildTranscript()
     {
         var events = TranscriptMapper.FromHistory(_conversationManager.History);
-        UsageInfo? usage = _conversationManager.LastTurnUsage is { } u
+        UsageInfo? usage = _conversationManager.TotalUsage is { } u
             ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total }
             : null;
         return (events, TranscriptMapper.ResultTrailer(events, _conversationManager.LastOutcome, usage));
