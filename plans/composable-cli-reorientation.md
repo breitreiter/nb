@@ -638,6 +638,21 @@ is already stateless. Next up is the schema keystone (transcript-schema S1:
 types + serializer + golden round-trip tests), which both Phase 3 (seeds) and
 Phase 4 (jsonl) build on.
 
+**Status (2026-07-14).** Phases 0–3 are landed, plus Phase 4's core (jsonl +
+telemetry arrived early via the S2 transcript seam and the exit-code contract).
+The "specs, not switches" thesis runs as code: layered config, `--program`/
+`--spec` (incl. computed `chat`/text `headless`), `--validate`/`--resolve`,
+mid-stream provider/model swap. **The Phase 3 tail is cleared:** the default
+preset is a first-class directive list routed through the evaluator (the
+prompt-floor invariant, now `rules/preset-floor.md`); `--seed` keeps a
+transcript's own `system` messages; the `mcp`/`tools` directives reshape the tool
+surface (`plans/tool-surface-directives.md`, strict-empty MCP for programs);
+`tool_call`/`tool_result` turns evaluate as fabricated premise; and the result
+trailer sums token usage across all runs. The one deferred item, the `approval`
+directive, is deliberately **Phase 5** work (it ships with the approval-policy
+object + sandbox). Remaining: Phase 5, Phase 6 (library facade package), and the
+Phase 2 remainder (friendly `NB_PROVIDER`/`NB_MODEL` aliases, `mcp.json` layering).
+
 Ordered so each phase delivers standalone value and the weaver harness can
 shed a hack at every step.
 
