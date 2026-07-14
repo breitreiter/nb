@@ -30,7 +30,7 @@ public class ConversationManager
     private readonly FetchUrlTool? _fetchUrlTool;
     private readonly ApplyPatchTool? _applyPatchTool;
     private readonly FileReadTracker _fileReadTracker = new();
-    private readonly ApprovalPatterns _approvalPatterns;
+    private readonly ApprovalPolicy _approvalPolicy;
     private readonly bool _verbose;
     private readonly bool _trustMode;
     private readonly bool _debugStream;
@@ -120,7 +120,7 @@ public class ConversationManager
         _listDirTool = listDirTool;
         _fetchUrlTool = fetchUrlTool;
         _applyPatchTool = applyPatchTool;
-        _approvalPatterns = approvalPatterns;
+        _approvalPolicy = new ApprovalPolicy(trustMode, approvalPatterns, _mcpManager.IsAlwaysAllowed);
         _currentProviderName = providerName;
         _verbose = verbose;
         _trustMode = trustMode;
@@ -687,8 +687,8 @@ public class ConversationManager
                                 var mcpTool = mcpTools.FirstOrDefault(t => t.Name == functionCall.Name);
                                 if (mcpTool != null)
                                 {
-                                    // Check if tool is in always-allow list
-                                    bool approved = _mcpManager.IsAlwaysAllowed(functionCall.Name);
+                                    // Check the approval policy (alwaysAllow) for this tool
+                                    bool approved = _approvalPolicy.DecideMcp(functionCall.Name) == ApprovalDecision.Allow;
 
                                     if (!approved && NonInteractive)
                                     {
@@ -1115,30 +1115,21 @@ public class ConversationManager
             // Classify the command for display
             var classified = CommandClassifier.Classify(command);
 
-            // Check if pre-approved via --approve flag
-            if (_approvalPatterns.IsApproved(command))
+            // The approval policy owns the auto-approve precedence (--approve → safe
+            // allowlist → trust+sandbox). Allow carries a reason for the log line.
+            var cwd = _bashTool?.GetCwd() ?? "";
+            var (decision, approveReason) = _approvalPolicy.DecideBash(command, classified, cwd, _bashTool != null);
+            if (decision == ApprovalDecision.Allow)
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• bash (pre-approved): {Markup.Escape(classified.DisplayText)}[/]");
-                return await ExecuteBashCommand(callId, command);
-            }
-
-            // Auto-approve safe commands (build, test, git read-only, etc.)
-            if (!classified.IsDangerous && IsSafeCommand(command))
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• bash: {Markup.Escape(classified.DisplayText)}[/]");
-                return await ExecuteBashCommand(callId, command);
-            }
-
-            // Check trust mode: auto-approve non-dangerous commands within sandbox
-            if (_trustMode && !classified.IsDangerous && _bashTool != null)
-            {
-                var cwd = _bashTool.GetCwd();
-                var isTrusted = IsBashCommandTrusted(classified, cwd);
-                if (isTrusted)
+                var display = Markup.Escape(classified.DisplayText);
+                var line = approveReason switch
                 {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• auto: bash {Markup.Escape(classified.DisplayText)}[/]");
-                    return await ExecuteBashCommand(callId, command);
-                }
+                    "pre-approved" => $"• bash (pre-approved): {display}",
+                    "trust" => $"• auto: bash {display}",
+                    _ => $"• bash: {display}",
+                };
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{line}[/]");
+                return await ExecuteBashCommand(callId, command);
             }
 
             // Show model's description of intent (if provided)
@@ -1215,79 +1206,6 @@ public class ConversationManager
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Approval error: {Markup.Escape(ex.Message)}[/]");
             return new FunctionResultContent(callId, $"Error during command approval: {ex.Message}");
         }
-    }
-
-    // Commands that are always safe to run without approval.
-    // Matched against the first token of the command (before pipes/args).
-    private static readonly HashSet<string> SafeCommandPrefixes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        // Build
-        "dotnet build", "dotnet test", "dotnet run", "dotnet restore",
-        "npm run", "npm test", "npx", "yarn build", "yarn test",
-        "cargo build", "cargo test", "cargo check", "cargo clippy",
-        "go build", "go test", "go vet",
-        "make", "cmake",
-        "mvn compile", "mvn test", "mvn package",
-        "gradle build", "gradle test",
-        "python -m pytest", "pytest",
-
-        // Git (read-only)
-        "git status", "git diff", "git log", "git show", "git branch",
-        "git stash list", "git remote", "git tag",
-
-        // Read-only tools
-        "ls", "pwd", "which", "whereis", "file", "wc", "du", "df",
-        "env", "echo", "date", "uname", "whoami",
-    };
-
-    private static bool IsSafeCommand(string command)
-    {
-        var trimmed = command.Trim();
-        // Check if command starts with any safe prefix
-        foreach (var prefix in SafeCommandPrefixes)
-        {
-            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                && (trimmed.Length == prefix.Length || trimmed[prefix.Length] is ' ' or '\t' or ';' or '|' or '\n'))
-                return true;
-        }
-        return false;
-    }
-
-    private static bool IsBashCommandTrusted(ClassifiedCommand classified, string cwd)
-    {
-        // Only auto-approve certain categories
-        if (classified.Category is not (CommandCategory.Read or CommandCategory.Write or CommandCategory.Copy or CommandCategory.Run))
-            return false;
-
-        // For Run commands with no specific path (e.g. "dotnet build", "git status"), trust them
-        // For commands with identifiable paths, check sandbox
-        var displayText = classified.DisplayText;
-
-        // If it's a Run category, the display text is the full command - these are typically
-        // in-cwd commands like "dotnet build", "npm install", "git status" etc.
-        if (classified.Category == CommandCategory.Run)
-            return true; // Non-dangerous Run commands are already filtered by the caller
-
-        // For Read/Write/Copy with a path in display text, check the sandbox
-        if (!string.IsNullOrEmpty(displayText) && displayText != classified.DisplayText)
-            return TrustSandbox.IsPathTrustedRelative(displayText, cwd);
-
-        // For Read with a path
-        if (classified.Category == CommandCategory.Read)
-            return TrustSandbox.IsPathTrustedRelative(displayText, cwd);
-
-        // For Write with a path
-        if (classified.Category == CommandCategory.Write)
-            return TrustSandbox.IsPathTrustedRelative(displayText, cwd);
-
-        // For Copy, the display text is "src → dst"
-        if (classified.Category == CommandCategory.Copy && displayText.Contains(" → "))
-        {
-            var parts = displayText.Split(" → ");
-            return parts.All(p => TrustSandbox.IsPathTrustedRelative(p.Trim(), cwd));
-        }
-
-        return true;
     }
 
     private async Task<FunctionResultContent> ExecuteBashCommand(string callId, string command)

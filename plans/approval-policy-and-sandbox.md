@@ -87,23 +87,32 @@ Read-first guards (write/edit require a prior read via `_fileReadTracker`) are
 
 ### P5.1 — the ApprovalPolicy seam (pure refactor, no behavior change)
 
-Introduce `Shell/ApprovalPolicy.cs` (+ `ApprovalRequest`/`ApprovalDecision`). It
-absorbs the scattered inputs and reproduces **today's behavior exactly**:
+Introduce `Shell/ApprovalPolicy.cs` (+ `ApprovalDecision`). It owns the two
+genuinely *open-coded, duplicated* decision chains and reproduces **today's
+behavior exactly**:
 
-- bash: `--approve` match → safe-allowlist (non-dangerous) → trust+sandbox →
-  else Prompt (dangerous defaults to a No-default prompt).
-- write/edit/apply_patch: sandbox membership (via `CheckPath`, not `_trustMode`)
-  → else Prompt.
-- read-path: sandbox membership → else Prompt.
-- fetch_url: always Prompt.
-- MCP: `alwaysAllow` → else Prompt.
+- **bash** (`DecideBash`): `--approve` match → safe-allowlist (non-dangerous) →
+  trust+sandbox → else Prompt. Returns `Allow` with a reason label (so the
+  `• bash (pre-approved)` / `• bash` / `• auto: bash` log lines are preserved) or
+  `Prompt`. `SafeCommandPrefixes`/`IsSafeCommand`/`IsBashCommandTrusted` move into
+  the policy verbatim.
+- **MCP** (`DecideMcp`): `alwaysAllow` → `Allow`, else `Prompt` (wraps
+  `McpManager.IsAlwaysAllowed`).
 
-Consult it at all 7 sites, deleting the open-coded chains. The `NonInteractive`
-→ Deny collapse moves into the Prompt-handling helper. **Verification:** the
-existing approval evals (`evals/run.sh` non-TTY + `--approve` sections) and
-`ApprovalPatternsTests` must stay green with zero changes — that is the proof the
-refactor preserved behavior. This is the umbrella plan's mandated "seam
-insertion, not decomposition."
+The path tools (read/write/edit/apply_patch) and fetch_url are **not** open-coded
+chains — they already share the uniform `TrustSandbox.CheckPath` /
+`ApproveReadPath` primitive (in-sandbox → auto, else prompt; fetch always
+prompts), so they stay as-is in P5.1 and gain the `Native`/`Default` policy knobs
+in P5.2 where those have meaning. The `NonInteractive` → Deny collapse is
+unchanged (still the last gate before each interactive prompt).
+
+The policy is constructed inside `ConversationManager` from its existing fields
+(`_trustMode`, the `--approve` patterns, `_mcpManager.IsAlwaysAllowed`), so there
+is **no constructor-signature or config change** in P5.1 — that arrives in P5.2.
+**Verification:** the existing approval evals (`evals/run.sh` non-TTY + `--approve`
+sections) and `ApprovalPatternsTests` must stay green unchanged — the proof the
+refactor preserved behavior. This is the umbrella plan's "seam insertion, not
+decomposition."
 
 ### P5.2 — declarative `Approval` config + the `approval` directive
 
