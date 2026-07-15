@@ -1,0 +1,2 @@
+{ "ActiveProvider": "Mock", "ChatProviders": [ { "Name": "Mock", "Response": "OK" } ],
+  "Approval": { "McpTools": ["tester/*"] } }

@@ -306,6 +306,27 @@ run_test_jsonl_stdout \
 rm -f "$NB_DIR/approval_probe.txt"
 
 echo ""
+echo "--- Approval policy config (Phase 5.2) ---"
+echo ""
+
+# Approval.Bash auto-approves a matching bash command headlessly (no --approve
+# flag): `cat` is neither safe-listed nor trusted, so only the config allows it.
+# (Later --config wins over the harness-injected mock config.)
+run_test_jsonl_stdout \
+    "approval: Approval.Bash auto-approves a match headlessly" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error")' \
+    "false" \
+    "$NB" --config "$SCRIPT_DIR/fixtures/appr-bash.json" --output jsonl "MOCK:tool=bash cat /etc/hostname"
+
+# Approval.Default=deny refuses an unmatched call via the policy (not the non-TTY
+# path): the tool result names the policy default, not a missing terminal.
+run_test_jsonl_stdout \
+    "approval: Default=deny denies via policy, not non-TTY" \
+    '[.[]|select(.type=="tool_result").output]|last|contains("default: deny")' \
+    "true" \
+    "$NB" --config "$SCRIPT_DIR/fixtures/appr-deny.json" --output jsonl "MOCK:tool=bash cat /etc/hostname"
+
+echo ""
 echo "--- Porcelain output (Phase 1) ---"
 echo ""
 
@@ -470,6 +491,21 @@ run_test_jsonl_stdout \
     '[.[]|select(.type=="tool_result").output]|last|startswith("Error")' \
     "false" \
     "$NB" --mcp "$MCP_MANIFEST" --output jsonl "MOCK:tool=tester_current_time"
+
+# Approval.McpTools glob permits an MCP call with NO alwaysAllow in the manifest:
+# a manifest without alwaysAllow would otherwise deny headlessly, but the config's
+# "tester/*" glob (matched against the tester_* composite) auto-approves it.
+MCP_MANIFEST_NOALLOW="$SCRIPT_DIR/fixtures/mcp-tester-noallow.generated.json"
+cat > "$MCP_MANIFEST_NOALLOW" <<JSON
+{ "servers": { "tester": { "type": "stdio", "command": "dotnet",
+  "args": ["run","--project","$MCP_TESTER"] } } }
+JSON
+run_test_jsonl_stdout \
+    "approval: Approval.McpTools glob permits an un-alwaysAllow'd MCP call" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error")' \
+    "false" \
+    "$NB" --config "$SCRIPT_DIR/fixtures/appr-mcp.json" --mcp "$MCP_MANIFEST_NOALLOW" --output jsonl "MOCK:tool=tester_current_time"
+rm -f "$MCP_MANIFEST_NOALLOW"
 
 # On the program path an `mcp +tester` directive exposes the server's tool: it
 # dispatches and returns a real (non-error) result.

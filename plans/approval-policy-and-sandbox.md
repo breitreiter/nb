@@ -193,6 +193,17 @@ bwrap --ro-bind / / --dev /dev --proc /proc \
 
 ## Status
 
-Not started (plan written 2026-07-14). Build order P5.1 → P5.2 → P5.3, each its
-own commit(s). P5.1 is a behavior-preserving refactor gated by the existing
-suite; the new surface arrives in P5.2–P5.3.
+Plan written 2026-07-14. Build order P5.1 → P5.2 → P5.3.
+
+- **P5.1 done** (`5d7d9cf`) — `ApprovalPolicy` seam for the bash + MCP chains,
+  behavior-preserving.
+- **P5.2a done** — the `Approval` config block (`Bash` extends `--approve`;
+  `McpTools` allow globs matched against `{server}_{tool}` with `/`→`_`; `Default:
+  deny` turns unmatched calls into refusals uniformly at all sites). Policy built
+  in `Program.BuildApprovalPolicy`, injected into `ConversationManager`; the
+  `DecideMcp`/`DecidePath`/`DecideFetch` decisions now honor `Default`. Note:
+  headless already denies unmatched calls (Phase 0), so `Default: deny`'s new
+  effect is interactive lockdown + a distinct deny message; the headless-visible
+  win is the config-driven allow-lists. Example config + 3 evals + 5 unit tests.
+- **P5.2b next** — the `approval` conversation-program directive layering onto the
+  same policy (closes tail #5). **P5.3** — bwrap.

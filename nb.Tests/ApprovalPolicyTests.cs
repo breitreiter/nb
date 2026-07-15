@@ -69,4 +69,44 @@ public class ApprovalPolicyTests
         Assert.Equal(ApprovalDecision.Allow, p.DecideMcp("tester_current_time"));
         Assert.Equal(ApprovalDecision.Prompt, p.DecideMcp("tester_delete_all"));
     }
+
+    [Fact]
+    public void Mcp_Glob_MatchesCompositeName_SlashAliasesUnderscore()
+    {
+        var p = new ApprovalPolicy(false, new ApprovalPatterns(), _ => false, mcpGlobs: new[] { "tester/*" });
+        Assert.Equal(ApprovalDecision.Allow, p.DecideMcp("tester_current_time"));
+        Assert.Equal(ApprovalDecision.Prompt, p.DecideMcp("other_tool"));
+    }
+
+    [Fact]
+    public void Path_InSandboxAllows_OutsidePrompts()
+    {
+        var p = Policy();
+        Assert.Equal(ApprovalDecision.Allow, p.DecidePath(inSandbox: true));
+        Assert.Equal(ApprovalDecision.Prompt, p.DecidePath(inSandbox: false));
+    }
+
+    [Fact]
+    public void DefaultDeny_TurnsEveryNonMatchIntoDeny()
+    {
+        var p = new ApprovalPolicy(false, new ApprovalPatterns(), _ => false, @default: ApprovalDefault.Deny);
+        Assert.Equal(ApprovalDecision.Deny, Bash(p, "cat /etc/passwd").Item1); // unmatched bash
+        Assert.Equal(ApprovalDecision.Deny, p.DecidePath(inSandbox: false));   // out-of-sandbox path
+        Assert.Equal(ApprovalDecision.Deny, p.DecideFetch());                  // fetch never auto
+        Assert.Equal(ApprovalDecision.Deny, p.DecideMcp("unlisted_tool"));     // unlisted MCP
+    }
+
+    [Fact]
+    public void DefaultDeny_StillAllowsMatches()
+    {
+        var p = new ApprovalPolicy(trust: false, new ApprovalPatterns(new[] { "cat *" }), _ => false, @default: ApprovalDefault.Deny);
+        Assert.Equal(ApprovalDecision.Allow, Bash(p, "cat notes.txt").Item1);  // --approve match wins over deny
+        Assert.Equal(ApprovalDecision.Allow, p.DecidePath(inSandbox: true));   // in-sandbox is a match
+    }
+
+    [Fact]
+    public void Fetch_NeverAutoApproves()
+    {
+        Assert.Equal(ApprovalDecision.Prompt, Policy().DecideFetch());
+    }
 }

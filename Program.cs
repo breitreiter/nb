@@ -206,6 +206,24 @@ public class Program
         return null;
     }
 
+    // Build the approval policy from --trust/--approve plus the Approval config
+    // block. Approval.Bash extends the --approve bash patterns; Approval.McpTools
+    // are allow globs (alongside mcp.json alwaysAllow); Approval.Default=deny makes
+    // unmatched calls deny instead of prompt. See plans/approval-policy-and-sandbox.md.
+    private static ApprovalPolicy BuildApprovalPolicy(Microsoft.Extensions.Configuration.IConfiguration config)
+    {
+        foreach (var entry in config.GetSection("Approval:Bash").GetChildren())
+            if (!string.IsNullOrEmpty(entry.Value)) _approvalPatterns.Add(entry.Value);
+
+        var mcpGlobs = config.GetSection("Approval:McpTools").GetChildren()
+            .Select(c => c.Value).Where(v => !string.IsNullOrEmpty(v)).Select(v => v!);
+
+        var def = string.Equals(config["Approval:Default"], "deny", StringComparison.OrdinalIgnoreCase)
+            ? ApprovalDefault.Deny : ApprovalDefault.Prompt;
+
+        return new ApprovalPolicy(_trustMode, _approvalPatterns, _mcpManager.IsAlwaysAllowed, mcpGlobs, def);
+    }
+
     private static string SlugifyModelName(string model)
     {
         // Lowercase + collapse non-alphanumeric runs to '-'. Keeps "gpt-oss-20b" as-is,
@@ -477,8 +495,9 @@ public class Program
         var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
         var temperature = ResolveProviderFloat(config, activeProviderName, "Temperature");
         var presencePenalty = ResolveProviderFloat(config, activeProviderName, "PresencePenalty");
+        var approvalPolicy = BuildApprovalPolicy(config);
         _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream, temperature, presencePenalty);
+            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, approvalPolicy, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream, temperature, presencePenalty);
 
         // Program mode: evaluate a conversation-program directly, with no default
         // persona injected — a bare program (or an explicit --spec) gets exactly

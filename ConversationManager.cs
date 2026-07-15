@@ -97,7 +97,7 @@ public class ConversationManager
         ListDirTool? listDirTool,
         FetchUrlTool? fetchUrlTool,
         ApplyPatchTool? applyPatchTool,
-        ApprovalPatterns approvalPatterns,
+        ApprovalPolicy approvalPolicy,
         string providerName = "",
         bool verbose = false,
         bool trustMode = false,
@@ -120,7 +120,7 @@ public class ConversationManager
         _listDirTool = listDirTool;
         _fetchUrlTool = fetchUrlTool;
         _applyPatchTool = applyPatchTool;
-        _approvalPolicy = new ApprovalPolicy(trustMode, approvalPatterns, _mcpManager.IsAlwaysAllowed);
+        _approvalPolicy = approvalPolicy;
         _currentProviderName = providerName;
         _verbose = verbose;
         _trustMode = trustMode;
@@ -687,13 +687,14 @@ public class ConversationManager
                                 var mcpTool = mcpTools.FirstOrDefault(t => t.Name == functionCall.Name);
                                 if (mcpTool != null)
                                 {
-                                    // Check the approval policy (alwaysAllow) for this tool
-                                    bool approved = _approvalPolicy.DecideMcp(functionCall.Name) == ApprovalDecision.Allow;
+                                    // Check the approval policy (alwaysAllow / Approval.McpTools) for this tool
+                                    var mcpDecision = _approvalPolicy.DecideMcp(functionCall.Name);
+                                    bool approved = mcpDecision == ApprovalDecision.Allow;
 
-                                    if (!approved && NonInteractive)
+                                    if (!approved && (NonInteractive || mcpDecision == ApprovalDecision.Deny))
                                     {
-                                        // No terminal to prompt at: deny by policy (Phase 0).
-                                        Console.Error.WriteLine($"[nb] denied: MCP tool '{functionCall.Name}' needs approval, but stdin is not a TTY and it is not in the always-allow list.");
+                                        // No terminal to prompt at, or the policy default is deny: refuse without a prompt.
+                                        Console.Error.WriteLine($"[nb] denied: MCP tool '{functionCall.Name}' needs approval, but it is not allow-listed and {(NonInteractive ? "stdin is not a TTY" : "the approval policy default is deny")}.");
                                     }
                                     else if (!approved)
                                     {
@@ -1108,6 +1109,20 @@ public class ConversationManager
             "and no pre-approval (--approve/--trust) matched. Permission denied — do not retry; try a different approach.");
     }
 
+    // The approval policy's default is deny: this call matched no allow-rule, so it
+    // is refused without a prompt (even interactively). Distinct from the non-TTY
+    // deny — it's a deliberate lockdown, not a missing terminal.
+    private static FunctionResultContent DenyByPolicy(string callId, string what)
+    {
+        Console.Error.WriteLine($"[nb] denied: {what} — approval policy default is deny and nothing allow-listed it.");
+        return new FunctionResultContent(callId,
+            $"Error: {what} was denied by the approval policy (default: deny) and no allow-rule matched. " +
+            "Permission denied — do not retry; try a different approach.");
+    }
+
+    /// <summary>The resolved approval policy — the <c>approval</c> directive layers onto it (Phase 5.2b).</summary>
+    public ApprovalPolicy ApprovalPolicy => _approvalPolicy;
+
     private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command, string description)
     {
         try
@@ -1131,6 +1146,10 @@ public class ConversationManager
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{line}[/]");
                 return await ExecuteBashCommand(callId, command);
             }
+
+            // Policy default is deny: refuse without prompting (even interactively).
+            if (decision == ApprovalDecision.Deny)
+                return DenyByPolicy(callId, $"bash ({classified.Category})");
 
             // Show model's description of intent (if provided)
             if (!string.IsNullOrWhiteSpace(description))
@@ -1311,6 +1330,8 @@ public class ConversationManager
                 }
             }
 
+            if (_approvalPolicy.Default == ApprovalDefault.Deny)
+                return Task.FromResult(DenyByPolicy(callId, "write_file (path outside working directory)"));
             if (NonInteractive)
                 return Task.FromResult(DenyNonInteractive(callId, "write_file"));
 
@@ -1379,6 +1400,8 @@ public class ConversationManager
     {
         try
         {
+            if (_approvalPolicy.Default == ApprovalDefault.Deny)
+                return DenyByPolicy(callId, "fetch_url");
             if (NonInteractive)
                 return DenyNonInteractive(callId, "fetch_url");
 
@@ -1485,6 +1508,8 @@ public class ConversationManager
                 }
             }
 
+            if (_approvalPolicy.Default == ApprovalDefault.Deny)
+                return DenyByPolicy(callId, "edit_file (path outside working directory)");
             if (NonInteractive)
                 return DenyNonInteractive(callId, "edit_file");
 
@@ -1617,6 +1642,8 @@ public class ConversationManager
             return new FunctionResultContent(callId, summary);
         }
 
+        if (_approvalPolicy.Default == ApprovalDefault.Deny)
+            return DenyByPolicy(callId, "apply_patch (path outside working directory)");
         if (NonInteractive)
             return DenyNonInteractive(callId, "apply_patch (path outside working directory)");
 
@@ -1715,17 +1742,19 @@ public class ConversationManager
     private bool ApproveReadPath(string toolLabel, string fullPath, string cwd)
     {
         var (trusted, symlinkEscape) = TrustSandbox.CheckPath(fullPath, cwd);
-        if (trusted && !symlinkEscape) return true;
+        var decision = _approvalPolicy.DecidePath(trusted && !symlinkEscape);
+        if (decision == ApprovalDecision.Allow) return true;
 
         if (symlinkEscape)
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Symlink escape:[/] [{UIColors.SpectreMuted}]{Markup.Escape(fullPath)} resolves outside working directory[/]");
         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]{toolLabel}:[/] {Markup.Escape(fullPath)}");
         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: path is outside working directory[/]");
 
-        // No terminal to prompt at: deny the out-of-sandbox access deterministically.
-        if (NonInteractive)
+        // No terminal to prompt at, or the policy default is deny: refuse the
+        // out-of-sandbox access deterministically.
+        if (decision == ApprovalDecision.Deny || NonInteractive)
         {
-            Console.Error.WriteLine($"[nb] denied: {toolLabel} on a path outside the working directory (non-interactive session).");
+            Console.Error.WriteLine($"[nb] denied: {toolLabel} on a path outside the working directory ({(NonInteractive ? "non-interactive session" : "approval policy default is deny")}).");
             return false;
         }
 
