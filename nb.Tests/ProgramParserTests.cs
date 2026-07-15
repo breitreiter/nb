@@ -59,6 +59,28 @@ public class ProgramParserTests
     }
 
     [Fact]
+    public void Approval_KeyIsFirstToken_ValueIsTheRest()
+    {
+        var e = Assert.IsType<ApprovalEvent>(ProgramParser.Parse("approval bash git status")[0]);
+        Assert.Equal("bash", e.Key);
+        Assert.Equal("git status", e.Value);  // value keeps its spaces
+    }
+
+    [Fact]
+    public void Approval_Default_LowercasesKey()
+    {
+        var e = Assert.IsType<ApprovalEvent>(ProgramParser.Parse("approval default deny")[0]);
+        Assert.Equal("default", e.Key);
+        Assert.Equal("deny", e.Value);
+    }
+
+    [Fact]
+    public void Approval_MissingValue_Throws()
+    {
+        Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("approval bash"));
+    }
+
+    [Fact]
     public void BackslashContinuation_JoinsWithNewline()
     {
         var e = Assert.IsType<UserEvent>(ProgramParser.Parse("user first line \\\nsecond line")[0]);

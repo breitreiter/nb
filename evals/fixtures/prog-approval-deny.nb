@@ -1,0 +1,2 @@
+approval default deny
+run MOCK:tool=bash touch approval_deny_probe.txt

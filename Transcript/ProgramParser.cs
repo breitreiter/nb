@@ -56,6 +56,9 @@ public static class ProgramParser
                 case "tools":
                     events.Add(ParseSurface(new ToolsEvent(), content, lineNo));
                     break;
+                case "approval":
+                    events.Add(ParseApproval(content, lineNo));
+                    break;
                 case "system":
                     events.Add(new SystemEvent { Turn = turn++, Text = ResolveContent(content, includeResolver) });
                     break;
@@ -73,7 +76,7 @@ public static class ProgramParser
                     throw new ProgramParseException($"line {lineNo}: '{verb}' has structured fields — author it as JSONL bytecode, not source syntax.");
                 default:
                     throw new ProgramParseException(
-                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, output, mcp, tools, system, user, assistant, run.");
+                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, output, mcp, tools, approval, system, user, assistant, run.");
             }
         }
 
@@ -152,6 +155,21 @@ public static class ProgramParser
             (tok[0] == '+' ? add : remove).Add(tok[1..]);
         }
         return template with { Add = add, Remove = remove };
+    }
+
+    // Parse "approval <key> <value>": the first token is the key (bash|mcp|default),
+    // the rest is the value (a bash pattern may contain spaces). Key validity is a
+    // semantic check (--validate / evaluator), not syntactic.
+    private static ApprovalEvent ParseApproval(string content, int lineNo)
+    {
+        var trimmed = content.Trim();
+        var sp = trimmed.IndexOf(' ');
+        if (sp < 0)
+            throw new ProgramParseException($"line {lineNo}: 'approval' needs '<key> <value>' (bash | mcp | default) — got '{trimmed}'.");
+        var value = trimmed[(sp + 1)..].Trim();
+        if (value.Length == 0)
+            throw new ProgramParseException($"line {lineNo}: 'approval {trimmed[..sp]}' needs a value.");
+        return new ApprovalEvent { Key = trimmed[..sp].ToLowerInvariant(), Value = value };
     }
 
     // Whole-content @file include: content matching @<path> with no whitespace is

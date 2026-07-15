@@ -163,6 +163,19 @@ public sealed record ToolsEvent : SurfaceDirectiveEvent
     public override string Type => "tools";
 }
 
+/// <summary>
+/// An approval-policy directive: <c>approval &lt;key&gt; &lt;value&gt;</c> where key is
+/// <c>bash</c> (add an auto-approve command pattern), <c>mcp</c> (add an allow glob),
+/// or <c>default</c> (<c>prompt</c> | <c>deny</c> for unmatched calls). Layers onto the
+/// config-seeded policy (plans/approval-policy-and-sandbox.md).
+/// </summary>
+public sealed record ApprovalEvent : TranscriptEvent
+{
+    public override string Type => "approval";
+    public required string Key { get; init; }
+    public required string Value { get; init; }
+}
+
 /// <summary>Run-level trailer (Turn is null). Not a conversation message — carries telemetry and the exit reason. Ignored on seed-load.</summary>
 public sealed record ResultEvent : TranscriptEvent
 {

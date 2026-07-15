@@ -900,6 +900,12 @@ public class Program
                 case OutputEvent o when o.Mode is not ("interactive" or "porcelain" or "jsonl"):
                     errors.Add($"invalid output mode '{o.Mode}'. Valid: interactive, porcelain, jsonl.");
                     break;
+                case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "default"):
+                    errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, default.");
+                    break;
+                case ApprovalEvent { Key: "default" } a when a.Value is not ("prompt" or "deny"):
+                    errors.Add($"invalid approval default '{a.Value}'. Valid: prompt, deny.");
+                    break;
             }
         }
 
@@ -923,6 +929,8 @@ public class Program
     {
         string provider = "(default)", model = "(default)", output = _outputMode;
         var surfaceDirectives = new List<SurfaceDirectiveEvent>();
+        string approvalDefault = "prompt";
+        int bashRules = 0, mcpRules = 0;
         int run = 0;
 
         foreach (var ev in program)
@@ -933,6 +941,9 @@ public class Program
                 case ModelEvent m: model = m.Name; break;
                 case OutputEvent o: output = o.Mode; break;
                 case SurfaceDirectiveEvent sd: surfaceDirectives.Add(sd); break;
+                case ApprovalEvent { Key: "default" } a: approvalDefault = a.Value; break;
+                case ApprovalEvent { Key: "bash" }: bashRules++; break;
+                case ApprovalEvent { Key: "mcp" }: mcpRules++; break;
                 case RunEvent:
                     run++;
                     // Fold through the same resolver the evaluator runs, so what this
@@ -942,7 +953,7 @@ public class Program
                     var toolStr = surface.NativeAllow is null
                         ? "all"
                         : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
-                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr}");
+                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules})");
                     break;
             }
         }

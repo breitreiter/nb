@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using nb.Shell;
 using nb.Transcript;
 
 namespace nb;
@@ -64,6 +65,9 @@ public sealed class ProgramEvaluator
                 case SurfaceDirectiveEvent sd:
                     _surfaceDirectives.Add(sd);
                     break;
+                case ApprovalEvent ap:
+                    ApplyApproval(ap);
+                    break;
                 case SystemEvent or UserEvent or AssistantTextEvent or ToolCallEvent or ToolResultEvent:
                     // A message-bearing turn: buffer until the next run flushes it.
                     _turnBuffer.Add(ev);
@@ -91,6 +95,33 @@ public sealed class ProgramEvaluator
         if (_turnBuffer.Count == 0) return;
         _conversation.AppendHistory(TranscriptLoader.ToHistory(_turnBuffer));
         _turnBuffer.Clear();
+    }
+
+    // Layer an `approval` directive onto the config-seeded policy. Takes effect for
+    // subsequent runs, like the other config directives (plans/approval-policy-and-sandbox.md).
+    private void ApplyApproval(ApprovalEvent ap)
+    {
+        var policy = _conversation.ApprovalPolicy;
+        switch (ap.Key)
+        {
+            case "bash":
+                policy.AddBashPattern(ap.Value);
+                break;
+            case "mcp":
+                policy.AddMcpGlob(ap.Value);
+                break;
+            case "default":
+                if (ap.Value.Equals("deny", StringComparison.OrdinalIgnoreCase))
+                    policy.SetDefault(ApprovalDefault.Deny);
+                else if (ap.Value.Equals("prompt", StringComparison.OrdinalIgnoreCase))
+                    policy.SetDefault(ApprovalDefault.Prompt);
+                else
+                    _warnings.Add($"approval default '{ap.Value}' unknown (prompt | deny) — ignored");
+                break;
+            default:
+                _warnings.Add($"approval key '{ap.Key}' unknown (bash | mcp | default) — ignored");
+                break;
+        }
     }
 
     private void SwapClient()

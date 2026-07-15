@@ -326,6 +326,28 @@ run_test_jsonl_stdout \
     "true" \
     "$NB" --config "$SCRIPT_DIR/fixtures/appr-deny.json" --output jsonl "MOCK:tool=bash cat /etc/hostname"
 
+# The `approval` directive layers onto the policy in a program: `approval bash`
+# auto-approves a matching command that would otherwise deny headlessly.
+run_test_jsonl_stdout \
+    "approval: 'approval bash' directive auto-approves in a program" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error")' \
+    "false" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-approval-bash.nb" --output jsonl
+
+# `approval default deny` in a program refuses an unmatched call via policy.
+run_test_jsonl_stdout \
+    "approval: 'approval default deny' directive denies via policy" \
+    '[.[]|select(.type=="tool_result").output]|last|contains("default: deny")' \
+    "true" \
+    "$NB" --program "$SCRIPT_DIR/fixtures/prog-approval-deny.nb" --output jsonl
+
+# --validate rejects an unknown approval key.
+run_test_contains \
+    "approval: --validate rejects an unknown key" \
+    1 \
+    "invalid approval key" \
+    "$NB" --validate --program "$SCRIPT_DIR/fixtures/prog-approval-badkey.nb"
+
 echo ""
 echo "--- Porcelain output (Phase 1) ---"
 echo ""

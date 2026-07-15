@@ -158,7 +158,7 @@ nb --program flow.nb          # from a file
 nb --program - < flow.nb      # from stdin (a first '{' char is read as jsonl bytecode instead)
 ```
 
-Each line is `<verb> <content>`. **Config directives** (`provider`, `model`, `output`, `mcp`, `tools`) set the envelope going forward; **turn directives** (`system`, `user`, `assistant`) append messages; **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a `user` turn then `run`). Because config directives can appear between runs, one file can drive two models:
+Each line is `<verb> <content>`. **Config directives** (`provider`, `model`, `output`, `mcp`, `tools`, `approval`) set the envelope going forward; **turn directives** (`system`, `user`, `assistant`) append messages; **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a `user` turn then `run`). Because config directives can appear between runs, one file can drive two models:
 
 ```
 model haiku
@@ -180,6 +180,16 @@ mcp +figma         # expose the figma MCP server's tools
 ```
 
 Native tools are **all-on** by default; a `tools` directive filters them. MCP servers are **strict-empty** for a program: a program exposes no MCP tools unless it names servers with `mcp +server` (the bare `nb "prompt"` path is unaffected — it exposes every connected server, as before). `--resolve` prints the resolved surface at each run point.
+
+The `approval` directive sets the approval policy — which tool calls auto-approve, and what an unmatched call does:
+
+```
+approval bash git status   # auto-approve bash commands matching this pattern
+approval mcp weather/*      # auto-approve MCP tools matching this glob ('/' aliases the '_' in weather_current)
+approval default deny       # refuse any unmatched call outright (instead of prompting)
+```
+
+These layer onto the `Approval` config block (`Bash`/`McpTools`/`Default` in `appsettings.json`), which does the same thing outside a program. In a **headless** run (piped stdin) every unmatched call is already denied, so the allow-lists are what make a scripted run auto-approve exactly the tools it needs; `approval default deny` adds the same lockdown to an interactive session. `--resolve` prints the effective policy per run point.
 
 **Specs** are reusable prefixes of config directives, prepended to a program or a prompt:
 

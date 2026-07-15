@@ -205,5 +205,14 @@ Plan written 2026-07-14. Build order P5.1 → P5.2 → P5.3.
   headless already denies unmatched calls (Phase 0), so `Default: deny`'s new
   effect is interactive lockdown + a distinct deny message; the headless-visible
   win is the config-driven allow-lists. Example config + 3 evals + 5 unit tests.
-- **P5.2b next** — the `approval` conversation-program directive layering onto the
-  same policy (closes tail #5). **P5.3** — bwrap.
+- **P5.2b done** — the `approval` conversation-program directive
+  (`approval bash <pat>` / `approval mcp <glob>` / `approval default prompt|deny`),
+  parsed by `ProgramParser`, round-tripped through `TranscriptSerializer`
+  (`ApprovalEvent`), applied to the policy by `ProgramEvaluator.ApplyApproval` (via
+  the `ConversationManager.ApprovalPolicy` accessor + mutators), and covered by
+  `--validate` (bad key / default value → exit 1) and `--resolve` (prints
+  `approval=<default>(bash:N mcp:N)`). Closes conversation-program tail #5. +4 unit
+  tests (parser + serializer round-trip), +3 evals (directive auto-approve / deny /
+  validate), README updated. Sandbox key (`approval sandbox`) is intentionally
+  absent until P5.3 wires bwrap.
+- **P5.3 next** — bwrap sandbox at the bash spawn point.

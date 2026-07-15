@@ -92,6 +92,18 @@ public class TranscriptSerializerTests
     }
 
     [Fact]
+    public void ApprovalEvent_RoundTrips()
+    {
+        var ev = new ApprovalEvent { Turn = 0, Key = "bash", Value = "git status" };
+        var line = TranscriptSerializer.SerializeEvent(ev);
+        Assert.Contains("\"type\":\"approval\"", line);
+
+        var back = Assert.IsType<ApprovalEvent>(TranscriptSerializer.Parse(line)[0]);
+        Assert.Equal("bash", back.Key);
+        Assert.Equal("git status", back.Value);
+    }
+
+    [Fact]
     public void PreservesJsonArgumentTypes_OnEmit()
     {
         // Decision 4: arguments keep their true JSON types; numbers stay numbers,

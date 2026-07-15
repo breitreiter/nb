@@ -1,0 +1,2 @@
+approval bash cat *
+run MOCK:tool=bash cat /etc/hostname

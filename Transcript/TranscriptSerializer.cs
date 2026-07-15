@@ -99,6 +99,10 @@ public static class TranscriptSerializer
                 WriteStringArray(w, "add", s.Add);
                 WriteStringArray(w, "remove", s.Remove);
                 break;
+            case ApprovalEvent ap:
+                w.WriteString("key", ap.Key);
+                w.WriteString("value", ap.Value);
+                break;
             case ResultEvent r:
                 WriteResultBody(w, r);
                 break;
@@ -254,6 +258,8 @@ public static class TranscriptSerializer
                 return new McpEvent { Turn = turn, Add = ReadStringArray(root, "add"), Remove = ReadStringArray(root, "remove"), Reset = GetBool(root, "reset") };
             case "tools":
                 return new ToolsEvent { Turn = turn, Add = ReadStringArray(root, "add"), Remove = ReadStringArray(root, "remove"), Reset = GetBool(root, "reset") };
+            case "approval":
+                return new ApprovalEvent { Turn = turn, Key = RequireString(root, "key", lineNumber, type), Value = RequireString(root, "value", lineNumber, type) };
             case "result":
                 return new ResultEvent
                 {
