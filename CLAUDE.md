@@ -97,7 +97,8 @@ The application supports these built-in commands (intercepted before LLM):
 - **Tool Integration** - MCP tools are automatically integrated with Microsoft.Extensions.AI tool system
 - **Error Handling** - Graceful fallback when servers don't support prompts (some MCP servers are tools-only)
 - **Configuration** - MCP servers configured in `mcp.json` with command, args, and environment variables
-- **Transport** - Uses stdio transport (`StdioClientTransport`) for process-based MCP servers
+- **Transport** - `StdioClientTransport` for process-based (`stdio`) servers; `HttpClientTransport` for remote (`http`) servers
+- **HTTP auth headers** - HTTP servers accept a `headers` object on `McpServerConfig`. Values support `${VAR}` env interpolation via `McpManager.ResolveHeaders` (keys are not interpolated; unset vars warn and resolve to empty), matching the `${VAR}` convention in `ConfigurationService`. Keeps tokens out of the committed `mcp.json`.
 
 ## Built-in MCP Server
 - **Location** - `mcp-servers/mcp-tester/` - Self-contained C# MCP server

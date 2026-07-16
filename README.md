@@ -337,6 +337,19 @@ The `alwaysAllow` array specifies tools that skip approval prompts. Use `["*"]` 
 "alwaysAllow": ["*"]
 ```
 
+#### HTTP servers and auth headers
+For remote servers, use `"type": "http"` with an `endpoint`. Supply auth via a `headers` object; values support `${VAR}` interpolation against environment variables, so tokens stay out of the committed `mcp.json`:
+```json
+"figma": {
+  "type": "http",
+  "endpoint": "https://mcp.figma.com/mcp",
+  "headers": {
+    "Authorization": "Bearer ${FIGMA_TOKEN}"
+  }
+}
+```
+Only header values are interpolated (not keys). A referenced variable that isn't set logs a warning and resolves to an empty string. Literal values (no `${...}`) work too.
+
 ### Built-in MCP Server
 The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools.
 

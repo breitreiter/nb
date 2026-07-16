@@ -73,7 +73,8 @@ public class McpManager : IDisposable
 
             transport = new HttpClientTransport(new HttpClientTransportOptions
             {
-                Endpoint = new Uri(serverConfig.Endpoint)
+                Endpoint = new Uri(serverConfig.Endpoint),
+                AdditionalHeaders = ResolveHeaders(serverConfig.Headers)
             });
         }
         else
@@ -166,6 +167,28 @@ public class McpManager : IDisposable
         {
             // Many MCP servers don't support resources
         }
+    }
+
+    // Resolve ${VAR} references in header values against environment variables, so
+    // tokens (e.g. a bearer credential) can live in the environment, never in mcp.json.
+    // Matches the appsettings.json convention in ConfigurationService.
+    private static readonly System.Text.RegularExpressions.Regex EnvRef =
+        new(@"\$\{(\w+)\}");
+
+    internal static IDictionary<string, string>? ResolveHeaders(Dictionary<string, string>? headers)
+    {
+        if (headers == null || headers.Count == 0) return null;
+
+        return headers.ToDictionary(
+            kvp => kvp.Key,
+            kvp => EnvRef.Replace(kvp.Value, m =>
+            {
+                var name = m.Groups[1].Value;
+                var resolved = Environment.GetEnvironmentVariable(name);
+                if (resolved is null)
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: environment variable '{name}' referenced in mcp.json is not set[/]");
+                return resolved ?? "";
+            }));
     }
 
     public IReadOnlyList<AIFunction> GetTools()
@@ -319,6 +342,7 @@ public class McpServerConfig
     public int Timeout { get; set; } = 60000;
     public string[]? AlwaysAllow { get; set; }
     public string Endpoint { get; set; } = string.Empty; // For HTTP transport
+    public Dictionary<string, string>? Headers { get; set; } // For HTTP transport; values support ${VAR} env interpolation
 }
 
 public class McpConfig
