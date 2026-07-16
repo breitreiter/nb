@@ -56,6 +56,7 @@ The application supports two execution modes:
 - `McpManager.cs` - Manages MCP client connections
 - `ConfigurationService.cs` - Configuration management
 - `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust sandbox)
+- `Facade/` - In-process library surface: `Nb.RunAsync(config, program, options) → RunResult` (the "one contract, three surfaces" entry point), `NbProgramBuilder` (fluent program authoring), `NbRuntime` (the shared engine assembler — throws `NbStartupException` rather than exiting, suppresses chrome). The CLI's program/spec run path is a thin shell over `Nb.RunAsync`. NuGet packaging + library-host provider loading are Phase 6b (see `plans/composable-cli-reorientation.md`).
 - `providers/` - Directory for external AI provider plugins (DLLs)
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 

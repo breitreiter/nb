@@ -658,6 +658,18 @@ bash sandbox) and the Phase 2 remainder landed: friendly env aliases
 (install → user → project, merged by server name). **Remaining: only Phase 6**
 (the library facade as a package).
 
+**Status (2026-07-16).** Phase 6a landed — the in-process facade. `Facade/Nb.cs`
+exposes `Nb.RunAsync(config, program, options) → RunResult` (Events/Answer/Usage/
+ExitReason/ExitCode, no engine types leaking), plus a fluent `NbProgramBuilder`.
+`Facade/NbRuntime.cs` is the shared assembler that **throws `NbStartupException`
+instead of `Environment.Exit`** and suppresses engine chrome. The CLI's program/
+spec run path is now a thin shell over `Nb.RunAsync` (byte-identical: 297 unit +
+56 evals green). **Deferred to Phase 6b (packaging):** the `nb.Core` project split
++ NuGet, library-host provider loading (still `AppContext.BaseDirectory/providers`),
+removing `AnsiConsole`/`Environment.Exit` from engine classes, and unifying the
+bare/interactive wiring (currently NbRuntime ≈ Program's inline block). Detailed
+6a design: the approved plan (was ~/.claude/plans/fluttering-sleeping-pnueli.md).
+
 Ordered so each phase delivers standalone value and the weaver harness can
 shed a hack at every step.
 

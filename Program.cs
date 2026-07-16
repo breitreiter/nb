@@ -32,6 +32,7 @@ public class Program
     private static FetchUrlTool _fetchUrlTool = null!;
     private static ApplyPatchTool _applyPatchTool = null!;
     private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
+    private static readonly List<string> _approveFlags = new();  // raw --approve patterns, for the facade
     private static readonly List<CompletionHint> _commandHints = new()
     {
         new("//", "Back"),
@@ -167,7 +168,7 @@ public class Program
         return sections.Count > 0 ? string.Join("\n\n", sections) : null;
     }
 
-    private static float? ResolveProviderFloat(Microsoft.Extensions.Configuration.IConfiguration config, string providerName, string key)
+    internal static float? ResolveProviderFloat(Microsoft.Extensions.Configuration.IConfiguration config, string providerName, string key)
     {
         foreach (var provider in config.GetSection("ChatProviders").GetChildren())
         {
@@ -177,7 +178,7 @@ public class Program
         return null;
     }
 
-    private static int ResolveMaxContextTokens(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
+    internal static int ResolveMaxContextTokens(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
     {
         var providers = config.GetSection("ChatProviders").GetChildren();
         foreach (var provider in providers)
@@ -297,7 +298,9 @@ public class Program
         {
             if (args[i] == "--approve" && i + 1 < args.Length)
             {
-                _approvalPatterns.Add(args[++i]);
+                var pattern = args[++i];
+                _approvalPatterns.Add(pattern);
+                _approveFlags.Add(pattern);  // raw patterns for the facade's NbOptions
             }
             else if (args[i] == "--system" && i + 1 < args.Length)
             {
@@ -737,10 +740,11 @@ public class Program
 
         }
 
-        if (_outputMode == "jsonl")
-            EmitJsonlTranscript();
-        else if (_outputMode == "porcelain")
-            EmitPorcelainTranscript();
+        if (_outputMode is "jsonl" or "porcelain")
+        {
+            var (events, trailer) = BuildTranscript();
+            if (_outputMode == "porcelain") EmitPorcelain(events, trailer); else EmitJsonl(events, trailer);
+        }
 
         // The exit-code contract: a single-shot run reports why it ended in $?
         // (0 ok · 2 provider error · 3 aborted · 4 approval denied). See
@@ -794,9 +798,8 @@ public class Program
 
     // Emit the transcript schema as JSONL on stdout (trailer inline). Chrome has
     // already been diverted to stderr (see the --output seam in Main).
-    private static void EmitJsonlTranscript()
+    private static void EmitJsonl(IReadOnlyList<TranscriptEvent> events, ResultEvent trailer)
     {
-        var (events, trailer) = BuildTranscript();
         var all = new List<TranscriptEvent>(events) { trailer };
         Console.Out.Write(TranscriptSerializer.Serialize(all));
         Console.Out.Flush();
@@ -804,12 +807,19 @@ public class Program
 
     // Emit the same events as porcelain text on stdout; the run trailer goes to
     // stderr so stdout stays parseable (TOOL/RESULT lines + verbatim prose).
-    private static void EmitPorcelainTranscript()
+    private static void EmitPorcelain(IReadOnlyList<TranscriptEvent> events, ResultEvent trailer)
     {
-        var (events, trailer) = BuildTranscript();
         Console.Out.Write(TranscriptPorcelainWriter.Write(events));
         Console.Out.Flush();
         Console.Error.WriteLine(TranscriptPorcelainWriter.Trailer(trailer));
+    }
+
+    // Emit a facade RunResult (the program/spec path) in the resolved mode.
+    private static void EmitResult(RunResult result, string mode)
+    {
+        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage);
+        if (mode == "porcelain") EmitPorcelain(result.Events, trailer);
+        else EmitJsonl(result.Events, trailer);
     }
 
     // Assemble nb's default persona as a conversation-program preset: the
@@ -872,40 +882,43 @@ public class Program
         if (_validate) { ValidateProgram(program, config, warnings); return; }
         if (_resolve) { ResolveProgram(program); return; }
 
-        // Connect configured MCP servers so an `mcp +server` directive has servers
-        // to select. The tool surface still starts strict-empty (ToolSurface.Fold):
-        // a program with no `mcp` directive exposes none of them.
-        await _mcpManager.ConnectAllAsync();
-
-        var evaluator = new ProgramEvaluator(_conversationManager, BuildProgramClient(config), warnings);
+        // The run itself goes through the library facade: it assembles its own engine,
+        // connects MCP, evaluates, and returns a typed result. The CLI stays a thin
+        // shell — it only builds the program above and emits the result below.
+        RunResult result;
         try
         {
-            await evaluator.EvaluateAsync(program);
+            result = await Nb.RunAsync(config, program, BuildNbOptions());
         }
-        catch (TranscriptFormatException ex)
+        catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or NbStartupException)
         {
-            // A fabricated tool round the program authored is malformed (unpaired
-            // call/result, non-monotonic turns). Fail fast like a bad seed.
-            Console.Error.WriteLine($"Error: {ex.Message}");
-            Environment.ExitCode = 1;
-            return;
-        }
-        catch (SandboxUnavailableException ex)
-        {
-            // An `approval sandbox bwrap` directive on a host that can't honor it.
+            // Malformed fabricated tool round, an unhonorable `approval sandbox`, or an
+            // unassemblable engine — fail fast like a bad seed.
             Console.Error.WriteLine($"Error: {ex.Message}");
             Environment.ExitCode = 1;
             return;
         }
 
-        foreach (var w in warnings) Console.Error.WriteLine($"program: {w}");
+        foreach (var w in warnings) Console.Error.WriteLine($"program: {w}");      // spec/parse warnings
+        foreach (var w in result.Warnings) Console.Error.WriteLine($"program: {w}"); // evaluator warnings
 
         // An `output` directive in the program wins over the flag/default.
-        var mode = evaluator.OutputMode ?? _outputMode;
-        if (mode == "porcelain") EmitPorcelainTranscript(); else EmitJsonlTranscript();
+        EmitResult(result, result.OutputMode ?? _outputMode);
 
-        Environment.ExitCode = ExitReasons.ToExitCode(_conversationManager.LastOutcome);
+        Environment.ExitCode = result.ExitCode;
     }
+
+    // The per-invocation facade options carried from the CLI flags. Engine chrome goes
+    // to stderr (Console.Error), matching the pre-facade behavior for machine output.
+    private static NbOptions BuildNbOptions() => new()
+    {
+        Trust = _trustMode,
+        NoBash = _noBash,
+        Verbose = _verbose,
+        McpManifestPath = _mcpManifest,
+        ApprovePatterns = _approveFlags,
+        DiagnosticsWriter = Console.Error,
+    };
 
     // Assemble the full program: an optional --spec prefix followed by the body
     // (a --program file, or the prompt args as a single run).
@@ -1093,7 +1106,7 @@ public class Program
             return _providerManager.TryCreateChatClient(config, name);
         };
 
-    private static void OverrideProviderModel(IConfiguration config, string providerName, string model)
+    internal static void OverrideProviderModel(IConfiguration config, string providerName, string model)
     {
         var children = config.GetSection("ChatProviders").GetChildren().ToList();
         for (int i = 0; i < children.Count; i++)

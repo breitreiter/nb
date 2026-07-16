@@ -85,6 +85,17 @@ public static class TranscriptMapper
         return new ResultEvent { ExitReason = exitReason, Usage = usage, Turns = turns, ToolCalls = toolCalls };
     }
 
+    /// <summary>The model's final prose: the last non-empty assistant-text event's
+    /// text, or empty if the run produced none. Used for <see cref="nb.RunResult.Answer"/>
+    /// — porcelain interleaves prose with TOOL/RESULT lines, so it can't serve this.</summary>
+    public static string LastAnswer(IReadOnlyList<TranscriptEvent> events)
+    {
+        for (int i = events.Count - 1; i >= 0; i--)
+            if (events[i] is AssistantTextEvent { Text: { Length: > 0 } t })
+                return t;
+        return "";
+    }
+
     private static UserEvent BuildMessage(ChatMessage msg, int turn)
     {
         var hasImage = msg.Contents.OfType<DataContent>().Any();
