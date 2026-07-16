@@ -79,7 +79,7 @@ internal sealed class NbRuntime : IDisposable
 
         var trust = options.Trust || string.Equals(config["Trust"], "true", StringComparison.OrdinalIgnoreCase);
 
-        var providers = new ProviderManager();
+        var providers = new ProviderManager(options.ProvidersDirectory ?? config["ProvidersPath"]);
         var providerName = config["ActiveProvider"] ?? string.Empty;
         var client = providers.TryCreateChatClient(config);
         if (client == null)

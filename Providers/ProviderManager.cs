@@ -9,10 +9,15 @@ namespace nb.Providers;
 public class ProviderManager
 {
     private readonly List<IChatClientProvider> _providers = new();
-    private readonly string _providersDirectory = Path.Combine(AppContext.BaseDirectory, "providers");
+    private readonly string _providersDirectory;
 
-    public ProviderManager()
+    // A library host's AppContext.BaseDirectory is its own output dir, which has no
+    // providers/ — so the directory is injectable (from NbOptions/config) and only
+    // defaults to the executable-relative path for the CLI. See
+    // plans/composable-cli-reorientation.md (Phase 6b).
+    public ProviderManager(string? providersDirectory = null)
     {
+        _providersDirectory = providersDirectory ?? Path.Combine(AppContext.BaseDirectory, "providers");
         LoadExternalProviders();
     }
 
@@ -58,9 +63,11 @@ public class ProviderManager
                         _providers.Add(provider);
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Silently skip failed providers
+                    // Surface the failure (to the facade's redirected sink) so a host can
+                    // see why a provider it expected isn't available — was silent before.
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]provider load skipped: {Markup.Escape(Path.GetFileName(dllFile))} — {Markup.Escape(ex.Message)}[/]");
                 }
             }
         }

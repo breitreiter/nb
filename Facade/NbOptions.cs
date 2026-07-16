@@ -23,6 +23,13 @@ public sealed record NbOptions
     /// <summary>An explicit MCP manifest path; null uses the layered mcp.json resolution.</summary>
     public string? McpManifestPath { get; init; }
 
+    /// <summary>
+    /// Where the AI provider plugin DLLs live. A library host must set this (its own
+    /// output dir has no <c>providers/</c>); null falls back to <c>config["ProvidersPath"]</c>,
+    /// then the executable-relative <c>providers/</c> the CLI ships.
+    /// </summary>
+    public string? ProvidersDirectory { get; init; }
+
     /// <summary>Bash command patterns to auto-approve (the <c>--approve</c> equivalent).</summary>
     public IReadOnlyList<string> ApprovePatterns { get; init; } = Array.Empty<string>();
 
