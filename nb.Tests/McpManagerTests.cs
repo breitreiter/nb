@@ -100,3 +100,59 @@ public class ResolveHeadersTests
         }
     }
 }
+
+public class McpLayerMergeTests : IDisposable
+{
+    private readonly string _tmp;
+
+    public McpLayerMergeTests()
+    {
+        _tmp = Path.Combine(Path.GetTempPath(), "nb-mcp-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tmp);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tmp, recursive: true); } catch { }
+    }
+
+    private string Write(string name, string json)
+    {
+        var path = Path.Combine(_tmp, name);
+        File.WriteAllText(path, json);
+        return path;
+    }
+
+    [Fact]
+    public void LaterLayerAddsAndOverridesByName()
+    {
+        var install = Write("install.json", """{"mcpServers":{"a":{"command":"install-a"},"b":{"command":"install-b"}}}""");
+        var project = Write("project.json", """{"mcpServers":{"b":{"command":"project-b"},"c":{"command":"project-c"}}}""");
+
+        var merged = McpManager.MergeLayers(new[] { install, project });
+
+        Assert.Equal(3, merged.McpServers.Count);
+        Assert.Equal("install-a", merged.McpServers["a"].Command);
+        Assert.Equal("project-b", merged.McpServers["b"].Command); // later layer wins
+        Assert.Equal("project-c", merged.McpServers["c"].Command);
+    }
+
+    [Fact]
+    public void MissingAndNullLayersAreSkipped()
+    {
+        var install = Write("install.json", """{"mcpServers":{"a":{"command":"a"}}}""");
+
+        var merged = McpManager.MergeLayers(new[] { install, null, Path.Combine(_tmp, "absent.json") });
+
+        Assert.Single(merged.McpServers);
+        Assert.Equal("a", merged.McpServers["a"].Command);
+    }
+
+    [Fact]
+    public void NoLayers_YieldsEmptyConfig()
+    {
+        var merged = McpManager.MergeLayers(new string?[] { null, null });
+        Assert.Empty(merged.McpServers);
+        Assert.Empty(merged.Servers);
+    }
+}

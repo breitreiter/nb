@@ -277,6 +277,22 @@ public class Program
     {
         var remainingArgs = new List<string>();
 
+        // Friendly env aliases seed the flag defaults; an explicit flag below wins.
+        // (NB_PROVIDER/NB_MODEL are config knobs, applied in ConfigurationService.)
+        var envSpec = Environment.GetEnvironmentVariable("NB_SPEC");
+        if (!string.IsNullOrEmpty(envSpec)) _specName = envSpec;
+
+        var envOutput = Environment.GetEnvironmentVariable("NB_OUTPUT");
+        if (!string.IsNullOrEmpty(envOutput))
+        {
+            _outputMode = envOutput.ToLowerInvariant();
+            if (_outputMode is not ("interactive" or "jsonl" or "porcelain"))
+            {
+                Console.Error.WriteLine($"Error: unknown NB_OUTPUT mode '{_outputMode}'. Valid modes: interactive, porcelain, jsonl.");
+                Environment.Exit(1);
+            }
+        }
+
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--approve" && i + 1 < args.Length)
@@ -407,7 +423,7 @@ public class Program
             Console.WriteLine("  --nobash                Disable shell tool");
             Console.WriteLine("  --verbose               Enable verbose output");
             Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
-            Console.WriteLine("  --mcp <file>            Load MCP servers from this manifest instead of mcp.json; their tools are exposed to the model");
+            Console.WriteLine("  --mcp <file>            Load MCP servers from this manifest only (hermetic); default layers mcp.json across install/user (~/.config/nb)/project (.nb/mcp.json)");
             Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
             Console.WriteLine("  --output <mode>         Output mode: interactive (default), porcelain (TOOL/RESULT lines + verbatim answer), or jsonl (typed transcript). porcelain/jsonl put the answer on stdout, chrome on stderr");
             Console.WriteLine("  --seed <file>           Load a transcript (jsonl) as premise history before the prompt runs");

@@ -19,8 +19,9 @@ public class McpManager : IDisposable
 
     /// <summary>
     /// Reads the MCP manifest and caches the config. No network connections are
-    /// made. <paramref name="manifestPath"/> overrides the default (mcp.json next
-    /// to the binary) — used by --mcp for a per-invocation manifest.
+    /// made. With no <paramref name="manifestPath"/>, mcp.json resolves in layers
+    /// (install -> user -> project, later winning by server name); --mcp passes an
+    /// explicit path for a hermetic per-invocation manifest.
     /// </summary>
     public void LoadConfig(string? manifestPath = null)
     {
@@ -303,33 +304,51 @@ public class McpManager : IDisposable
         }
     }
 
+    // A manifest path (--mcp) is a hermetic single file. Otherwise mcp.json layers
+    // like config.json: install (next to the binary) -> user (~/.config/nb) ->
+    // nearest project (.nb/mcp.json), later winning by server name — so a project
+    // can add or override servers without editing the install manifest.
     private static McpConfig LoadMcpConfiguration(string? manifestPath)
     {
-        string mcpConfigPath;
         if (!string.IsNullOrEmpty(manifestPath))
-        {
-            mcpConfigPath = manifestPath;
-        }
-        else
-        {
-            var executablePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-            var executableDirectory = Path.GetDirectoryName(executablePath) ?? Directory.GetCurrentDirectory();
-            mcpConfigPath = Path.Combine(executableDirectory, "mcp.json");
-        }
+            return ReadMcpFile(manifestPath) ?? new McpConfig();
 
-        if (!File.Exists(mcpConfigPath))
+        var executableDirectory = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location)
+            ?? Directory.GetCurrentDirectory();
+        return MergeLayers(new[]
         {
-            return new McpConfig();
-        }
+            Path.Combine(executableDirectory, "mcp.json"),
+            Path.Combine(ConfigurationService.UserNbDir(), "mcp.json"),
+            ConfigurationService.FindProjectNbFile(Directory.GetCurrentDirectory(), "mcp.json"),
+        });
+    }
 
-        var json = File.ReadAllText(mcpConfigPath);
+    // Merge server definitions across ordered layer files, later winning by name.
+    // Null/missing paths are skipped. Internal for testing.
+    internal static McpConfig MergeLayers(IEnumerable<string?> paths)
+    {
+        var merged = new McpConfig();
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrEmpty(path)) continue;
+            var layer = ReadMcpFile(path);
+            if (layer == null) continue;
+            foreach (var (name, server) in layer.McpServers) merged.McpServers[name] = server;
+            foreach (var (name, server) in layer.Servers) merged.Servers[name] = server;
+        }
+        return merged;
+    }
+
+    private static McpConfig? ReadMcpFile(string path)
+    {
+        if (!File.Exists(path)) return null;
         var options = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
             ReadCommentHandling = JsonCommentHandling.Skip,
             AllowTrailingCommas = true
         };
-        return JsonSerializer.Deserialize<McpConfig>(json, options) ?? new McpConfig();
+        return JsonSerializer.Deserialize<McpConfig>(File.ReadAllText(path), options);
     }
 }
 

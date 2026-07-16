@@ -49,8 +49,9 @@ public class ConfigurationService
     // install defaults, then user (~/.config/nb), then the nearest project
     // .nb/config.json walking up from cwd. The NB_ environment layer is applied
     // last in every case (NB_ActiveProvider -> ActiveProvider,
-    // NB_ChatProviders__0__ApiKey -> nested), so CI can inject config and keys
-    // without a file. Split out and internal so config resolution is testable.
+    // NB_ChatProviders__0__ApiKey -> nested), plus friendly aliases
+    // (NB_PROVIDER, NB_MODEL) via ApplyFriendlyEnvAliases, so CI can inject config
+    // and keys without a file. Split out and internal so config resolution is testable.
     internal static IConfigurationRoot BuildConfiguration(string? configPath, string cwd)
     {
         var builder = new ConfigurationBuilder();
@@ -71,32 +72,66 @@ public class ConfigurationService
         }
 
         builder.AddEnvironmentVariables("NB_");
-        return builder.Build();
+        var config = builder.Build();
+        ApplyFriendlyEnvAliases(config);
+        return config;
     }
 
-    // ~/.config/nb/config.json, honoring XDG_CONFIG_HOME. Returned even if absent
-    // (added as an optional layer); a fresh install simply has no user config yet.
-    private static string UserConfigPath()
+    // Friendly aliases for the common config knobs, so CI doesn't need the raw
+    // nested NB_ paths. NB_PROVIDER -> ActiveProvider; NB_MODEL -> the active
+    // provider's model field. They ride the env layer, so they apply even to a
+    // hermetic --config run. NB_OUTPUT / NB_SPEC are program-state, handled in
+    // Program (they set flag defaults, not config keys).
+    private static void ApplyFriendlyEnvAliases(IConfigurationRoot config)
+    {
+        var provider = Environment.GetEnvironmentVariable("NB_PROVIDER");
+        if (!string.IsNullOrEmpty(provider))
+            config["ActiveProvider"] = provider;
+
+        var model = Environment.GetEnvironmentVariable("NB_MODEL");
+        if (string.IsNullOrEmpty(model)) return;
+
+        var active = config["ActiveProvider"];
+        var children = config.GetSection("ChatProviders").GetChildren().ToList();
+        for (int i = 0; i < children.Count; i++)
+            if (string.Equals(children[i]["Name"], active, StringComparison.OrdinalIgnoreCase))
+            {
+                // Write both keys: most providers read "Model", but classic
+                // AzureOpenAI reads "ChatDeploymentName" (mirrors Program.OverrideProviderModel).
+                config[$"ChatProviders:{i}:Model"] = model;
+                config[$"ChatProviders:{i}:ChatDeploymentName"] = model;
+                return;
+            }
+    }
+
+    // ~/.config/nb, honoring XDG_CONFIG_HOME — the user config layer's directory.
+    internal static string UserNbDir()
     {
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
         var baseDir = string.IsNullOrEmpty(xdg)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config")
             : xdg;
-        return Path.Combine(baseDir, "nb", "config.json");
+        return Path.Combine(baseDir, "nb");
     }
 
-    // Nearest .nb/config.json walking up from cwd — the same upward walk NB.md uses.
-    private static string? FindProjectConfig(string cwd)
+    // Nearest .nb/<fileName> walking up from cwd — the same upward walk NB.md uses.
+    // Shared by the config layer (config.json) and the MCP layer (mcp.json).
+    internal static string? FindProjectNbFile(string cwd, string fileName)
     {
         var dir = Path.GetFullPath(cwd);
         while (dir != null)
         {
-            var candidate = Path.Combine(dir, ".nb", "config.json");
+            var candidate = Path.Combine(dir, ".nb", fileName);
             if (File.Exists(candidate)) return candidate;
             dir = Path.GetDirectoryName(dir);
         }
         return null;
     }
+
+    // ~/.config/nb/config.json — returned even if absent (added as an optional layer).
+    private static string UserConfigPath() => Path.Combine(UserNbDir(), "config.json");
+
+    private static string? FindProjectConfig(string cwd) => FindProjectNbFile(cwd, "config.json");
 
     // Resolve ${VAR} references in config values against environment variables, so
     // secrets (e.g. an API key) can live in the environment, never in the JSON.

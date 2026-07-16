@@ -349,6 +349,37 @@ run_test_contains \
     "$NB" --validate --program "$SCRIPT_DIR/fixtures/prog-approval-badkey.nb"
 
 echo ""
+echo "--- Env aliases (Phase 2) ---"
+echo ""
+
+# NB_OUTPUT sets the default output mode without the --output flag: stdout is a
+# jsonl stream (first event is the system message).
+export NB_OUTPUT=jsonl
+run_test_jsonl_stdout \
+    "env: NB_OUTPUT=jsonl yields a jsonl stream" \
+    '.[0].type' \
+    "system" \
+    "$NB" "hi"
+unset NB_OUTPUT
+
+# NB_MODEL overrides the active provider's model; the mock echoes it back on
+# MOCK:model, proving the friendly alias lands on the active provider block.
+export NB_MODEL=alias-model-9
+run_test_stdout_contains \
+    "env: NB_MODEL overrides the active provider model" \
+    "alias-model-9" \
+    "$NB" --output porcelain "MOCK:model"
+unset NB_MODEL
+
+# An invalid NB_OUTPUT hard-fails before doing anything.
+export NB_OUTPUT=bogus
+run_test \
+    "env: invalid NB_OUTPUT exits 1" \
+    1 \
+    "$NB" "hi"
+unset NB_OUTPUT
+
+echo ""
 echo "--- Bash sandbox (Phase 5.3) ---"
 echo ""
 

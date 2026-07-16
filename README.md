@@ -84,6 +84,8 @@ After installation, configure nb for your environment:
 
 Configuration resolves in layers, later winning: install defaults (`appsettings.json` next to the binary) → user config (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`) → the nearest project `.nb/config.json` (found by walking up from the current directory) → `NB_`-prefixed environment variables (`NB_ActiveProvider`, `NB_ChatProviders__0__ApiKey`, …). This keeps API keys out of the install directory and lets a project or CI job set provider/model without editing shared config. Pass `--config <file>` to use a single config file hermetically (ignoring the layers) — handy for isolated test runs.
 
+For the common knobs there are friendly env aliases, so CI doesn't need the raw nested paths: `NB_PROVIDER` (the active provider), `NB_MODEL` (the active provider's model), `NB_OUTPUT` (the default output mode), and `NB_SPEC` (the default spec). `mcp.json` resolves in the same install → user (`~/.config/nb/mcp.json`) → project (`.nb/mcp.json`) layers, merging server definitions by name — so a project can add or override MCP servers without editing the install manifest (`--mcp <file>` still selects a single manifest hermetically).
+
 ## Usage
 
 ### Interactive Mode
