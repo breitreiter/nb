@@ -1083,7 +1083,12 @@ public class Program
         for (int i = 0; i < children.Count; i++)
             if (string.Equals(children[i]["Name"], providerName, StringComparison.OrdinalIgnoreCase))
             {
+                // Write both keys: most providers read "Model", but classic
+                // AzureOpenAI reads "ChatDeploymentName". Setting both lets a
+                // program's `model` directive land whichever field the provider
+                // reads, without the override needing to know the provider kind.
                 config[$"ChatProviders:{i}:Model"] = model;
+                config[$"ChatProviders:{i}:ChatDeploymentName"] = model;
                 return;
             }
     }
