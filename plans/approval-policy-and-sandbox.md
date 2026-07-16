@@ -215,4 +215,21 @@ Plan written 2026-07-14. Build order P5.1 → P5.2 → P5.3.
   tests (parser + serializer round-trip), +3 evals (directive auto-approve / deny /
   validate), README updated. Sandbox key (`approval sandbox`) is intentionally
   absent until P5.3 wires bwrap.
-- **P5.3 next** — bwrap sandbox at the bash spawn point.
+- **P5.3 done** (uncommitted, 2026-07-15) — bwrap sandbox at the bash spawn point.
+  `Shell/BwrapSandbox.cs` (`IsAvailable` PATH/OS probe, `TryParse` none|bwrap|bwrap-net,
+  `BuildArgs`: `--ro-bind / /` + writable cwd/`/tmp`, secret dirs masked to empty tmpfs,
+  `--unshare-all`, net off unless `bwrap-net`). `SandboxMode` + `SetSandbox`/`Sandbox`/
+  `SandboxNet` on `ApprovalPolicy`; `BashTool` routes the child through `bwrap` via
+  `ProcessStartInfo.ArgumentList` (raw command, sandbox mode read live per call);
+  `approval sandbox` directive un-deferred (evaluator + `--validate` keys
+  bash|mcp|default|sandbox + value check + `--resolve` prints `sandbox=`);
+  `Approval.Sandbox` config; hard-fail-when-unavailable at the config path
+  (`RequireSandboxAvailable`→exit 1, inspection modes never probe) and the directive
+  path (`SandboxUnavailableException`→exit 1). **Mask scope ratified** (user, 2026-07-15):
+  secret dirs only (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/nb`); `/etc/passwd`
+  stays readable (world-readable, non-secret) — the acceptance test proves a real
+  secret (`~/.config/nb`, the API-key dir) reads empty under the sandbox, superseding
+  the plan's literal `/etc/passwd`→empty verify (self-contradictory under `--ro-bind / /`).
+  `BwrapSandboxTests` (12) + 2 policy tests; 5 evals
+  (`prog-sandbox-{ro,mask,mask-control,badval,resolve}.nb`). Verified live on a
+  Linux+bwrap host.
