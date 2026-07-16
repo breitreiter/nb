@@ -109,4 +109,22 @@ public class ApprovalPolicyTests
     {
         Assert.Equal(ApprovalDecision.Prompt, Policy().DecideFetch());
     }
+
+    [Fact]
+    public void Sandbox_DefaultsToNone()
+    {
+        var p = Policy();
+        Assert.Equal(SandboxMode.None, p.Sandbox);
+        Assert.False(p.SandboxNet);
+    }
+
+    [Fact]
+    public void SetSandbox_UpdatesModeAndNet()
+    {
+        // The `approval sandbox bwrap-net` directive layers onto the built policy.
+        var p = Policy();
+        p.SetSandbox(SandboxMode.Bwrap, allowNet: true);
+        Assert.Equal(SandboxMode.Bwrap, p.Sandbox);
+        Assert.True(p.SandboxNet);
+    }
 }

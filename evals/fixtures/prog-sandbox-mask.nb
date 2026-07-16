@@ -1,0 +1,3 @@
+approval sandbox bwrap
+approval bash cat *
+run MOCK:tool=bash cat ~/.config/nb/nb_sbx_probe 2>&1

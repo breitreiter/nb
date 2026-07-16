@@ -187,9 +187,12 @@ The `approval` directive sets the approval policy — which tool calls auto-appr
 approval bash git status   # auto-approve bash commands matching this pattern
 approval mcp weather/*      # auto-approve MCP tools matching this glob ('/' aliases the '_' in weather_current)
 approval default deny       # refuse any unmatched call outright (instead of prompting)
+approval sandbox bwrap      # run the bash child under a bubblewrap sandbox (Linux)
 ```
 
-These layer onto the `Approval` config block (`Bash`/`McpTools`/`Default` in `appsettings.json`), which does the same thing outside a program. In a **headless** run (piped stdin) every unmatched call is already denied, so the allow-lists are what make a scripted run auto-approve exactly the tools it needs; `approval default deny` adds the same lockdown to an interactive session. `--resolve` prints the effective policy per run point.
+These layer onto the `Approval` config block (`Bash`/`McpTools`/`Default`/`Sandbox` in `appsettings.json`), which does the same thing outside a program. In a **headless** run (piped stdin) every unmatched call is already denied, so the allow-lists are what make a scripted run auto-approve exactly the tools it needs; `approval default deny` adds the same lockdown to an interactive session. `--resolve` prints the effective policy per run point.
+
+The **bash sandbox** (`approval sandbox bwrap`, or `Approval.Sandbox` in config) wraps the bash child in a [bubblewrap](https://github.com/containers/bubblewrap) namespace: the whole filesystem is read-only, only the current directory and a fresh `/tmp` are writable, known secret dirs (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/nb`) are masked to empty, and there's no network. Use `bwrap-net` to keep the sandbox but allow network. It contains only bash — MCP and `fetch_url` run in-process under their own approval. Requesting `bwrap` on a host without bubblewrap (non-Linux, or `bwrap` not on `PATH`) hard-fails the run.
 
 **Specs** are reusable prefixes of config directives, prepended to a program or a prompt:
 

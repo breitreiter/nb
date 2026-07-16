@@ -118,8 +118,18 @@ public sealed class ProgramEvaluator
                 else
                     _warnings.Add($"approval default '{ap.Value}' unknown (prompt | deny) — ignored");
                 break;
+            case "sandbox":
+                // Requested-but-unavailable hard-fails the run (ratified), like a bad
+                // config Sandbox value — caught by RunProgramAsync → exit 1.
+                if (!BwrapSandbox.TryParse(ap.Value, out var mode, out var allowNet))
+                    _warnings.Add($"approval sandbox '{ap.Value}' unknown (none | bwrap | bwrap-net) — ignored");
+                else if (mode == SandboxMode.Bwrap && !BwrapSandbox.IsAvailable())
+                    throw new SandboxUnavailableException("Sandbox 'bwrap' requested but bubblewrap (bwrap) is not available on this host (Linux + bwrap on PATH required).");
+                else
+                    policy.SetSandbox(mode, allowNet);
+                break;
             default:
-                _warnings.Add($"approval key '{ap.Key}' unknown (bash | mcp | default) — ignored");
+                _warnings.Add($"approval key '{ap.Key}' unknown (bash | mcp | default | sandbox) — ignored");
                 break;
         }
     }

@@ -8,12 +8,15 @@ public enum ApprovalDecision { Allow, Prompt, Deny }
 /// <summary>What an unmatched (non-auto-approved) call does: prompt, or deny outright.</summary>
 public enum ApprovalDefault { Prompt, Deny }
 
+/// <summary>How the bash child is contained: not at all, or under a bwrap sandbox.</summary>
+public enum SandboxMode { None, Bwrap }
+
 /// <summary>
 /// The resolved approval policy: which tool calls auto-approve and what an
 /// unmatched call does (<see cref="Default"/>). Seeded from <c>--trust</c> /
 /// <c>--approve</c> / <c>alwaysAllow</c> and an <c>Approval</c> config block, and
 /// layered further by the <c>approval</c> conversation-program directive (its
-/// mutators). Sandbox mode arrives with Phase 5.3. See
+/// mutators). Carries the bash <see cref="Sandbox"/> mode (Phase 5.3). See
 /// plans/approval-policy-and-sandbox.md. The interactive prompt UX and the
 /// non-TTY deny stay at the call site; the policy only chooses the decision.
 /// </summary>
@@ -24,6 +27,8 @@ public sealed class ApprovalPolicy
     private readonly Func<string, bool> _mcpAlwaysAllowed;  // McpManager.IsAlwaysAllowed (mcp.json)
     private readonly List<Regex> _mcpGlobs = new();         // Approval.McpTools + `approval mcp`
     private ApprovalDefault _default;
+    private SandboxMode _sandbox;                            // Approval.Sandbox + `approval sandbox`
+    private bool _sandboxNet;                                // bwrap-net opts network back in
 
     public ApprovalPolicy(bool trust, ApprovalPatterns bashPatterns, Func<string, bool> mcpAlwaysAllowed,
         IEnumerable<string>? mcpGlobs = null, ApprovalDefault @default = ApprovalDefault.Prompt)
@@ -38,10 +43,20 @@ public sealed class ApprovalPolicy
 
     public bool TrustMode => _trust;
     public ApprovalDefault Default => _default;
+    public SandboxMode Sandbox => _sandbox;
+    public bool SandboxNet => _sandboxNet;
 
     // The `approval` directive layers onto the config-seeded state (Phase 5.2b).
     public void SetDefault(ApprovalDefault d) => _default = d;
     public void AddBashPattern(string pattern) => _bashPatterns.Add(pattern);
+
+    /// <summary>Set the bash sandbox mode (Phase 5.3). Availability is the caller's
+    /// responsibility to probe (<see cref="BwrapSandbox.IsAvailable"/>) before a run.</summary>
+    public void SetSandbox(SandboxMode mode, bool allowNet = false)
+    {
+        _sandbox = mode;
+        _sandboxNet = allowNet;
+    }
 
     /// <summary>
     /// Add an MCP allow glob. Matched against the exposed <c>{server}_{tool}</c>

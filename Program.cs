@@ -221,7 +221,33 @@ public class Program
         var def = string.Equals(config["Approval:Default"], "deny", StringComparison.OrdinalIgnoreCase)
             ? ApprovalDefault.Deny : ApprovalDefault.Prompt;
 
-        return new ApprovalPolicy(_trustMode, _approvalPatterns, _mcpManager.IsAlwaysAllowed, mcpGlobs, def);
+        var policy = new ApprovalPolicy(_trustMode, _approvalPatterns, _mcpManager.IsAlwaysAllowed, mcpGlobs, def);
+
+        var sandboxValue = config["Approval:Sandbox"];
+        if (!string.IsNullOrEmpty(sandboxValue))
+        {
+            if (!BwrapSandbox.TryParse(sandboxValue, out var mode, out var allowNet))
+            {
+                Console.Error.WriteLine($"Error: invalid Approval.Sandbox '{sandboxValue}'. Valid: none, bwrap, bwrap-net.");
+                Environment.Exit(1);
+            }
+            RequireSandboxAvailable(mode);
+            policy.SetSandbox(mode, allowNet);
+        }
+
+        return policy;
+    }
+
+    // Probe for the sandbox and hard-fail if it was requested but the host can't honor
+    // it (non-Linux / bwrap not on PATH). Inspection modes never touch the environment.
+    private static void RequireSandboxAvailable(SandboxMode mode)
+    {
+        if (mode != SandboxMode.Bwrap || _validate || _resolve) return;
+        if (!BwrapSandbox.IsAvailable())
+        {
+            Console.Error.WriteLine("Error: Sandbox 'bwrap' requested but bubblewrap (bwrap) is not available on this host (Linux + bwrap on PATH required).");
+            Environment.Exit(1);
+        }
     }
 
     private static string SlugifyModelName(string model)
@@ -496,6 +522,7 @@ public class Program
         var temperature = ResolveProviderFloat(config, activeProviderName, "Temperature");
         var presencePenalty = ResolveProviderFloat(config, activeProviderName, "PresencePenalty");
         var approvalPolicy = BuildApprovalPolicy(config);
+        if (_bashTool != null) _bashTool.ApprovalPolicy = approvalPolicy;  // for the bash sandbox (Phase 5.3)
         _conversationManager = new ConversationManager(
             _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, approvalPolicy, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream, temperature, presencePenalty);
 
@@ -847,6 +874,13 @@ public class Program
             Environment.ExitCode = 1;
             return;
         }
+        catch (SandboxUnavailableException ex)
+        {
+            // An `approval sandbox bwrap` directive on a host that can't honor it.
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            Environment.ExitCode = 1;
+            return;
+        }
 
         foreach (var w in warnings) Console.Error.WriteLine($"program: {w}");
 
@@ -900,11 +934,14 @@ public class Program
                 case OutputEvent o when o.Mode is not ("interactive" or "porcelain" or "jsonl"):
                     errors.Add($"invalid output mode '{o.Mode}'. Valid: interactive, porcelain, jsonl.");
                     break;
-                case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "default"):
-                    errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, default.");
+                case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "default" or "sandbox"):
+                    errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, default, sandbox.");
                     break;
                 case ApprovalEvent { Key: "default" } a when a.Value is not ("prompt" or "deny"):
                     errors.Add($"invalid approval default '{a.Value}'. Valid: prompt, deny.");
+                    break;
+                case ApprovalEvent { Key: "sandbox" } a when !BwrapSandbox.TryParse(a.Value, out _, out _):
+                    errors.Add($"invalid approval sandbox '{a.Value}'. Valid: none, bwrap, bwrap-net.");
                     break;
             }
         }
@@ -929,7 +966,7 @@ public class Program
     {
         string provider = "(default)", model = "(default)", output = _outputMode;
         var surfaceDirectives = new List<SurfaceDirectiveEvent>();
-        string approvalDefault = "prompt";
+        string approvalDefault = "prompt", sandbox = "none";
         int bashRules = 0, mcpRules = 0;
         int run = 0;
 
@@ -942,6 +979,7 @@ public class Program
                 case OutputEvent o: output = o.Mode; break;
                 case SurfaceDirectiveEvent sd: surfaceDirectives.Add(sd); break;
                 case ApprovalEvent { Key: "default" } a: approvalDefault = a.Value; break;
+                case ApprovalEvent { Key: "sandbox" } a: sandbox = a.Value; break;
                 case ApprovalEvent { Key: "bash" }: bashRules++; break;
                 case ApprovalEvent { Key: "mcp" }: mcpRules++; break;
                 case RunEvent:
@@ -953,7 +991,7 @@ public class Program
                     var toolStr = surface.NativeAllow is null
                         ? "all"
                         : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
-                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules})");
+                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox}");
                     break;
             }
         }

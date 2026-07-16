@@ -349,6 +349,57 @@ run_test_contains \
     "$NB" --validate --program "$SCRIPT_DIR/fixtures/prog-approval-badkey.nb"
 
 echo ""
+echo "--- Bash sandbox (Phase 5.3) ---"
+echo ""
+
+# Inspection modes never probe for bwrap, so these two run on any host.
+# --validate rejects an unknown sandbox value.
+run_test_contains \
+    "sandbox: --validate rejects an invalid mode" \
+    1 \
+    "invalid approval sandbox" \
+    "$NB" --validate --program "$SCRIPT_DIR/fixtures/prog-sandbox-badval.nb"
+
+# --resolve surfaces the sandbox mode in the per-run envelope.
+run_test_stdout_contains \
+    "sandbox: --resolve prints sandbox=bwrap" \
+    "sandbox=bwrap" \
+    "$NB" --resolve --program "$SCRIPT_DIR/fixtures/prog-sandbox-resolve.nb"
+
+# The behavioral proofs run the bash child for real, so they need bwrap present.
+if ! command -v bwrap >/dev/null 2>&1; then
+    echo -e "${YELLOW}SKIP${NC}: sandbox behavior evals (bwrap not on PATH)"
+else
+    # Read-only rootfs: a write under / (here /etc) is refused inside the sandbox.
+    run_test_jsonl_stdout \
+        "sandbox: rootfs is read-only (write to /etc blocked)" \
+        '[.[]|select(.type=="tool_result").output]|last|contains("Read-only file system")' \
+        "true" \
+        "$NB" --program "$SCRIPT_DIR/fixtures/prog-sandbox-ro.nb" --output jsonl
+
+    # Secret-dir masking (bug Hole #2): a secret under a masked dir leaks WITHOUT the
+    # sandbox (control) but reads empty WITH it — same command, differing only in the
+    # `approval sandbox bwrap` directive.
+    SECRET="SECRET-MARKER-8842"
+    SBX_PROBE="$HOME/.config/nb/nb_sbx_probe"
+    mkdir -p "$HOME/.config/nb" && printf '%s\n' "$SECRET" > "$SBX_PROBE"
+
+    run_test_jsonl_stdout \
+        "sandbox: masked secret leaks WITHOUT sandbox (control)" \
+        "[.[]|select(.type==\"tool_result\").output]|last|contains(\"$SECRET\")" \
+        "true" \
+        "$NB" --program "$SCRIPT_DIR/fixtures/prog-sandbox-mask-control.nb" --output jsonl
+
+    run_test_jsonl_stdout \
+        "sandbox: masked secret is empty WITH sandbox (Hole #2 sealed)" \
+        "[.[]|select(.type==\"tool_result\").output]|last|contains(\"$SECRET\")" \
+        "false" \
+        "$NB" --program "$SCRIPT_DIR/fixtures/prog-sandbox-mask.nb" --output jsonl
+
+    rm -f "$SBX_PROBE"
+fi
+
+echo ""
 echo "--- Porcelain output (Phase 1) ---"
 echo ""
 

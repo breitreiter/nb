@@ -36,6 +36,13 @@ public class BashTool
         _sandwichTailLines = sandwichTailLines;
     }
 
+    /// <summary>
+    /// The approval policy, read live at execute time for the bash <see cref="SandboxMode"/>.
+    /// Injected by Program after the policy is built (Phase 5.3); a mid-program
+    /// <c>approval sandbox</c> directive mutates it, so the sandbox mode is read per call.
+    /// </summary>
+    public ApprovalPolicy? ApprovalPolicy { get; set; }
+
     public string GetCwd() => _env.ShellCwd;
 
     public AIFunction CreateTool()
@@ -71,12 +78,8 @@ public class BashTool
         var requested = timeoutSeconds ?? _defaultTimeoutSeconds;
         var timeout = Math.Min(requested, _defaultTimeoutSeconds);
 
-        var (shellPath, shellArgs) = GetShellCommand(command);
-
         var psi = new ProcessStartInfo
         {
-            FileName = shellPath,
-            Arguments = shellArgs,
             WorkingDirectory = workingDir,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -85,6 +88,7 @@ public class BashTool
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
+        ConfigureCommand(psi, command, workingDir);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
         using var process = new Process { StartInfo = psi };
@@ -213,10 +217,23 @@ public class BashTool
         };
     }
 
-    private (string shellPath, string shellArgs) GetShellCommand(string command)
+    // Point the process at the command, honoring the sandbox mode (Phase 5.3).
+    private void ConfigureCommand(ProcessStartInfo psi, string command, string cwd)
     {
-        // Bash everywhere (Git Bash on Windows, native bash/zsh/sh on Unix).
-        return (_env.ShellPath, $"-c \"{EscapeBash(command)}\"");
+        if ((ApprovalPolicy?.Sandbox ?? SandboxMode.None) == SandboxMode.Bwrap)
+        {
+            // bwrap runs bash inside a namespace. ArgumentList passes the command
+            // literally, so no bash-escaping (the sandbox flags and the -c payload
+            // are separate argv entries).
+            psi.FileName = "bwrap";
+            foreach (var a in BwrapSandbox.BuildArgs(_env.ShellPath, command, cwd, ApprovalPolicy!.SandboxNet))
+                psi.ArgumentList.Add(a);
+            return;
+        }
+
+        // Unsandboxed: bash everywhere (Git Bash on Windows, native bash/zsh/sh on Unix).
+        psi.FileName = _env.ShellPath;
+        psi.Arguments = $"-c \"{EscapeBash(command)}\"";
     }
 
     private static string EscapeBash(string command)

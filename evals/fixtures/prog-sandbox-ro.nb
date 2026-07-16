@@ -1,0 +1,3 @@
+approval sandbox bwrap
+approval bash touch *
+run MOCK:tool=bash touch /etc/nb_sbx_probe 2>&1; echo DONE
