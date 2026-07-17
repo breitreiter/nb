@@ -168,31 +168,6 @@ public class Program
         return sections.Count > 0 ? string.Join("\n\n", sections) : null;
     }
 
-    internal static float? ResolveProviderFloat(Microsoft.Extensions.Configuration.IConfiguration config, string providerName, string key)
-    {
-        foreach (var provider in config.GetSection("ChatProviders").GetChildren())
-        {
-            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
-                return float.TryParse(provider[key], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
-        }
-        return null;
-    }
-
-    internal static int ResolveMaxContextTokens(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
-    {
-        var providers = config.GetSection("ChatProviders").GetChildren();
-        foreach (var provider in providers)
-        {
-            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
-            {
-                if (int.TryParse(provider["MaxContextTokens"], out var providerTokens))
-                    return providerTokens;
-                break;
-            }
-        }
-        return int.TryParse(config["MaxContextTokens"], out var tokens) ? tokens : 128000;
-    }
-
     private static string? ResolveActiveModelSlug(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
     {
         var providers = config.GetSection("ChatProviders").GetChildren();
@@ -536,10 +511,10 @@ public class Program
 
         // Initialize conversation manager with dependencies
         var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
-        var maxContextTokens = ResolveMaxContextTokens(config, activeProviderName);
+        var maxContextTokens = ProviderConfigResolver.ResolveMaxContextTokens(config, activeProviderName);
         var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
-        var temperature = ResolveProviderFloat(config, activeProviderName, "Temperature");
-        var presencePenalty = ResolveProviderFloat(config, activeProviderName, "PresencePenalty");
+        var temperature = ProviderConfigResolver.ResolveProviderFloat(config, activeProviderName, "Temperature");
+        var presencePenalty = ProviderConfigResolver.ResolveProviderFloat(config, activeProviderName, "PresencePenalty");
         var approvalPolicy = BuildApprovalPolicy(config);
         if (_bashTool != null) _bashTool.ApprovalPolicy = approvalPolicy;  // for the bash sandbox (Phase 5.3)
         _conversationManager = new ConversationManager(
@@ -1102,25 +1077,10 @@ public class Program
         (provider, model) =>
         {
             var name = provider ?? config["ActiveProvider"];
-            if (name != null && model != null) OverrideProviderModel(config, name, model);
+            if (name != null && model != null) ProviderConfigResolver.OverrideProviderModel(config, name, model);
             return _providerManager.TryCreateChatClient(config, name);
         };
 
-    internal static void OverrideProviderModel(IConfiguration config, string providerName, string model)
-    {
-        var children = config.GetSection("ChatProviders").GetChildren().ToList();
-        for (int i = 0; i < children.Count; i++)
-            if (string.Equals(children[i]["Name"], providerName, StringComparison.OrdinalIgnoreCase))
-            {
-                // Write both keys: most providers read "Model", but classic
-                // AzureOpenAI reads "ChatDeploymentName". Setting both lets a
-                // program's `model` directive land whichever field the provider
-                // reads, without the override needing to know the provider kind.
-                config[$"ChatProviders:{i}:Model"] = model;
-                config[$"ChatProviders:{i}:ChatDeploymentName"] = model;
-                return;
-            }
-    }
 
     // Resolve an @file include for the source parser: relative to the program
     // file's directory (or cwd for a stdin program), fail fast if missing.

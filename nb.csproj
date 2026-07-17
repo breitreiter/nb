@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -10,55 +10,38 @@
     <ApplicationIcon>nb.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- The CLI shell: Program + CommandProcessor + the line-editor mention source.
+       The engine lives in nb.Core; UglyPrompt (line editor) is CLI-only. Everything
+       else (Spectre, config, MCP, Microsoft.Extensions.AI) flows transitively. -->
   <ItemGroup>
-    <PackageReference Include="itext7" Version="9.3.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
-    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="PxSharp" Version="0.2.0" />
+    <PackageReference Include="UglyPrompt" Version="0.4.0" />
     <PackageReference Include="Spectre.Console" Version="0.52.1-preview.0.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
-    <PackageReference Include="UglyPrompt" Version="0.4.0" />
-    <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="mcp-servers/**" />
+    <ProjectReference Include="nb.Core\nb.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Sibling projects/source that sit under the globbed root but aren't ours. -->
+  <ItemGroup>
+    <Compile Remove="nb.Core\**" />
+    <EmbeddedResource Remove="nb.Core\**" />
+    <None Remove="nb.Core\**" />
+    <Compile Remove="Providers\**" />
+    <EmbeddedResource Remove="Providers\**" />
+    <None Remove="Providers\**" />
+    <Compile Remove="mcp-servers\**" />
+    <None Remove="mcp-servers\**" />
     <Compile Remove="nb.Tests\**" />
     <EmbeddedResource Remove="nb.Tests\**" />
     <None Remove="nb.Tests\**" />
     <Compile Remove="nb-builds\**" />
-    <Compile Remove="Providers\Anthropic\**" />
-    <Compile Remove="Providers\AzureOpenAI\**" />
-    <Compile Remove="Providers\AzureFoundry\**" />
-    <Compile Remove="Providers\nb.Providers.Abstractions\**" />
-    <Compile Remove="Providers\OpenAI\**" />
-    <Compile Remove="Providers\Gemini\**" />
-    <Compile Remove="Providers\LocalLlm\**" />
-    <Compile Remove="Providers\Mock\**" />
     <EmbeddedResource Remove="nb-builds\**" />
-    <EmbeddedResource Remove="Providers\Anthropic\**" />
-    <EmbeddedResource Remove="Providers\AzureOpenAI\**" />
-    <EmbeddedResource Remove="Providers\AzureFoundry\**" />
-    <EmbeddedResource Remove="Providers\nb.Providers.Abstractions\**" />
-    <EmbeddedResource Remove="Providers\OpenAI\**" />
-    <EmbeddedResource Remove="Providers\Gemini\**" />
-    <EmbeddedResource Remove="Providers\LocalLlm\**" />
-    <EmbeddedResource Remove="Providers\Mock\**" />
-    <None Remove="mcp-servers/**" />
     <None Remove="nb-builds\**" />
-    <None Remove="Providers\Anthropic\**" />
-    <None Remove="Providers\AzureOpenAI\**" />
-    <None Remove="Providers\AzureFoundry\**" />
-    <None Remove="Providers\nb.Providers.Abstractions\**" />
-    <None Remove="Providers\OpenAI\**" />
-    <None Remove="Providers\Gemini\**" />
-    <None Remove="Providers\LocalLlm\**" />
-    <None Remove="Providers\Mock\**" />
   </ItemGroup>
 
+  <!-- Runtime content deployed next to the Exe, where AppContext.BaseDirectory finds it. -->
   <ItemGroup>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -72,15 +55,6 @@
     <None Update="theme.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <EmbeddedResource Include="Resources\robot-logo.bmp" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Providers\" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="Providers\nb.Providers.Abstractions\nb.Providers.Abstractions.csproj" />
   </ItemGroup>
 
   <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">

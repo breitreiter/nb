@@ -670,6 +670,26 @@ removing `AnsiConsole`/`Environment.Exit` from engine classes, and unifying the
 bare/interactive wiring (currently NbRuntime ≈ Program's inline block). Detailed
 6a design: the approved plan (was ~/.claude/plans/fluttering-sleeping-pnueli.md).
 
+**Status (2026-07-16, cont.).** Phase 6b landed — nb is a referenceable library.
+6b.1: provider loading works for a library host — `ProviderManager(string? dir)` is
+injectable (`NbOptions.ProvidersDirectory` ?? `config["ProvidersPath"]` ?? the
+executable-relative default), and the once-silent load failure now emits a
+diagnostic. 6b.2: the engine split into **`nb.Core`** (a self-contained `net10.0`
+library — Transcript/MCP/Shell/Utilities/Facade/Providers-loader + ConversationManager/
+ProgramEvaluator/etc.), with `nb.csproj` reduced to a thin `Exe` (Program +
+CommandProcessor + the line-editor mention source) referencing it. Namespaces stayed
+`nb.*`; the one engine→CLI cycle (three config helpers) moved to
+`nb.Core/ProviderConfigResolver.cs`; `InternalsVisibleTo` spans both assemblies;
+`nb.Core` keeps `RootNamespace=nb` so the embedded robot-logo manifest name is stable.
+A Roslyn-built consumer references `nb.Core` and calls `Nb.RunAsync` in-process — no
+Exe baggage. Byte-identical: 297 unit + 56 evals green, 0 warnings, `bin/` still ships
+`nb` + `nb.Core.dll` + `providers/` + content together. **NuGet is deliberately out**
+(deferred indefinitely — a nice-to-have / community PR; the consumer is assembly refs,
+not packages). **The composable-CLI reorientation is complete.** Remaining loose ends
+are cleanups, not phases: engine `AnsiConsole` chrome (masked by the facade), the
+bare/interactive-vs-NbRuntime wiring duplication, and the owed downstream spec doc
+(TODO.md).
+
 Ordered so each phase delivers standalone value and the weaver harness can
 shed a hack at every step.
 

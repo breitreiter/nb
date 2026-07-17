@@ -48,16 +48,30 @@ The application supports two execution modes:
    - Each directory maintains separate conversation context
 
 ## Project Structure
-- `Program.cs` - Main entry point, handles dual execution modes and history persistence
-- `ConversationManager.cs` - Handles LLM interactions using Microsoft.Extensions.AI, MCP tool integration, and conversation history serialization
-- `ProviderManager.cs` - Manages AI provider discovery and loading (plugin architecture)
-- `IChatClientProvider.cs` - Interface for AI provider plugins
-- `AzureOpenAIProvider.cs` - Built-in Azure OpenAI provider implementation
-- `McpManager.cs` - Manages MCP client connections
-- `ConfigurationService.cs` - Configuration management
-- `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust sandbox)
-- `Facade/` - In-process library surface: `Nb.RunAsync(config, program, options) → RunResult` (the "one contract, three surfaces" entry point), `NbProgramBuilder` (fluent program authoring), `NbRuntime` (the shared engine assembler — throws `NbStartupException` rather than exiting, suppresses chrome). The CLI's program/spec run path is a thin shell over `Nb.RunAsync`. NuGet packaging + library-host provider loading are Phase 6b (see `plans/composable-cli-reorientation.md`).
-- `providers/` - Directory for external AI provider plugins (DLLs)
+
+**Two assemblies** (split in Phase 6b): `nb.Core/` is a self-contained library holding
+the whole engine (referenceable by a Roslyn-built consumer, no NuGet); `nb.csproj` is a
+thin CLI `Exe` referencing it. Namespaces stay `nb.*` across both. A same-solution
+consumer references `nb.Core` and calls `Nb.RunAsync` in-process.
+
+CLI Exe (repo root):
+- `Program.cs` - Main entry point, dual execution modes, emit/exit; a thin shell over the facade on the program/spec run path
+- `CommandProcessor.cs` - Interactive slash-command dispatch
+- `FileMentionSource.cs` - Line-editor `@file` completion source (UglyPrompt)
+
+`nb.Core/` library:
+- `Facade/` - In-process library surface: `Nb.RunAsync(config, program, options) → RunResult` (the "one contract, three surfaces" entry point), `NbProgramBuilder` (fluent program authoring), `NbRuntime` (the shared engine assembler — throws `NbStartupException` rather than exiting, suppresses chrome), `NbOptions` (incl. `ProvidersDirectory` for library hosts).
+- `ConversationManager.cs` - LLM interactions via Microsoft.Extensions.AI, MCP tool integration
+- `ProviderManager.cs` - AI provider discovery/loading (plugin architecture; injectable providers dir)
+- `ProgramEvaluator.cs` - Evaluates a conversation-program (the TranscriptEvent stream)
+- `Transcript/` - The wire schema (events, serializer, mapper, loader, program parser)
+- `MCP/` - `McpManager` (client lifecycle, layered mcp.json), `FakeToolManager`
+- `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust sandbox, bwrap)
+- `Utilities/` - `ConfigurationService` (layered config), `UIColors`, markdown rendering
+
+Other:
+- `Providers/` - External AI provider plugin projects (Anthropic, AzureOpenAI, …) + `nb.Providers.Abstractions` (the `IChatClientProvider` interface)
+- `providers/` (in `bin/`) - Deployed provider plugin DLLs, loaded at runtime via `AssemblyLoadContext`
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
 ## Custom Commands

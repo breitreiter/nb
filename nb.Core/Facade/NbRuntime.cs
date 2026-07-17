@@ -37,7 +37,7 @@ internal sealed class NbRuntime : IDisposable
     public Func<string?, string?, IChatClient?> ClientFactory => (provider, model) =>
     {
         var name = provider ?? _config["ActiveProvider"];
-        if (name != null && model != null) Program.OverrideProviderModel(_config, name, model);
+        if (name != null && model != null) ProviderConfigResolver.OverrideProviderModel(_config, name, model);
         return _providers.TryCreateChatClient(_config, name);
     };
 
@@ -95,10 +95,10 @@ internal sealed class NbRuntime : IDisposable
         if (bash != null) bash.ApprovalPolicy = approval;
 
         var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
-        var maxContextTokens = Program.ResolveMaxContextTokens(config, providerName);
+        var maxContextTokens = ProviderConfigResolver.ResolveMaxContextTokens(config, providerName);
         var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
-        var temperature = Program.ResolveProviderFloat(config, providerName, "Temperature");
-        var presencePenalty = Program.ResolveProviderFloat(config, providerName, "PresencePenalty");
+        var temperature = ProviderConfigResolver.ResolveProviderFloat(config, providerName, "Temperature");
+        var presencePenalty = ProviderConfigResolver.ResolveProviderFloat(config, providerName, "PresencePenalty");
 
         var conversation = new ConversationManager(
             client, mcp, fakeTools, bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, applyPatch,
