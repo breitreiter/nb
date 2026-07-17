@@ -36,7 +36,6 @@ public sealed class ProgramEvaluator
 
     public string? Provider { get; private set; }
     public string? Model { get; private set; }
-    public string? OutputMode { get; private set; }
 
     public ProgramEvaluator(ConversationManager conversation, Func<string?, string?, IChatClient?> clientFactory, IList<string>? warnings = null)
     {
@@ -48,42 +47,47 @@ public sealed class ProgramEvaluator
     public async Task EvaluateAsync(IReadOnlyList<TranscriptEvent> program)
     {
         foreach (var ev in program)
-        {
-            switch (ev)
-            {
-                case ProviderEvent p:
-                    Provider = p.Name;
-                    SwapClient();
-                    break;
-                case ModelEvent m:
-                    Model = m.Name;
-                    SwapClient();
-                    break;
-                case OutputEvent o:
-                    OutputMode = o.Mode;
-                    break;
-                case SurfaceDirectiveEvent sd:
-                    _surfaceDirectives.Add(sd);
-                    break;
-                case ApprovalEvent ap:
-                    ApplyApproval(ap);
-                    break;
-                case SystemEvent or UserEvent or AssistantTextEvent or ToolCallEvent or ToolResultEvent:
-                    // A message-bearing turn: buffer until the next run flushes it.
-                    _turnBuffer.Add(ev);
-                    break;
-                case RunEvent r:
-                    FlushTurns();
-                    _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
-                    await _conversation.RunAsync(r.Prompt);
-                    break;
-                // ThinkingEvent / AssistantJsonEvent / ResultEvent: output-only, ignored on input.
-            }
-        }
+            await EvaluateEventAsync(ev);
 
-        // Trailing turns with no run after them (e.g. the bare-path preset, which is
-        // one system directive and no run) still join the built conversation.
+        // Trailing turns with no run after them still join the built conversation.
         FlushTurns();
+    }
+
+    /// <summary>
+    /// Evaluate one directive against the running state, WITHOUT the end-of-program
+    /// flush — so the REPL can drive the same evaluator one entered line at a time.
+    /// A <c>run</c> flushes buffered turns and invokes; trailing turns are flushed by
+    /// <see cref="EvaluateAsync"/> (or left to the session end for a REPL).
+    /// </summary>
+    public async Task EvaluateEventAsync(TranscriptEvent ev)
+    {
+        switch (ev)
+        {
+            case ProviderEvent p:
+                Provider = p.Name;
+                SwapClient();
+                break;
+            case ModelEvent m:
+                Model = m.Name;
+                SwapClient();
+                break;
+            case SurfaceDirectiveEvent sd:
+                _surfaceDirectives.Add(sd);
+                break;
+            case ApprovalEvent ap:
+                ApplyApproval(ap);
+                break;
+            case SystemEvent or UserEvent or AssistantTextEvent or ToolCallEvent or ToolResultEvent:
+                // A message-bearing turn: buffer until the next run flushes it.
+                _turnBuffer.Add(ev);
+                break;
+            case RunEvent r:
+                FlushTurns();
+                _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
+                await _conversation.RunAsync(r.Prompt);
+                break;
+            // ThinkingEvent / AssistantJsonEvent / ResultEvent: output-only, ignored on input.
+        }
     }
 
     // Batch buffered turns into history via the same loader a seed uses, so a

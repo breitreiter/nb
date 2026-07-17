@@ -273,7 +273,6 @@ public class TranscriptSerializerTests
         """
         {"type":"provider","turn":null,"name":"anthropic"}
         {"type":"model","turn":null,"name":"claude-sonnet-5"}
-        {"type":"output","turn":null,"mode":"jsonl"}
         {"type":"mcp","turn":null,"add":["figma"],"remove":["tester"]}
         {"type":"tools","turn":null,"reset":true}
         {"type":"system","turn":0,"text":"you are terse"}
@@ -285,22 +284,21 @@ public class TranscriptSerializerTests
     {
         var events = TranscriptSerializer.Parse(GoldenProgram);
 
-        Assert.Equal(7, events.Count);
+        Assert.Equal(6, events.Count);
         Assert.Equal("anthropic", Assert.IsType<ProviderEvent>(events[0]).Name);
         Assert.Equal("claude-sonnet-5", Assert.IsType<ModelEvent>(events[1]).Name);
-        Assert.Equal("jsonl", Assert.IsType<OutputEvent>(events[2]).Mode);
 
-        var mcp = Assert.IsType<McpEvent>(events[3]);
+        var mcp = Assert.IsType<McpEvent>(events[2]);
         Assert.Equal(new[] { "figma" }, mcp.Add);
         Assert.Equal(new[] { "tester" }, mcp.Remove);
         Assert.False(mcp.Reset);
 
-        var tools = Assert.IsType<ToolsEvent>(events[4]);
+        var tools = Assert.IsType<ToolsEvent>(events[3]);
         Assert.True(tools.Reset);
         Assert.Empty(tools.Add);
 
-        Assert.IsType<SystemEvent>(events[5]);
-        Assert.Equal("the real task", Assert.IsType<RunEvent>(events[6]).Prompt);
+        Assert.IsType<SystemEvent>(events[4]);
+        Assert.Equal("the real task", Assert.IsType<RunEvent>(events[5]).Prompt);
     }
 
     [Fact]

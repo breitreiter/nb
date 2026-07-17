@@ -131,13 +131,6 @@ public sealed record ModelEvent : TranscriptEvent
     public required string Name { get; init; }
 }
 
-/// <summary>Set the output mode (interactive | porcelain | jsonl) for subsequent runs.</summary>
-public sealed record OutputEvent : TranscriptEvent
-{
-    public override string Type => "output";
-    public required string Mode { get; init; }
-}
-
 /// <summary>
 /// A tool-surface directive with delta semantics: <see cref="Add"/> /
 /// <see cref="Remove"/> toggle named members and <see cref="Reset"/> (the source

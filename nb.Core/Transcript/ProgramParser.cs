@@ -47,9 +47,6 @@ public static class ProgramParser
                 case "model":
                     events.Add(new ModelEvent { Name = RequireContent(verb, content, lineNo) });
                     break;
-                case "output":
-                    events.Add(new OutputEvent { Mode = RequireContent(verb, content, lineNo).ToLowerInvariant() });
-                    break;
                 case "mcp":
                     events.Add(ParseSurface(new McpEvent(), content, lineNo));
                     break;
@@ -76,7 +73,7 @@ public static class ProgramParser
                     throw new ProgramParseException($"line {lineNo}: '{verb}' has structured fields — author it as JSONL bytecode, not source syntax.");
                 default:
                     throw new ProgramParseException(
-                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, output, mcp, tools, approval, system, user, assistant, run.");
+                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, mcp, tools, approval, system, user, assistant, run.");
             }
         }
 

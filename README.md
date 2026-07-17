@@ -1,24 +1,24 @@
 # NotaBene (nb)
 
-A thin, terminal-native coding agent with deep shell integration, native file tools, and pluggable AI providers.
+A terminal-native **conversation-program evaluator** with deep shell integration, native file tools, and pluggable AI providers.
 
 ![NotaBene Preview](preview.png)
 
-Primary use case: drop into a project directory and work interactively — read, edit, search, run builds and tests, iterate. Secondary use case: a general-purpose CLI assistant for single-shot prompts, stdin piping, scripting, and whatever else you can bolt onto it. Most of the features below support both.
+nb runs a **conversation-program**: one ordered directive document that carries provider, model, tool surface, approval policy, fabricated history, and the live prompt — so *one document is one runnable program*. It is not a chat client. Give it a program file (or pipe one on stdin), or drop into a REPL that interprets the same source syntax line by line. Every invocation is stateless; continuity is explicit (`--seed`). nb is also consumable in-process as a .NET library (`nb.Core` → `Nb.RunAsync`).
+
+Full reference: [`docs/conversation-program-cli.md`](docs/conversation-program-cli.md) (CLI) and [`docs/conversation-program-api.md`](docs/conversation-program-api.md) (library).
 
 ## Features
 
-- **Coding Agent Workflow**: Native file and shell tools, read-before-edit guard, project context via `NB.md`, and trust mode for friction-free iteration inside a working directory sandbox.
+- **Conversation Programs**: Configuration, tool surface, approval policy, fabricated history, and the prompt as one directive document — run from a file, stdin, or the REPL. Machine-readable output (`--output jsonl`/`porcelain`) is the same schema `--seed` reads, so record → edit → replay is native.
 - **Multi-Provider AI Support**: Built-in support for Azure OpenAI (Chat Completions and Responses API), OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
-- **Interactive and Single-Shot Modes**: Use interactively or execute single commands. Every invocation is stateless — continuity, when you want it, is explicit (capture `--output jsonl`, replay with `--seed`).
-- **Conversation Programs**: Script configuration, fabricated history, and the live prompt as one directive document (`--program`), with reusable envelope prefixes (`--spec`) and machine-readable output (`--output jsonl`/`porcelain`).
-- **Terminal Integration**: Native shell access with approval UX. Models can execute commands, with dangerous operations requiring explicit confirmation.
-- **Native File Tools**: Cross-platform `read_file`, `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, and `fetch_url` — read-only tools auto-approve within the working directory.
-- **Trust Mode**: `--trust` auto-approves file tools and safe shell commands within the working directory sandbox.
+- **Program REPL**: `nb` on a TTY starts a live interpreter of the source syntax — the authoring/debug surface, not a chat loop.
+- **Native File + Shell Tools**: Cross-platform `bash`, `read_file`, `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`, `fetch_url`, with a read-before-edit guard and a declarative approval policy (`approval` directives + config).
+- **Bubblewrap Sandbox**: `approval sandbox bwrap` runs the bash child in a locked-down namespace (Linux).
 - **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
-- **MCP Server Integration** for extensible tools and resources
-- **Line Editor**: Full editing capabilities with history, backslash continuation, and `/edit` for composing in `$EDITOR`
-- **Project Context**: Auto-loads `NB.md` from your working directory to provide project-specific context
+- **MCP Server Integration** (stdio + HTTP transports) for extensible tools and resources
+- **In-process library**: reference `nb.Core` and call `Nb.RunAsync(config, program, options)`.
+- **Project Context**: `@file` includes and `NB.md` for project-specific context
 
 ## Prerequisites
 
@@ -74,70 +74,45 @@ After installation, configure nb for your environment:
 
 1. **AI Provider**: Edit `appsettings.json` with your API keys and endpoints. You can configure multiple providers and switch between them at runtime, but you only need to start with one. nb supports local models via HTTP. If your model doesn't have a standard context window size, you'll need to set the `MaxContextTokens` value in `appsettings.json`. nb ships with several prompt extensions for common model, but you can also add your own.
 
-2. **System Prompt** (Optional): Edit `system.md` to customize the default system prompt.
+2. **MCP Servers** (Optional): Copy `mcp.example.json` to `mcp.json` and configure your MCP server connections.
 
-3. **MCP Servers** (Optional): Copy `mcp.example.json` to `mcp.json` and configure your MCP server connections.
-
-4. **Theme** (Optional): Customize colors by editing `theme.json`.
+3. **Theme** (Optional): Customize colors by editing `theme.json`.
 
 #### Config resolution
 
 Configuration resolves in layers, later winning: install defaults (`appsettings.json` next to the binary) → user config (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`) → the nearest project `.nb/config.json` (found by walking up from the current directory) → `NB_`-prefixed environment variables (`NB_ActiveProvider`, `NB_ChatProviders__0__ApiKey`, …). This keeps API keys out of the install directory and lets a project or CI job set provider/model without editing shared config. Pass `--config <file>` to use a single config file hermetically (ignoring the layers) — handy for isolated test runs.
 
-For the common knobs there are friendly env aliases, so CI doesn't need the raw nested paths: `NB_PROVIDER` (the active provider), `NB_MODEL` (the active provider's model), `NB_OUTPUT` (the default output mode), and `NB_SPEC` (the default spec). `mcp.json` resolves in the same install → user (`~/.config/nb/mcp.json`) → project (`.nb/mcp.json`) layers, merging server definitions by name — so a project can add or override MCP servers without editing the install manifest (`--mcp <file>` still selects a single manifest hermetically).
+For the common knobs there are friendly env aliases, so CI doesn't need the raw nested paths: `NB_PROVIDER` (the active provider), `NB_MODEL` (the active provider's model), and `NB_OUTPUT` (the default output mode). `mcp.json` resolves in the same install → user (`~/.config/nb/mcp.json`) → project (`.nb/mcp.json`) layers, merging server definitions by name — so a project can add or override MCP servers without editing the install manifest (`--mcp <file>` still selects a single manifest hermetically).
 
 ## Usage
 
-### Interactive Mode
-Launch with no parameters to start an interactive chat session:
+nb runs a program. Give it a file, pipe one on stdin, or start the REPL:
+
 ```bash
-nb
+nb flow.nb                          # run a program file
+echo 'run summarize this' | nb -     # run a one-off program from stdin
+nb                                   # (on a TTY) start the program REPL
 ```
 
-In interactive mode, you can:
-- Type naturally to chat with the AI
-- Type `/` to see available slash commands
-- Type `//` to cancel and go back
-- Use backslash (`\`) at end of line to continue on next line
-- Press up/down arrows for command history
+There is **no bare-prompt mode** — `nb "some text"` is read as a program *file* named "some text". To run a quick prompt, wrap it as a program: `echo 'run some text' | nb -`.
 
-### Slash Commands
+**The REPL** interprets the same source syntax line by line — each line is a directive, `run` invokes the model, Ctrl-D exits. It is the authoring/debugging surface, not a chat loop.
 
-| Command | Description |
-|---------|-------------|
-| `/clear` | Clear conversation history (preserves system prompt) |
-| `/edit` | Compose message in `$EDITOR` |
-| `/provider` | Switch AI provider |
-| `/tools` | List available tools by source, with approval status |
-| `/quit` | Exit nb |
-
-### Single-Shot Mode
-Launch with parameters to execute a single command and exit immediately:
+**Stateless + explicit continuity.** nb reads and writes no history file, so parallel runs just work. Carry continuity with `--seed`, which prepends a captured transcript as premise:
 ```bash
-nb /clear
-nb Summarize this document
-```
-
-Text piped to stdin is treated as conversation context. nb will read stdin to completion before continuing.
-```bash
-echo "the air in spring is fresh and clean" | nb "write a sentence that rhymes with this, to create a couplet"
-```
-
-**Every invocation is stateless** — nb reads and writes no history file, so parallel runs in the same directory just work. When you want continuity, pass it explicitly: capture a run's transcript and hand it back as the premise for the next one.
-```bash
-nb --output jsonl "start a haiku about autumn" > turn1.jsonl
-nb --seed turn1.jsonl "now finish it"
+echo 'run start a haiku about autumn' | nb - --output jsonl > turn1.jsonl
+echo 'run now finish it' | nb - --seed turn1.jsonl
 ```
 
 nb exposes the current working directory as an MCP root, to help filesystem MCP servers orient themselves.
 
 ### Machine-Readable Output
 
-Two output modes route the model's answer to stdout and all chrome (banners, spinner, tool logs) to stderr, so a script can capture a clean result:
+A program defaults to `--output jsonl`. Both machine modes route the transcript to stdout and all chrome (tool logs, warnings) to stderr, so a script captures a clean result:
 
 ```bash
-nb --output jsonl "…"        # a typed event stream (user/assistant_text/tool_call/… + a result trailer)
-nb --output porcelain "…"    # plain text: TOOL/RESULT lines + the answer verbatim (fenced blocks survive)
+nb flow.nb                       # jsonl: a typed event stream (user/assistant_text/tool_call/… + a result trailer)
+nb flow.nb --output porcelain    # plain text: TOOL/RESULT lines + the answer verbatim (fenced blocks survive)
 ```
 
 Color is disabled automatically when stdout is redirected or `NO_COLOR` is set. The process exit code is meaningful: `0` success, `2` provider error, `3` turn aborted (tool-call budget or repeated failures), `4` approval denied.
@@ -156,11 +131,11 @@ run and what's the square of that?
 ```
 
 ```bash
-nb --program flow.nb          # from a file
-nb --program - < flow.nb      # from stdin (a first '{' char is read as jsonl bytecode instead)
+nb flow.nb            # from a file
+nb - < flow.nb        # from stdin (a first '{' char is read as jsonl bytecode instead)
 ```
 
-Each line is `<verb> <content>`. **Config directives** (`provider`, `model`, `output`, `mcp`, `tools`, `approval`) set the envelope going forward; **turn directives** (`system`, `user`, `assistant`) append messages; **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a `user` turn then `run`). Because config directives can appear between runs, one file can drive two models:
+Each line is `<verb> <content>`. **Config directives** (`provider`, `model`, `mcp`, `tools`, `approval`) set the envelope going forward; **turn directives** (`system`, `user`, `assistant`) append messages; **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a `user` turn then `run`). (Output format is the `--output` flag, not a directive — it's caller delivery, not program logic.) Because config directives can appear between runs, one file can drive two models:
 
 ```
 model haiku
@@ -181,7 +156,7 @@ tools none         # no native tools this run
 mcp +figma         # expose the figma MCP server's tools
 ```
 
-Native tools are **all-on** by default; a `tools` directive filters them. MCP servers are **strict-empty** for a program: a program exposes no MCP tools unless it names servers with `mcp +server` (the bare `nb "prompt"` path is unaffected — it exposes every connected server, as before). `--resolve` prints the resolved surface at each run point.
+Native tools are **all-on** by default; a `tools` directive filters them. MCP servers are **strict-empty**: a program exposes no MCP tools unless it names servers with `mcp +server`. `--resolve` prints the resolved surface at each run point.
 
 The `approval` directive sets the approval policy — which tool calls auto-approve, and what an unmatched call does:
 
@@ -196,128 +171,55 @@ These layer onto the `Approval` config block (`Bash`/`McpTools`/`Default`/`Sandb
 
 The **bash sandbox** (`approval sandbox bwrap`, or `Approval.Sandbox` in config) wraps the bash child in a [bubblewrap](https://github.com/containers/bubblewrap) namespace: the whole filesystem is read-only, only the current directory and a fresh `/tmp` are writable, known secret dirs (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/nb`) are masked to empty, and there's no network. Use `bwrap-net` to keep the sandbox but allow network. It contains only bash — MCP and `fetch_url` run in-process under their own approval. Requesting `bwrap` on a host without bubblewrap (non-Linux, or `bwrap` not on `PATH`) hard-fails the run.
 
-**Specs** are reusable prefixes of config directives, prepended to a program or a prompt:
-
-```bash
-nb --spec headless --program eval.nb     # prepend the built-in headless envelope (jsonl output, no persona)
-nb --spec chat --program tools.nb        # opt a program into nb's default persona floor
-nb --spec ./my-envelope.nb "do the task"
-```
-
-`--spec` resolves a built-in (`chat` = nb's default persona, `headless` = jsonl output), an explicit file path, or `specs/<name>.nb` in a project `.nb/` directory or `~/.config/nb/`. `chat` is the persona the bare `nb "prompt"` path uses, made requestable by name — `nb "x"` and `nb --spec chat "x"` produce a byte-identical persona. (They differ only in the MCP surface: the bare path exposes every connected server, while any program — `--spec chat` included — is strict-empty until it names servers with `mcp +server`.)
+Reuse across programs is composition, not a flag: factor shared directives into a file and pull them in with `@file` includes.
 
 **Inspect a program without running it:**
 
 ```bash
-nb --validate --program flow.nb    # parse + check (unknown provider, invalid output mode); exit 1 on error
-nb --resolve  --program flow.nb    # print the effective envelope at each run point
+nb --validate flow.nb    # parse + check (unknown provider, bad approval directive); exit 1 on error
+nb --resolve  flow.nb    # print the effective envelope at each run point
 ```
 
 The program format and the transcript format are the same schema: `--output jsonl` emits it and `--seed` loads it, so record → edit → replay is native.
 
-### Shell Commands
+### Tools and approval
 
-Models can execute shell commands via the built-in `bash` tool. Each command requires approval before execution:
+Native tools (all-on by default; filter with `tools`): `bash`, `read_file`, `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`, `fetch_url`. `edit_file`/`write_file` enforce a **read-before-edit guard**; read-only file tools auto-approve inside the working-directory sandbox (cwd + system temp), paths outside do not.
 
-```
-Run: ls -la
-Execute? [Y/n/?]
-```
-
-Commands are classified for clarity (`Read`, `Write`, `Delete`, `Run`) and dangerous operations show warnings with flipped defaults:
+Approval is a **declarative policy**, not interactive prompts (a program run is headless — an unmatched tool call is denied, not prompted). Set it with `approval` directives in the program or the `Approval` block in config:
 
 ```
-Delete ⚠: /tmp/important-file
-  Warning: deletes files
-Execute? [y/N/?]
+approval bash "git status"     # auto-approve a matching bash command
+approval mcp weather/*          # auto-approve matching MCP tools
+approval default deny           # refuse any unmatched call outright
+approval sandbox bwrap          # run the bash child under a bubblewrap sandbox (Linux)
 ```
 
-Press `?` at the approval prompt to see the full command before deciding.
+Some commands are always safe (auto-approved): build tools (`dotnet build`, `cargo build`, `make`, `npm run`, …), read-only git (`git status`/`log`/`diff`/`show`), and read-only queries (`which`, `file`, …). A **trust posture** (`"Trust": true` in config) auto-approves non-dangerous tools within the cwd sandbox and bumps the max tool calls to 50; dangerous commands (`rm -rf`, `sudo`) never auto-approve.
 
-For automation and scripting, pre-approve commands with the `--approve` flag:
-```bash
-nb --approve "ls" --approve "cat *" "analyze this project"
-```
+See [Conversation Programs](#conversation-programs) for the full `approval` / `tools` / sandbox semantics.
 
-Patterns support globs (`cat *` matches `cat file.txt`, `cat /etc/hosts`, etc.).
-
-**Auto-approved safe commands** (no prompt required):
-- Build tools: `dotnet build`, `dotnet test`, `cargo build`, `make`, `npm run`, `yarn`, etc.
-- Read-only git: `git status`, `git log`, `git diff`, `git show`, etc.
-- Read-only queries: `which`, `whereis`, `type`, etc.
-
-### File Tools
-
-Models have native file tools that work cross-platform without the shell:
-
-| Tool | Description | Approval |
-|------|-------------|----------|
-| `read_file` | Read file contents with line numbers | Auto in cwd, prompt outside |
-| `list_dir` | Lightweight directory listing | Auto in cwd, prompt outside |
-| `find_files` | Glob-based file discovery | Auto in cwd, prompt outside |
-| `grep` | Regex content search | Auto in cwd, prompt outside |
-| `write_file` | Create or overwrite files | Required (auto in cwd with `--trust`) |
-| `edit_file` | Targeted string replacement | Required (auto in cwd with `--trust`) |
-| `fetch_url` | Fetch text content from an HTTP/HTTPS URL | Always required |
-
-Read tools auto-approve inside the working directory sandbox (and system temp dirs); paths outside prompt for approval. Write tools always prompt unless `--trust` is active. `fetch_url` always prompts — outbound network is a separate trust boundary.
-
-**Read-before-edit guard**: The `edit_file` and `write_file` tools enforce that files must be read via `read_file` before modification, helping prevent the model from making blind edits.
-
-### Trust Mode
-
-Auto-approve file tools and non-dangerous shell commands within the working directory:
-
-```bash
-nb --trust "refactor the auth module"
-```
-
-Or enable permanently in `appsettings.json`:
-```json
-{ "Trust": true }
-```
-
-**Sandboxed**: only operations targeting the cwd (and system temp dirs) are auto-approved. Dangerous commands (`rm -rf`, `sudo`, etc.) always prompt. Also bumps the max tool calls per message to 50.
-
-### Listing Tools
-
-`/tools` shows every tool currently exposed to the model, grouped by source (native, MCP servers, resources, todo), with each tool's approval status:
-
-- `auto (cwd)` — read-only file tools; auto-approved inside the working-directory sandbox
-- `auto (trust)` — writes and bash; auto-approved only when `--trust` is active
-- `auto (always-allow)` — MCP tools listed in their server's `alwaysAllow`
-- `prompt` — asks for approval on each call
+`--dump-tools` writes the connected MCP tool manifest to `mcp-tools.json`; `--resolve` prints the tool surface a program exposes at each run point.
 
 ### Command-Line Flags
 
+Flags vary how a program runs; they never replace or duplicate a program verb. Trust, no-tools, bash auto-approve, provider, and model are program concerns (`approval`/`tools`/`provider`/`model` directives, or config), not flags.
+
 | Flag | Description |
 |------|-------------|
-| `--approve <pattern>` | Pre-approve shell commands matching the glob pattern |
-| `--trust` | Auto-approve file tools and safe bash commands within cwd |
-| `--system <path>` | Load system prompt from a custom file |
-| `--nobash` | Disable all shell and file tools |
+| `--output <mode>` | `jsonl` (default for a program), `porcelain`, or `interactive` — see [Machine-Readable Output](#machine-readable-output) |
+| `--seed <file>` | Prepend a jsonl transcript as premise history before the program runs |
+| `--config <file>` | Use a single config file hermetically, ignoring the layered resolution |
+| `--mcp <file>` | Use a single MCP manifest hermetically, ignoring the layered resolution |
+| `--validate` | Parse and check a program, run nothing (exit 1 on error) |
+| `--resolve` | Print the effective envelope at each run point, run nothing |
 | `--verbose` | Log tool call inputs and outputs (useful for debugging) |
 | `--dump-tools` | Write MCP tool manifest to `mcp-tools.json` and exit |
-| `--output <mode>` | `interactive` (default), `porcelain`, or `jsonl` — see [Machine-Readable Output](#machine-readable-output) |
-| `--config <file>` | Use a single config file hermetically, ignoring the layered resolution |
-| `--seed <file>` | Load a jsonl transcript as premise history before the prompt runs |
-| `--program <file>` | Evaluate a conversation-program (`-` for stdin) — see [Conversation Programs](#conversation-programs) |
-| `--spec <name\|file>` | Prepend a reusable config-directive prefix (built-in `chat`/`headless`, a path, or `specs/<name>.nb`) |
-| `--validate` | Parse and check a program/spec, run nothing (exit 1 on error) |
-| `--resolve` | Print the effective envelope at each run point, run nothing |
 
-Example combining flags:
-```bash
-nb --verbose --nobash --system eval-prompt.txt "run the evaluation"
-```
+The program itself is the positional argument (`nb flow.nb`) or stdin (`nb -`).
 
-### Provider Switching
-Switch between AI providers during a conversation to leverage different models' strengths:
-```bash
-/provider                 # Interactive selection menu
-```
-
-Conversation history is maintained when switching providers, allowing you to continue the same conversation with different AI models.
+### Switching providers
+A program selects its provider/model with the `provider` and `model` directives, and can switch between runs (`model haiku` / run / `model opus` / run) within one document — see [Conversation Programs](#conversation-programs). Connection (endpoint + key) stays in config; only the non-secret model name travels in the program.
 
 ### MCP Configuration
 Configure MCP servers in `mcp.json`:
@@ -382,11 +284,14 @@ response: '{"id": "{{$guid}}", "status": "{{$choice(pending,active,completed)}}"
 
 ## Project Context
 
-If you create an `NB.md` file in your working directory, nb will automatically load it and include it in the system prompt. This is perfect for providing project-specific context, coding conventions, architecture notes, or any other information the AI should know about your project.
+nb injects no implicit context (there's no persona floor). A program includes what it needs explicitly — pull a project-context file into a `system` directive with an `@file` include:
 
-nb will search upward through parent directories to find `NB.md`, so you can place it at your project root and it will be available in subdirectories.
+```
+system @./NB.md
+run review the staged changes
+```
 
-Other context files may be hinted at if found (e.g., `CLAUDE.md`, `AGENTS.md`), but only `NB.md` auto-loads.
+`@file` resolves relative to the program file, so a program can compose shared context and directives from files instead of a flag.
 
 ## Theming
 
@@ -413,7 +318,7 @@ For example, here's a high-contrast theme (WCAG AAA on standard Windows console 
 dotnet publish -c Release -r win-x64 --self-contained
 ```
 
-Include `system.md`, `mcp.json`, and `theme.json` with your executable for custom configurations.
+Include `mcp.json` and `theme.json` with your executable for custom configurations. Providers deploy to `providers/` next to the binary.
 
 ## AI Provider Architecture
 

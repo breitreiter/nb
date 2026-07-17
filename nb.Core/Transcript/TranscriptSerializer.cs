@@ -91,9 +91,6 @@ public static class TranscriptSerializer
             case ModelEvent md:
                 w.WriteString("name", md.Name);
                 break;
-            case OutputEvent o:
-                w.WriteString("mode", o.Mode);
-                break;
             case SurfaceDirectiveEvent s:
                 if (s.Reset) w.WriteBoolean("reset", true);
                 WriteStringArray(w, "add", s.Add);
@@ -252,8 +249,6 @@ public static class TranscriptSerializer
                 return new ProviderEvent { Turn = turn, Name = RequireString(root, "name", lineNumber, type) };
             case "model":
                 return new ModelEvent { Turn = turn, Name = RequireString(root, "name", lineNumber, type) };
-            case "output":
-                return new OutputEvent { Turn = turn, Mode = RequireString(root, "mode", lineNumber, type) };
             case "mcp":
                 return new McpEvent { Turn = turn, Add = ReadStringArray(root, "add"), Remove = ReadStringArray(root, "remove"), Reset = GetBool(root, "reset") };
             case "tools":

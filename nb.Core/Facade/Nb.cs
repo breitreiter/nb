@@ -61,7 +61,6 @@ public static class Nb
                 Usage = usage,
                 ExitReason = reason,
                 ExitCode = ExitReasons.ToExitCode(reason),
-                OutputMode = evaluator.OutputMode,
                 Warnings = warnings,
             };
         }

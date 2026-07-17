@@ -1,13 +1,16 @@
 # Project Context for Claude
 
 ## Project Overview
-NotaBene (nb) - A C# console application that provides both interactive and single-shot chat modes with pluggable AI provider support, MCP (Model Context Protocol) integration, and persistent conversation history.
+NotaBene (nb) - A C# tool that evaluates **conversation-programs**: ordered directive
+documents (provider/model/tool-surface/approval/fabricated-history/prompt) that nb runs
+statelessly. Not a chat client. Consumable as a CLI (`nb <program-file>` / stdin) or an
+in-process library (`nb.Core` → `Nb.RunAsync`). Pluggable AI providers, MCP integration.
 
 ## Key Technologies
 - **Language**: C# (.NET)
 - **UI Framework**: Spectre.Console for terminal UI
 - **AI Integration**: Microsoft.Extensions.AI with pluggable provider architecture
-- **Architecture**: MCP-enabled chat application with dual execution modes (interactive/single-shot), persistent conversation history, and extensible AI provider system
+- **Architecture**: a stateless conversation-program evaluator (nb.Core engine + a thin CLI Exe), pluggable provider plugins, MCP integration. No persistent history, no chat mode.
 
 ## Important Documentation Links
 - [Microsoft.Extensions.AI Documentation](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)
@@ -24,28 +27,26 @@ NotaBene (nb) - A C# console application that provides both interactive and sing
 dotnet build
 
 # Run from bin directory (providers only load from here)
-cd bin/Debug/net10.0 && ./nb
+cd bin/Debug/net10.0
 
-# Single-shot mode for quick tests
-cd bin/Debug/net10.0 && ./nb "your prompt here"
+# Run a program (quick test via stdin; MOCK: prompts drive the Mock provider)
+echo 'run MOCK:response=hi' | ./nb - --output jsonl
 ```
 
 Note: `dotnet run` from project root won't work - provider DLLs are discovered relative to the executable.
 
 ## Execution Modes
-The application supports two execution modes:
+nb runs a **conversation-program** — there is no bare-prompt/chat mode:
 
-1. **Interactive Mode** (no command line arguments)
-   - Starts continuous chat loop with directory context banner
-   - Loads conversation history from `.nb_conversation_history.json` in current directory
-   - Saves conversation history on exit
-   - Supports all commands and features
+1. **File / stdin** — `nb <program-file>`, `nb -`, or piped stdin runs a program and
+   exits. Stateless; continuity is explicit via `--seed`. Default output is jsonl.
 
-2. **Single-Shot Mode** (with command line arguments)  
-   - Executes single command/prompt and exits immediately
-   - Maintains conversation history between single-shot executions
-   - Perfect for scripting and batch operations
-   - Each directory maintains separate conversation context
+2. **REPL** (`nb` on a TTY, no input) — a live interpreter of the *same source syntax*:
+   each entered line is a program directive; `run` invokes. Not a chat loop, no
+   slash-commands, no persona. Ctrl-D exits. Also the authoring/debug surface.
+
+Full grammar/semantics: `docs/conversation-program-cli.md`; library API:
+`docs/conversation-program-api.md`.
 
 ## Project Structure
 
@@ -55,8 +56,7 @@ thin CLI `Exe` referencing it. Namespaces stay `nb.*` across both. A same-soluti
 consumer references `nb.Core` and calls `Nb.RunAsync` in-process.
 
 CLI Exe (repo root):
-- `Program.cs` - Main entry point, dual execution modes, emit/exit; a thin shell over the facade on the program/spec run path
-- `CommandProcessor.cs` - Interactive slash-command dispatch
+- `Program.cs` - The CLI shell: parse flags, resolve program input (file/stdin/REPL), emit/exit. A thin shell over `nb.Core` (`Nb.RunAsync` for a run, `NbRuntime` for the REPL)
 - `FileMentionSource.cs` - Line-editor `@file` completion source (UglyPrompt)
 
 `nb.Core/` library:
@@ -75,13 +75,12 @@ Other:
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
 ## Custom Commands
-The application supports these built-in commands (intercepted before LLM):
-- `/exit` - Quit the application
-- `/clear` - Clear conversation history (preserves system prompt)
+None. There are no slash-commands (the chat REPL + `CommandProcessor` were removed).
+The REPL takes program directives, not commands; Ctrl-D exits.
 
 ## Development Notes
-- Commands are intercepted in `CommandProcessor.cs` and processed via enum-based actions
-- New commands should follow the existing pattern using `CommandResult` return types
+- The REPL parses each entered line with `ProgramParser` and feeds it to a long-lived
+  `ProgramEvaluator` via `EvaluateEventAsync` (same grammar as a source-syntax program)
 - Configuration is loaded from `appsettings.json`
 - MCP clients are initialized on startup and disposed on exit
 - Tool calling safety: Configurable max tool calls per message via `MaxToolCalls` in appsettings.json (default: 25)

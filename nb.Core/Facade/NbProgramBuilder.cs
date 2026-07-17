@@ -17,7 +17,6 @@ public sealed class NbProgramBuilder
 
     public NbProgramBuilder Provider(string name) { _events.Add(new ProviderEvent { Name = name }); return this; }
     public NbProgramBuilder Model(string name) { _events.Add(new ModelEvent { Name = name }); return this; }
-    public NbProgramBuilder Output(string mode) { _events.Add(new OutputEvent { Mode = mode }); return this; }
     public NbProgramBuilder System(string text) { _events.Add(new SystemEvent { Text = text }); return this; }
     public NbProgramBuilder User(string text) { _events.Add(new UserEvent { Text = text }); return this; }
     public NbProgramBuilder Assistant(string text) { _events.Add(new AssistantTextEvent { Text = text }); return this; }

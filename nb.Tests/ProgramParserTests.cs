@@ -90,7 +90,7 @@ public class ProgramParserTests
     [Fact]
     public void BlankLines_ShebangAndComments_AreSkipped()
     {
-        var src = "#!/usr/bin/env -S nb --spec\n\n# a comment\nuser hello\n";
+        var src = "#!/usr/bin/env nb\n\n# a comment\nuser hello\n";
         var events = ProgramParser.Parse(src);
         var e = Assert.Single(events);
         Assert.Equal("hello", Assert.IsType<UserEvent>(e).Text);

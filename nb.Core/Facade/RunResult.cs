@@ -26,9 +26,6 @@ public sealed record RunResult
     /// <summary>The coarse process exit code the reason collapses to.</summary>
     public required int ExitCode { get; init; }
 
-    /// <summary>The output mode an <c>output</c> directive requested, or null.</summary>
-    public string? OutputMode { get; init; }
-
     /// <summary>Non-fatal evaluator warnings (unknown directive value, unbuildable client, …).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }
