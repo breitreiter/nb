@@ -221,7 +221,7 @@ public class Program
         Console.WriteLine("  --dump-tools            Write the MCP tool manifest to mcp-tools.json and exit");
         Console.WriteLine();
         Console.WriteLine("Program verbs (source syntax): provider, model, mcp, tools, approval,");
-        Console.WriteLine("system, user, assistant, run. See docs/conversation-program-cli.md.");
+        Console.WriteLine("loop, budget, system, user, assistant, run. See docs/conversation-program-cli.md.");
     }
 
     // The program REPL: interpret the same source syntax line by line. Each entered
@@ -419,6 +419,15 @@ public class Program
                 case ApprovalEvent { Key: "sandbox" } a when !BwrapSandbox.TryParse(a.Value, out _, out _):
                     errors.Add($"invalid approval sandbox '{a.Value}'. Valid: none, bwrap, bwrap-net.");
                     break;
+                case LoopEvent { Enabled: true } l when l.Threshold < 2:
+                    errors.Add($"invalid loop threshold '{l.Threshold}'. Use an integer >= 2, or 'loop off'.");
+                    break;
+                case BudgetEvent b when b.Key is not ("tokens" or "tool_calls"):
+                    errors.Add($"invalid budget key '{b.Key}'. Valid: tokens, tool_calls.");
+                    break;
+                case BudgetEvent b when b.Value <= 0:
+                    errors.Add($"invalid budget value '{b.Value}' for '{b.Key}'. Use a positive integer.");
+                    break;
             }
         }
 
@@ -444,6 +453,8 @@ public class Program
         var surfaceDirectives = new List<SurfaceDirectiveEvent>();
         string approvalDefault = "prompt", sandbox = "none";
         int bashRules = 0, mcpRules = 0;
+        string loop = "default";
+        long? tokenBudget = null, toolCallBudget = null;
         int run = 0;
 
         foreach (var ev in program)
@@ -457,6 +468,9 @@ public class Program
                 case ApprovalEvent { Key: "sandbox" } a: sandbox = a.Value; break;
                 case ApprovalEvent { Key: "bash" }: bashRules++; break;
                 case ApprovalEvent { Key: "mcp" }: mcpRules++; break;
+                case LoopEvent l: loop = l.Enabled ? $"on({l.Threshold})" : "off"; break;
+                case BudgetEvent { Key: "tokens" } b: tokenBudget = b.Value; break;
+                case BudgetEvent { Key: "tool_calls" } b: toolCallBudget = b.Value; break;
                 case RunEvent:
                     run++;
                     // Fold through the same resolver the evaluator runs, so what this
@@ -466,7 +480,8 @@ public class Program
                     var toolStr = surface.NativeAllow is null
                         ? "all"
                         : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
-                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox}");
+                    var budgetStr = $"tokens:{(tokenBudget?.ToString() ?? "-")} tool_calls:{(toolCallBudget?.ToString() ?? "-")}";
+                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
                     break;
             }
         }

@@ -82,7 +82,7 @@ clean, parseable stdout.
 | `0` | `ok` — a final answer was produced. |
 | `1` | Startup/config error (bad config, unparseable/invalid program, unassemblable engine, missing program/seed file) — emitted before any transcript. |
 | `2` | `provider_error` — the provider/model failed mid-turn. |
-| `3` | Turn aborted — tool-call budget exhausted (`max_tool_calls`) or a tool failed repeatedly (`tool_error_limit`). |
+| `3` | Aborted on a budget/limit — tool-call cap exhausted (`max_tool_calls`), a tool failed repeatedly (`tool_error_limit`), or the token budget was spent (`token_budget`). |
 | `4` | `approval_denied` — a tool needed approval and policy denied it. |
 
 The fine-grained reason also rides on the transcript's `result` trailer
@@ -158,8 +158,10 @@ Delta semantics. Tokens are `+name`, `-name`, or the lone `none` (reset/clear).
 
 - **`tools`** — native tools. Baseline **all-on**. Names: `bash`, `read_file`,
   `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`,
-  `fetch_url`. `tools -bash` drops bash; `tools none` exposes none; `tools none
-  +read_file` allows just that one.
+  `fetch_url`, `todo`. `tools -bash` drops bash; `tools none` exposes none; `tools none
+  +read_file` allows just that one. `todo` is a steering aid (a task-tracking tool
+  plus a pending-todos nudge for models prone to abandoning work); `tools -todo`
+  removes it, which also silences the nudge (no todos can be created without it).
 - **`mcp`** — MCP servers. Baseline **strict-empty**: a program exposes no MCP tools
   unless it names servers. `mcp +figma` exposes that server's tools (as `figma_*`).
   MCP tools are exposed under the composite name `{server}_{tool}`.
@@ -184,20 +186,34 @@ that auto-approves exactly what it should and refuses everything else. (`Approva
 / `Approval.McpTools` / `Approval.Default` / `Approval.Sandbox` in config do the same
 outside a program.)
 
-### 5.4 Turn directives — `system`, `user`, `assistant`
+### 5.4 Loop & budget directives — `loop` and `budget`
+
+Run-level guards that layer onto config; they govern every run after them.
+
+| Directive | Syntax | Effect |
+| --- | --- | --- |
+| `loop` | `loop <n>` \| `loop off` | Doom-loop detector. `loop <n>` sets the repetition threshold — after N repeated tool-call sequences a `<system_reminder>` nudge is injected and the run continues. `loop off` disables it. On by default (threshold 3 / config `DoomLoopThreshold`). Threshold must be ≥ 2. |
+| `budget` | `budget tokens <n>` | Session-cumulative token ceiling. Once total usage crosses `<n>`, the run aborts with `exit_reason token_budget` (exit 3). Summed across all runs and tool-loop round-trips. Default unlimited (config `TokenBudget`). |
+| `budget` | `budget tool_calls <n>` | Per-turn tool-call cap for subsequent runs — overrides config `MaxToolCalls` and the trust-mode floor. Exhausting it ends the turn with `max_tool_calls`. |
+
+The doom-loop nudge is a *soft* guard (it keeps the run going); `budget tokens` is the
+*hard* ceiling for a runaway model. Both are purely additive — a program that names
+neither behaves exactly as before.
+
+### 5.5 Turn directives — `system`, `user`, `assistant`
 
 `system <text>`, `user <text>`, `assistant <text>` append one message of that role.
 `system` is a plain message — nb injects no persona; a program gets only the `system`
 directives it writes. `@file` and `\` continuation apply. Turns buffer and flush into
 history at the next `run`.
 
-### 5.5 `run` — the sole invocation
+### 5.6 `run` — the sole invocation
 
 `run` sends the accumulated conversation to the model. `run <text>` is sugar for
 `user <text>` then `run`. A program may have multiple `run`s; config directives
 between them re-target the run. Token usage on the trailer **sums across all runs**.
 
-### 5.6 `tool_call` / `tool_result` — JSONL only
+### 5.7 `tool_call` / `tool_result` — JSONL only
 
 These carry structured fields and **cannot** be written in source syntax. Author them
 as JSONL to fabricate a **tool round as premise** — an assistant turn that called a
@@ -274,6 +290,8 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `provider` / `model` | `name` | Config directive. |
 | `mcp` / `tools` | `reset`?, `add`[], `remove`[] | Tool-surface delta. |
 | `approval` | `key`, `value` | Approval-policy directive. |
+| `loop` | `enabled`, `threshold`? | Doom-loop directive. `threshold` present only when `enabled`. |
+| `budget` | `key`, `value` | Resource-budget directive (`tokens` \| `tool_calls`). |
 
 **Enrichment events** (emitted on output, **ignored on seed-load**): `thinking`
 (`text`), `assistant_json` (`value`), and the `approved`/`result` fields.
@@ -349,6 +367,10 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
 - **Headless + unmatched approval** → denied (never hangs); the model gets a
   structured denial it can route around, and the turn still completes (exit 0) unless
   policy forces otherwise.
+- **`budget tokens` overshoot:** the ceiling is checked after each model round-trip, so
+  a run can exceed it by up to one round-trip before aborting (`token_budget`, exit 3) —
+  it can't preempt a generation in flight. `loop`/`budget tool_calls` values below their
+  floor (threshold < 2, non-positive) are rejected by `--validate` (exit 1).
 - **`approval sandbox bwrap` on a non-Linux / no-bwrap host** → hard-fail, exit 1.
 - **Unsandboxed bash quoting:** the non-sandboxed bash tool escapes `$` and backticks,
   so `$(...)` / `$VAR` don't run there; the bwrap sandbox passes the command raw.

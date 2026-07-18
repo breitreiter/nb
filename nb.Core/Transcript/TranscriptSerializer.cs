@@ -100,6 +100,14 @@ public static class TranscriptSerializer
                 w.WriteString("key", ap.Key);
                 w.WriteString("value", ap.Value);
                 break;
+            case LoopEvent lp:
+                w.WriteBoolean("enabled", lp.Enabled);
+                if (lp.Enabled) w.WriteNumber("threshold", lp.Threshold);
+                break;
+            case BudgetEvent bg:
+                w.WriteString("key", bg.Key);
+                w.WriteNumber("value", bg.Value);
+                break;
             case ResultEvent r:
                 WriteResultBody(w, r);
                 break;
@@ -255,6 +263,12 @@ public static class TranscriptSerializer
                 return new ToolsEvent { Turn = turn, Add = ReadStringArray(root, "add"), Remove = ReadStringArray(root, "remove"), Reset = GetBool(root, "reset") };
             case "approval":
                 return new ApprovalEvent { Turn = turn, Key = RequireString(root, "key", lineNumber, type), Value = RequireString(root, "value", lineNumber, type) };
+            case "loop":
+                // Enabled unless explicitly false; threshold defaults to 0 (the evaluator floors it).
+                var loopEnabled = !(root.TryGetProperty("enabled", out var en) && en.ValueKind == JsonValueKind.False);
+                return new LoopEvent { Turn = turn, Enabled = loopEnabled, Threshold = GetInt(root, "threshold") ?? 0 };
+            case "budget":
+                return new BudgetEvent { Turn = turn, Key = RequireString(root, "key", lineNumber, type), Value = RequireLong(root, "value", lineNumber, type) };
             case "result":
                 return new ResultEvent
                 {
@@ -350,5 +364,12 @@ public static class TranscriptSerializer
         if (root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String)
             return el.GetString()!;
         throw new TranscriptFormatException($"line {lineNumber}: {type} event is missing required string field \"{name}\"");
+    }
+
+    private static long RequireLong(JsonElement root, string name, int lineNumber, string type)
+    {
+        if (root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt64(out var v))
+            return v;
+        throw new TranscriptFormatException($"line {lineNumber}: {type} event is missing required numeric field \"{name}\"");
     }
 }

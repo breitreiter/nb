@@ -34,7 +34,7 @@ public class ConversationManager
     private readonly bool _verbose;
     private readonly bool _trustMode;
     private readonly bool _debugStream;
-    private readonly int _maxToolCalls;
+    private int _maxToolCalls;
     private readonly double _compactionThreshold;
     private int _maxContextTokens;
     private readonly float? _temperature;
@@ -64,7 +64,11 @@ public class ConversationManager
     private long _sessionOutputTokens;
     private long _sessionTotalTokens;
     private bool _sessionHadUsage;
-    private readonly DoomLoopDetector _doomLoopDetector = new();
+    // Session-cumulative token ceiling; null = unlimited. When crossed, the run
+    // aborts (ExitReasons.TokenBudget). The `budget tokens` directive sets it.
+    private long? _tokenBudget;
+    private DoomLoopDetector _doomLoopDetector = new();
+    private bool _doomLoopEnabled = true;
     private readonly ToolErrorTracker _errorTracker = new();
     private readonly TodoManager _todoManager = new();
     private readonly TodoTool _todoTool;
@@ -74,14 +78,17 @@ public class ConversationManager
 
     /// <summary>
     /// The native tool vocabulary — the names a <c>tools</c> directive toggles.
-    /// (todo and MCP-resource tools are internal bookkeeping and stay off the list.)
+    /// <c>todo</c> is a steering aid (task-tracking + a pending-todos nudge) that
+    /// rides the surface like any other tool, so <c>tools -todo</c> / <c>tools none</c>
+    /// strips it; disabling it also silences the nudge (no todos can be created).
+    /// (MCP-resource tools are internal bookkeeping and stay off the list.)
     /// Kept in sync with the assembly in <see cref="SendMessageInternalAsync"/> and
     /// <see cref="GetAvailableTools"/>.
     /// </summary>
     public static readonly IReadOnlyList<string> NativeToolNames = new[]
     {
         "bash", "read_file", "write_file", "edit_file",
-        "find_files", "grep", "list_dir", "apply_patch", "fetch_url",
+        "find_files", "grep", "list_dir", "apply_patch", "fetch_url", "todo",
     };
 
     public ConversationManager(
@@ -106,7 +113,10 @@ public class ConversationManager
         double compactionThreshold = DEFAULT_COMPACTION_THRESHOLD,
         bool debugStream = false,
         float? temperature = null,
-        float? presencePenalty = null)
+        float? presencePenalty = null,
+        int doomLoopThreshold = DoomLoopDetector.DefaultThreshold,
+        bool doomLoopEnabled = true,
+        long? tokenBudget = null)
     {
         _client = client;
         _mcpManager = mcpManager;
@@ -131,7 +141,26 @@ public class ConversationManager
         _temperature = temperature;
         _presencePenalty = presencePenalty;
         _todoTool = new TodoTool(_todoManager);
+        _doomLoopEnabled = doomLoopEnabled;
+        _doomLoopDetector = new DoomLoopDetector(Math.Max(2, doomLoopThreshold));
+        _tokenBudget = tokenBudget is > 0 ? tokenBudget : null;
     }
+
+    /// <summary>
+    /// Set the doom-loop detector for subsequent runs (the <c>loop</c> directive).
+    /// <paramref name="enabled"/> false silences it; a threshold below 2 is floored.
+    /// </summary>
+    public void SetDoomLoop(bool enabled, int threshold)
+    {
+        _doomLoopEnabled = enabled;
+        if (enabled) _doomLoopDetector = new DoomLoopDetector(Math.Max(2, threshold));
+    }
+
+    /// <summary>Set the session-cumulative token ceiling (the <c>budget tokens</c> directive). Non-positive = unlimited.</summary>
+    public void SetTokenBudget(long? budget) => _tokenBudget = budget is > 0 ? budget : null;
+
+    /// <summary>Override the per-turn tool-call cap (the <c>budget tool_calls</c> directive). Wins over config and the trust-mode floor.</summary>
+    public void SetMaxToolCalls(int max) => _maxToolCalls = Math.Max(0, max);
 
     public void SwitchProvider(IChatClient newClient, string providerName, int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS)
     {
@@ -196,6 +225,13 @@ public class ConversationManager
 
         if (inlinePrompt is not null)
             _conversationHistory.Add(new AIChatMessage(ChatRole.User, inlinePrompt));
+
+        // Already over budget from earlier runs — don't spend another model call.
+        if (_tokenBudget is { } budget && _sessionTotalTokens >= budget)
+        {
+            LastOutcome = Transcript.ExitReasons.TokenBudget;
+            return;
+        }
 
         LastOutcome = await SendMessageInternalAsync();
     }
@@ -284,8 +320,14 @@ public class ConversationManager
                 mcpTools.Add(_fetchUrlTool.CreateTool());
             }
 
-            mcpTools.Add(_todoTool.CreateWriteTool());
-            mcpTools.Add(_todoTool.CreateReadTool());
+            // todo rides the native surface: on by default, dropped by `tools -todo`
+            // / `tools none`. Removing it also silences the pending-todos nudge, since
+            // no todos can be created without the write tool.
+            if (_toolSurface.AllowsNative("todo"))
+            {
+                mcpTools.Add(_todoTool.CreateWriteTool());
+                mcpTools.Add(_todoTool.CreateReadTool());
+            }
 
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
             if (allTools.Count > 0)
@@ -355,6 +397,17 @@ public class ConversationManager
             await MaybeWriteTurnDumpAsync(updates, updateTrace, response, hasToolCalls, injectedReminder);
             if (hasToolCalls)
             {
+                // Stop before doing more work if the session token budget is spent.
+                // Checked here (the model wants to continue) so a completed final
+                // answer that merely nudges over the line still returns.
+                if (_tokenBudget is { } budget && _sessionTotalTokens >= budget)
+                {
+                    var budgetMessage = $"Stopped: the token budget ({budget}) was reached ({_sessionTotalTokens} tokens used).";
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, budgetMessage));
+                    RenderMarkdown(budgetMessage);
+                    return Transcript.ExitReasons.TokenBudget;
+                }
+
                 // Check if we've exceeded max tool calls
                 if (_toolCallCount >= _maxToolCalls)
                 {
@@ -801,7 +854,7 @@ public class ConversationManager
                 for (int i = 0; i < Math.Min(functionCalls.Count, allToolResults.Count); i++)
                 {
                     var call = functionCalls[i];
-                    _doomLoopDetector.Record(call.Name, SerializeArgs(call.Arguments));
+                    if (_doomLoopEnabled) _doomLoopDetector.Record(call.Name, SerializeArgs(call.Arguments));
 
                     if (allToolResults[i] is FunctionResultContent frc)
                     {
@@ -836,7 +889,7 @@ public class ConversationManager
 
                 // Inject a reminder if the model is looping
                 string? nextInjectedReminder = null;
-                if (_doomLoopDetector.DetectLoop() is int reps)
+                if (_doomLoopEnabled && _doomLoopDetector.DetectLoop() is int reps)
                 {
                     var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and ask the user for clarification.</system_reminder>";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
@@ -1958,9 +2011,12 @@ public class ConversationManager
         if (_applyPatchTool != null) tools.Add(new ToolDescriptor("Native", _applyPatchTool.CreateTool().Name, write));
         if (_fetchUrlTool != null) tools.Add(new ToolDescriptor("Native", _fetchUrlTool.CreateTool().Name, "prompt"));
 
-        // Todo tools are always registered
-        tools.Add(new ToolDescriptor("Todo", _todoTool.CreateWriteTool().Name, "auto"));
-        tools.Add(new ToolDescriptor("Todo", _todoTool.CreateReadTool().Name, "auto"));
+        // Todo tools ride the native surface (dropped by `tools -todo` / `tools none`).
+        if (_toolSurface.AllowsNative("todo"))
+        {
+            tools.Add(new ToolDescriptor("Todo", _todoTool.CreateWriteTool().Name, "auto"));
+            tools.Add(new ToolDescriptor("Todo", _todoTool.CreateReadTool().Name, "auto"));
+        }
 
         // Fake tools that stand alone (overrides already show under their MCP server)
         var seen = tools.Select(t => t.Name).ToHashSet();

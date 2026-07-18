@@ -21,6 +21,15 @@ public sealed class NbProgramBuilder
     public NbProgramBuilder User(string text) { _events.Add(new UserEvent { Text = text }); return this; }
     public NbProgramBuilder Assistant(string text) { _events.Add(new AssistantTextEvent { Text = text }); return this; }
 
+    /// <summary>Set the doom-loop detector threshold for subsequent runs (the <c>loop &lt;n&gt;</c> directive).</summary>
+    public NbProgramBuilder Loop(int threshold) { _events.Add(new LoopEvent { Enabled = true, Threshold = threshold }); return this; }
+
+    /// <summary>Disable the doom-loop detector for subsequent runs (the <c>loop off</c> directive).</summary>
+    public NbProgramBuilder LoopOff() { _events.Add(new LoopEvent { Enabled = false }); return this; }
+
+    /// <summary>Set a resource budget for subsequent runs (the <c>budget &lt;key&gt; &lt;value&gt;</c> directive; key is <c>tokens</c> or <c>tool_calls</c>).</summary>
+    public NbProgramBuilder Budget(string key, long value) { _events.Add(new BudgetEvent { Key = key, Value = value }); return this; }
+
     /// <summary>Append any pre-built events (e.g. a loaded seed transcript).</summary>
     public NbProgramBuilder Add(IEnumerable<TranscriptEvent> events) { _events.AddRange(events); return this; }
 

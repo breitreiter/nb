@@ -81,6 +81,55 @@ public class ProgramParserTests
     }
 
     [Fact]
+    public void Loop_Threshold_ParsesEnabled()
+    {
+        var e = Assert.IsType<LoopEvent>(ProgramParser.Parse("loop 5")[0]);
+        Assert.True(e.Enabled);
+        Assert.Equal(5, e.Threshold);
+    }
+
+    [Fact]
+    public void Loop_Off_ParsesDisabled()
+    {
+        var e = Assert.IsType<LoopEvent>(ProgramParser.Parse("loop off")[0]);
+        Assert.False(e.Enabled);
+    }
+
+    [Fact]
+    public void Loop_NonNumericNonOff_Throws()
+    {
+        Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("loop maybe"));
+    }
+
+    [Fact]
+    public void Budget_KeyAndValue_Parse()
+    {
+        var e = Assert.IsType<BudgetEvent>(ProgramParser.Parse("budget tokens 100000")[0]);
+        Assert.Equal("tokens", e.Key);
+        Assert.Equal(100000, e.Value);
+    }
+
+    [Fact]
+    public void Budget_LowercasesKey()
+    {
+        var e = Assert.IsType<BudgetEvent>(ProgramParser.Parse("budget TOOL_CALLS 12")[0]);
+        Assert.Equal("tool_calls", e.Key);
+        Assert.Equal(12, e.Value);
+    }
+
+    [Fact]
+    public void Budget_NonNumericValue_Throws()
+    {
+        Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("budget tokens lots"));
+    }
+
+    [Fact]
+    public void Budget_MissingValue_Throws()
+    {
+        Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("budget tokens"));
+    }
+
+    [Fact]
     public void BackslashContinuation_JoinsWithNewline()
     {
         var e = Assert.IsType<UserEvent>(ProgramParser.Parse("user first line \\\nsecond line")[0]);

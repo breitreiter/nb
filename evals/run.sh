@@ -296,6 +296,51 @@ run_prog_jsonl "tools: -bash refuses the bash call" \
     '[.[]|select(.type=="tool_result").output]|last|startswith("Error: Tool")' "true" \
     "$(cat "$FIX/prog-tools-nobash.nb")"
 
+# todo rides the native surface now: `tools none` strips it (the gate refuses the
+# call); the default surface keeps it. (MOCK:loop/tool arg maps don't matter — the
+# gate refuses BEFORE dispatch, so the assertion is Error-vs-not.)
+run_prog_jsonl "tools: none strips todo (gate refuses todo_write)" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error: Tool")' "true" \
+    $'tools none\nrun MOCK:tool=todo_write x'
+
+run_prog_jsonl "tools: todo is on by default (todo_write dispatches)" \
+    '[.[]|select(.type=="tool_result").output]|last|startswith("Error: Tool")' "false" \
+    $'run MOCK:tool=todo_write x'
+
+echo ""
+echo "--- Loop detector & budget rails ---"
+echo ""
+
+# Token budget: session-cumulative ceiling aborts the run (mock = 15 tokens/round).
+run_prog "budget: token ceiling aborts the run (exit 3)" 3 \
+    $'budget tokens 40\nrun MOCK:loop=bash echo hi'
+
+run_prog_jsonl "budget: abort carries exit_reason token_budget" \
+    '[.[]|select(.type=="result").exit_reason]|first' "token_budget" \
+    $'budget tokens 40\nrun MOCK:loop=bash echo hi'
+
+# budget tool_calls overrides the per-turn tool-call cap; a looping mock hits it.
+run_prog_jsonl "budget: tool_calls cap stops a looping tool (max_tool_calls)" \
+    '[.[]|select(.type=="result").exit_reason]|first' "max_tool_calls" \
+    $'budget tool_calls 3\nloop off\nrun MOCK:loop=bash echo hi'
+
+# Doom loop: on by default, a repeating tool trips the nudge (a user <system_reminder>
+# enters the transcript); `loop off` silences it.
+run_prog_jsonl "loop: default detector injects the nudge reminder" \
+    '[.[]|select(.type=="user").text//""|test("repetitive loop")]|any' "true" \
+    $'budget tool_calls 8\nrun MOCK:loop=bash echo hi'
+
+run_prog_jsonl "loop: 'loop off' silences the nudge" \
+    '[.[]|select(.type=="user").text//""|test("repetitive loop")]|any' "false" \
+    $'loop off\nbudget tool_calls 8\nrun MOCK:loop=bash echo hi'
+
+# --validate catches malformed loop/budget directives.
+run_prog_contains "loop: --validate rejects threshold < 2" 1 "invalid loop threshold" \
+    $'loop 1\nrun hi' --validate
+
+run_prog_contains "budget: --validate rejects an unknown key" 1 "invalid budget key" \
+    $'budget cpu 5\nrun hi' --validate
+
 echo ""
 echo "--- Conversation-program tool rounds (fabricated premise) ---"
 echo ""

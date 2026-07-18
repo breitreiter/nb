@@ -63,6 +63,21 @@ public class MockChatClient : IChatClient
         if (lastUserMessage.StartsWith("MOCK:model", StringComparison.OrdinalIgnoreCase))
             return new ChatResponse(new ChatMessage(ChatRole.Assistant, _model ?? "(none)"));
 
+        // MOCK:loop=<name> <arg> scripts an UNTERMINATING tool call: it re-emits the
+        // same call every round (scanning ALL user turns, so an injected loop/todo
+        // reminder can't derail it), so the doom-loop / token / tool-call rails are
+        // the only things that stop it. The identical signature trips the detector.
+        const string loopPrefix = "MOCK:loop=";
+        var loopMsg = chatMessages.FirstOrDefault(m =>
+            m.Role == ChatRole.User && (m.Text ?? "").StartsWith(loopPrefix, StringComparison.OrdinalIgnoreCase))?.Text;
+        if (loopMsg != null)
+        {
+            var spec = loopMsg[loopPrefix.Length..];
+            var parts = spec.Split(' ', 2);
+            var call = new FunctionCallContent("mock-loop", parts[0], BuildToolArgs(parts[0], parts.Length > 1 ? parts[1] : ""));
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, new List<AIContent> { call }));
+        }
+
         // MOCK:tool=<name> <arg> scripts a single tool call so approval/tool-loop
         // paths are testable. It fires once: as soon as a tool result is in
         // history, we fall through to a plain answer, so the turn terminates

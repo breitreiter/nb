@@ -77,6 +77,12 @@ public sealed class ProgramEvaluator
             case ApprovalEvent ap:
                 ApplyApproval(ap);
                 break;
+            case LoopEvent lp:
+                _conversation.SetDoomLoop(lp.Enabled, lp.Threshold);
+                break;
+            case BudgetEvent bg:
+                ApplyBudget(bg);
+                break;
             case SystemEvent or UserEvent or AssistantTextEvent or ToolCallEvent or ToolResultEvent:
                 // A message-bearing turn: buffer until the next run flushes it.
                 _turnBuffer.Add(ev);
@@ -134,6 +140,23 @@ public sealed class ProgramEvaluator
                 break;
             default:
                 _warnings.Add($"approval key '{ap.Key}' unknown (bash | mcp | default | sandbox) — ignored");
+                break;
+        }
+    }
+
+    // Layer a `budget` directive onto the running conversation (subsequent runs).
+    private void ApplyBudget(BudgetEvent bg)
+    {
+        switch (bg.Key)
+        {
+            case "tokens":
+                _conversation.SetTokenBudget(bg.Value <= 0 ? null : bg.Value);
+                break;
+            case "tool_calls":
+                _conversation.SetMaxToolCalls((int)Math.Clamp(bg.Value, 0, int.MaxValue));
+                break;
+            default:
+                _warnings.Add($"budget key '{bg.Key}' unknown (tokens | tool_calls) — ignored");
                 break;
         }
     }

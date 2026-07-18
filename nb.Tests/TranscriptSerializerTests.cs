@@ -104,6 +104,47 @@ public class TranscriptSerializerTests
     }
 
     [Fact]
+    public void LoopEvent_Enabled_RoundTrips()
+    {
+        var ev = new LoopEvent { Enabled = true, Threshold = 7 };
+        var line = TranscriptSerializer.SerializeEvent(ev);
+        Assert.Contains("\"type\":\"loop\"", line);
+
+        var back = Assert.IsType<LoopEvent>(TranscriptSerializer.Parse(line)[0]);
+        Assert.True(back.Enabled);
+        Assert.Equal(7, back.Threshold);
+    }
+
+    [Fact]
+    public void LoopEvent_Off_RoundTrips_AndOmitsThreshold()
+    {
+        var line = TranscriptSerializer.SerializeEvent(new LoopEvent { Enabled = false });
+        Assert.DoesNotContain("threshold", line);
+
+        var back = Assert.IsType<LoopEvent>(TranscriptSerializer.Parse(line)[0]);
+        Assert.False(back.Enabled);
+    }
+
+    [Fact]
+    public void BudgetEvent_RoundTrips()
+    {
+        var ev = new BudgetEvent { Key = "tokens", Value = 100000 };
+        var line = TranscriptSerializer.SerializeEvent(ev);
+        Assert.Contains("\"type\":\"budget\"", line);
+
+        var back = Assert.IsType<BudgetEvent>(TranscriptSerializer.Parse(line)[0]);
+        Assert.Equal("tokens", back.Key);
+        Assert.Equal(100000, back.Value);
+    }
+
+    [Fact]
+    public void BudgetEvent_MissingValue_Throws()
+    {
+        Assert.Throws<TranscriptFormatException>(
+            () => TranscriptSerializer.Parse("{\"type\":\"budget\",\"key\":\"tokens\"}"));
+    }
+
+    [Fact]
     public void PreservesJsonArgumentTypes_OnEmit()
     {
         // Decision 4: arguments keep their true JSON types; numbers stay numbers,
@@ -164,6 +205,8 @@ public class TranscriptSerializerTests
                     new ImagePart { MediaType = "image/png", Note = "[Image loaded: x.png]" },
                 },
             },
+            new LoopEvent { Enabled = true, Threshold = 4 },
+            new BudgetEvent { Key = "tokens", Value = 50000 },
             new RunEvent { Prompt = "go" },
             new ResultEvent
             {

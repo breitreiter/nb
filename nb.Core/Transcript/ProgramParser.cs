@@ -56,6 +56,12 @@ public static class ProgramParser
                 case "approval":
                     events.Add(ParseApproval(content, lineNo));
                     break;
+                case "loop":
+                    events.Add(ParseLoop(content, lineNo));
+                    break;
+                case "budget":
+                    events.Add(ParseBudget(content, lineNo));
+                    break;
                 case "system":
                     events.Add(new SystemEvent { Turn = turn++, Text = ResolveContent(content, includeResolver) });
                     break;
@@ -73,7 +79,7 @@ public static class ProgramParser
                     throw new ProgramParseException($"line {lineNo}: '{verb}' has structured fields — author it as JSONL bytecode, not source syntax.");
                 default:
                     throw new ProgramParseException(
-                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, mcp, tools, approval, system, user, assistant, run.");
+                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, mcp, tools, approval, loop, budget, system, user, assistant, run.");
             }
         }
 
@@ -167,6 +173,30 @@ public static class ProgramParser
         if (value.Length == 0)
             throw new ProgramParseException($"line {lineNo}: 'approval {trimmed[..sp]}' needs a value.");
         return new ApprovalEvent { Key = trimmed[..sp].ToLowerInvariant(), Value = value };
+    }
+
+    // Parse "loop <n>" (threshold) or "loop off" (disable). Threshold sanity (>= 2)
+    // is a semantic check (--validate); the parser just distinguishes off from a number.
+    private static LoopEvent ParseLoop(string content, int lineNo)
+    {
+        var v = RequireContent("loop", content, lineNo).Trim();
+        if (v.Equals("off", StringComparison.OrdinalIgnoreCase))
+            return new LoopEvent { Enabled = false };
+        if (!int.TryParse(v, out var n))
+            throw new ProgramParseException($"line {lineNo}: 'loop' needs a threshold (integer) or 'off' — got '{v}'.");
+        return new LoopEvent { Enabled = true, Threshold = n };
+    }
+
+    // Parse "budget <key> <value>": key is tokens|tool_calls (validated semantically),
+    // value is a non-negative integer.
+    private static BudgetEvent ParseBudget(string content, int lineNo)
+    {
+        var tokens = content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length != 2)
+            throw new ProgramParseException($"line {lineNo}: 'budget' needs '<key> <value>' (tokens | tool_calls) — got '{content}'.");
+        if (!long.TryParse(tokens[1], out var value))
+            throw new ProgramParseException($"line {lineNo}: 'budget {tokens[0]}' needs an integer value — got '{tokens[1]}'.");
+        return new BudgetEvent { Key = tokens[0].ToLowerInvariant(), Value = value };
     }
 
     // Whole-content @file include: content matching @<path> with no whitespace is

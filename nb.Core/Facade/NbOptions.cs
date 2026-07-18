@@ -33,6 +33,20 @@ public sealed record NbOptions
     /// <summary>Bash command patterns to auto-approve (the <c>--approve</c> equivalent).</summary>
     public IReadOnlyList<string> ApprovePatterns { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Doom-loop detector threshold. Null uses config (<c>DoomLoopThreshold</c>) or the
+    /// default (3, enabled); a value of 0 or less disables the detector. A program's
+    /// <c>loop</c> directive overrides this per run.
+    /// </summary>
+    public int? DoomLoopThreshold { get; init; }
+
+    /// <summary>
+    /// Session-cumulative token ceiling: the run aborts (<c>exit_reason token_budget</c>,
+    /// exit code 3) once total usage crosses it. Null uses config (<c>TokenBudget</c>) or
+    /// leaves it unlimited. A program's <c>budget tokens</c> directive overrides this.
+    /// </summary>
+    public long? TokenBudget { get; init; }
+
     /// <summary>Where engine chrome is written; null suppresses it (stdout stays clean).</summary>
     public TextWriter? DiagnosticsWriter { get; init; }
 }

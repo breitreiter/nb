@@ -100,10 +100,19 @@ internal sealed class NbRuntime : IDisposable
         var temperature = ProviderConfigResolver.ResolveProviderFloat(config, providerName, "Temperature");
         var presencePenalty = ProviderConfigResolver.ResolveProviderFloat(config, providerName, "PresencePenalty");
 
+        // Doom loop: option overrides config; absent => default (enabled, threshold 3);
+        // 0 or less => disabled. Token budget: option overrides config; 0/absent => unlimited.
+        int? doomOpt = options.DoomLoopThreshold ?? (int.TryParse(config["DoomLoopThreshold"], out var dt) ? dt : null);
+        bool doomEnabled = doomOpt is null || doomOpt > 0;
+        int doomThreshold = doomOpt is int dv && dv >= 2 ? dv : DoomLoopDetector.DefaultThreshold;
+        long? tokenBudget = options.TokenBudget ?? (long.TryParse(config["TokenBudget"], out var tb) ? tb : null);
+        if (tokenBudget is <= 0) tokenBudget = null;
+
         var conversation = new ConversationManager(
             client, mcp, fakeTools, bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, applyPatch,
             approval, providerName, options.Verbose, trust, maxToolCalls, maxContextTokens, compactionThreshold,
-            debugStream: false, temperature, presencePenalty);
+            debugStream: false, temperature, presencePenalty,
+            doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget);
 
         return new NbRuntime(config, providers, mcp, conversation);
     }

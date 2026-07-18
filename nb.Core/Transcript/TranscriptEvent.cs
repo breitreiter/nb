@@ -169,6 +169,36 @@ public sealed record ApprovalEvent : TranscriptEvent
     public required string Value { get; init; }
 }
 
+/// <summary>
+/// A doom-loop-detector directive: <c>loop &lt;n&gt;</c> sets the repetition threshold
+/// (a soft <c>&lt;system_reminder&gt;</c> nudge fires after N repeated tool-call
+/// sequences); <c>loop off</c> (<see cref="Enabled"/> false) disables the detector.
+/// On by default. Run-level; governs subsequent runs.
+/// </summary>
+public sealed record LoopEvent : TranscriptEvent
+{
+    public override string Type => "loop";
+
+    /// <summary>Whether the detector runs at all. <c>loop off</c> sets this false.</summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>Repetitions before the nudge fires. Meaningful only when <see cref="Enabled"/>.</summary>
+    public int Threshold { get; init; }
+}
+
+/// <summary>
+/// A resource-budget directive: <c>budget &lt;key&gt; &lt;value&gt;</c> where key is
+/// <c>tokens</c> (session-cumulative token ceiling — the run aborts with
+/// <see cref="ExitReasons.TokenBudget"/> once total usage crosses it) or
+/// <c>tool_calls</c> (a per-turn override of the tool-call cap). Run-level.
+/// </summary>
+public sealed record BudgetEvent : TranscriptEvent
+{
+    public override string Type => "budget";
+    public required string Key { get; init; }
+    public required long Value { get; init; }
+}
+
 /// <summary>Run-level trailer (Turn is null). Not a conversation message — carries telemetry and the exit reason. Ignored on seed-load.</summary>
 public sealed record ResultEvent : TranscriptEvent
 {
