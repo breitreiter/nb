@@ -82,7 +82,7 @@ clean, parseable stdout.
 | `0` | `ok` — a final answer was produced. |
 | `1` | Startup/config error (bad config, unparseable/invalid program, unassemblable engine, missing program/seed file) — emitted before any transcript. |
 | `2` | `provider_error` — the provider/model failed mid-turn. |
-| `3` | Aborted on a budget/limit — tool-call cap exhausted (`max_tool_calls`), a tool failed repeatedly (`tool_error_limit`), or the token budget was spent (`token_budget`). |
+| `3` | Aborted on a budget/limit — tool-call cap exhausted (`max_tool_calls`), a tool failed repeatedly (`tool_error_limit`), or a token/wall-clock budget was spent (`token_budget` / `time_budget`). |
 | `4` | `approval_denied` — a tool needed approval and policy denied it. |
 
 The fine-grained reason also rides on the transcript's `result` trailer
@@ -195,10 +195,11 @@ Run-level guards that layer onto config; they govern every run after them.
 | `loop` | `loop <n>` \| `loop off` | Doom-loop detector. `loop <n>` sets the repetition threshold — after N repeated tool-call sequences a `<system_reminder>` nudge is injected and the run continues. `loop off` disables it. On by default (threshold 3 / config `DoomLoopThreshold`). Threshold must be ≥ 2. |
 | `budget` | `budget tokens <n>` | Session-cumulative token ceiling. Once total usage crosses `<n>`, the run aborts with `exit_reason token_budget` (exit 3). Summed across all runs and tool-loop round-trips. Default unlimited (config `TokenBudget`). |
 | `budget` | `budget tool_calls <n>` | Per-turn tool-call cap for subsequent runs — overrides config `MaxToolCalls` and the trust-mode floor. Exhausting it ends the turn with `max_tool_calls`. |
+| `budget` | `budget wall_ms <n>` | Session-cumulative wall-clock ceiling in milliseconds. Once elapsed time (from the first run) crosses `<n>`, the in-flight model call is **cancelled** and the run aborts with `exit_reason time_budget` (exit 3). This bounds a hung provider, not just a runaway loop. Default unlimited (config `WallClockBudgetMs`). |
 
-The doom-loop nudge is a *soft* guard (it keeps the run going); `budget tokens` is the
-*hard* ceiling for a runaway model. Both are purely additive — a program that names
-neither behaves exactly as before.
+The doom-loop nudge is a *soft* guard (it keeps the run going); `budget tokens` /
+`budget wall_ms` are the *hard* ceilings for a runaway or hung model. All are purely
+additive — a program that names none behaves exactly as before.
 
 ### 5.5 Turn directives — `system`, `user`, `assistant`
 
@@ -291,7 +292,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `mcp` / `tools` | `reset`?, `add`[], `remove`[] | Tool-surface delta. |
 | `approval` | `key`, `value` | Approval-policy directive. |
 | `loop` | `enabled`, `threshold`? | Doom-loop directive. `threshold` present only when `enabled`. |
-| `budget` | `key`, `value` | Resource-budget directive (`tokens` \| `tool_calls`). |
+| `budget` | `key`, `value` | Resource-budget directive (`tokens` \| `tool_calls` \| `wall_ms`). |
 
 **Enrichment events** (emitted on output, **ignored on seed-load**): `thinking`
 (`text`), `assistant_json` (`value`), and the `approved`/`result` fields.
@@ -369,8 +370,11 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
   policy forces otherwise.
 - **`budget tokens` overshoot:** the ceiling is checked after each model round-trip, so
   a run can exceed it by up to one round-trip before aborting (`token_budget`, exit 3) —
-  it can't preempt a generation in flight. `loop`/`budget tool_calls` values below their
-  floor (threshold < 2, non-positive) are rejected by `--validate` (exit 1).
+  it can't preempt a generation in flight. `budget wall_ms`, by contrast, cancels the
+  in-flight model call at the deadline (`time_budget`, exit 3), so it *does* bound a hung
+  provider — but a tool already executing (bash/MCP) still runs to its own per-op timeout
+  before the run stops. `loop`/`budget` values below their floor (threshold < 2,
+  non-positive) are rejected by `--validate` (exit 1).
 - **`approval sandbox bwrap` on a non-Linux / no-bwrap host** → hard-fail, exit 1.
 - **Unsandboxed bash quoting:** the non-sandboxed bash tool escapes `$` and backticks,
   so `$(...)` / `$VAR` don't run there; the bwrap sandbox passes the command raw.

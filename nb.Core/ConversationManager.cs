@@ -67,6 +67,12 @@ public class ConversationManager
     // Session-cumulative token ceiling; null = unlimited. When crossed, the run
     // aborts (ExitReasons.TokenBudget). The `budget tokens` directive sets it.
     private long? _tokenBudget;
+    // Session-cumulative wall-clock ceiling (ms); null = unlimited. The stopwatch
+    // starts at the first run; when the deadline passes, the in-flight model call is
+    // cancelled and the run aborts (ExitReasons.TimeBudget). The `budget wall_ms`
+    // directive sets it.
+    private long? _wallBudgetMs;
+    private readonly System.Diagnostics.Stopwatch _sessionStopwatch = new();
     private DoomLoopDetector _doomLoopDetector = new();
     private bool _doomLoopEnabled = true;
     private readonly ToolErrorTracker _errorTracker = new();
@@ -116,7 +122,8 @@ public class ConversationManager
         float? presencePenalty = null,
         int doomLoopThreshold = DoomLoopDetector.DefaultThreshold,
         bool doomLoopEnabled = true,
-        long? tokenBudget = null)
+        long? tokenBudget = null,
+        long? wallClockBudgetMs = null)
     {
         _client = client;
         _mcpManager = mcpManager;
@@ -144,6 +151,7 @@ public class ConversationManager
         _doomLoopEnabled = doomLoopEnabled;
         _doomLoopDetector = new DoomLoopDetector(Math.Max(2, doomLoopThreshold));
         _tokenBudget = tokenBudget is > 0 ? tokenBudget : null;
+        _wallBudgetMs = wallClockBudgetMs is > 0 ? wallClockBudgetMs : null;
     }
 
     /// <summary>
@@ -158,6 +166,9 @@ public class ConversationManager
 
     /// <summary>Set the session-cumulative token ceiling (the <c>budget tokens</c> directive). Non-positive = unlimited.</summary>
     public void SetTokenBudget(long? budget) => _tokenBudget = budget is > 0 ? budget : null;
+
+    /// <summary>Set the session-cumulative wall-clock ceiling in ms (the <c>budget wall_ms</c> directive). Non-positive = unlimited.</summary>
+    public void SetWallBudget(long? ms) => _wallBudgetMs = ms is > 0 ? ms : null;
 
     /// <summary>Override the per-turn tool-call cap (the <c>budget tool_calls</c> directive). Wins over config and the trust-mode floor.</summary>
     public void SetMaxToolCalls(int max) => _maxToolCalls = Math.Max(0, max);
@@ -205,6 +216,18 @@ public class ConversationManager
 
     public Task SendMessageAsync(string userMessage) => RunAsync(userMessage);
 
+    // Build the token a run executes under: the caller's token linked with a
+    // wall-clock deadline (remaining budget) when one is set. Returns null when there
+    // is no wall budget (the caller token is used directly). Caller disposes.
+    private CancellationTokenSource? LinkWallDeadline(CancellationToken callerToken)
+    {
+        if (_wallBudgetMs is not { } wall) return null;
+        var remaining = wall - _sessionStopwatch.ElapsedMilliseconds;
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
+        cts.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(0, remaining)));
+        return cts;
+    }
+
     /// <summary>
     /// Execute one <c>run</c> directive: optionally append <paramref name="inlinePrompt"/>
     /// as a user turn, then invoke the model on the current history. The evaluator
@@ -212,9 +235,12 @@ public class ConversationManager
     /// already built by preceding turn directives). Resets per-turn trackers and
     /// records <see cref="LastOutcome"/>.
     /// </summary>
-    public async Task RunAsync(string? inlinePrompt)
+    public async Task RunAsync(string? inlinePrompt, CancellationToken cancellationToken = default)
     {
         if (_client == null) return;
+
+        // The wall-clock budget is cumulative from the first run.
+        if (!_sessionStopwatch.IsRunning) _sessionStopwatch.Start();
 
         // Reset per-turn trackers (token usage accumulates across runs — see the
         // _session* fields — so it is deliberately not reset here).
@@ -226,27 +252,50 @@ public class ConversationManager
         if (inlinePrompt is not null)
             _conversationHistory.Add(new AIChatMessage(ChatRole.User, inlinePrompt));
 
-        // Already over budget from earlier runs — don't spend another model call.
+        // Already over a session budget from earlier runs — don't spend another model call.
         if (_tokenBudget is { } budget && _sessionTotalTokens >= budget)
         {
             LastOutcome = Transcript.ExitReasons.TokenBudget;
             return;
         }
+        if (_wallBudgetMs is { } wall && _sessionStopwatch.ElapsedMilliseconds >= wall)
+        {
+            LastOutcome = Transcript.ExitReasons.TimeBudget;
+            return;
+        }
 
-        LastOutcome = await SendMessageInternalAsync();
+        using var linkedCts = LinkWallDeadline(cancellationToken);
+        var runToken = linkedCts?.Token ?? cancellationToken;
+        try
+        {
+            LastOutcome = await SendMessageInternalAsync(cancellationToken: runToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // A caller-initiated cancel propagates (the CancellationToken contract);
+            // the wall-clock deadline instead ends the run cleanly as time_budget.
+            if (cancellationToken.IsCancellationRequested) throw;
+            var note = $"Stopped: the wall-clock budget ({_wallBudgetMs} ms) was reached.";
+            _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, note));
+            RenderMarkdown(note);
+            LastOutcome = Transcript.ExitReasons.TimeBudget;
+        }
     }
 
     // Returns the turn's exit_reason (see ExitReasons). The reason propagates up
     // through the tool-loop recursion so the outermost caller sees why the turn
     // ended, not just that it did.
-    private async Task<string> SendMessageInternalAsync(string? injectedReminder = null)
+    private async Task<string> SendMessageInternalAsync(string? injectedReminder = null, CancellationToken cancellationToken = default)
     {
         if (_client == null) return Transcript.ExitReasons.Ok;
+
+        // Abort promptly between round-trips if the deadline (or caller) has fired.
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Compact history if approaching context limit
         if (EstimateTokenCount() > (int)(_maxContextTokens * _compactionThreshold))
         {
-            await CompactHistoryAsync();
+            await CompactHistoryAsync(cancellationToken);
         }
 
         try
@@ -348,7 +397,7 @@ public class ConversationManager
             var renderer = new MarkdownRenderer();
             var updates = new List<ChatResponseUpdate>();
             var updateTrace = new List<Dictionary<string, object?>>();
-            var stream = _client.GetStreamingResponseAsync(_conversationHistory, requestOptions);
+            var stream = _client.GetStreamingResponseAsync(_conversationHistory, requestOptions, cancellationToken);
             var enumerator = stream.GetAsyncEnumerator();
             ChatResponse response;
             try
@@ -461,7 +510,7 @@ public class ConversationManager
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                     try
                                     {
-                                        var result = await resourceTool.InvokeAsync(arguments).AsTask().WaitAsync(McpToolTimeout);
+                                        var result = await resourceTool.InvokeAsync(arguments, cancellationToken).AsTask().WaitAsync(McpToolTimeout, cancellationToken);
                                         var resultString = result?.ToString() ?? string.Empty;
                                         allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
                                         LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
@@ -814,7 +863,7 @@ public class ConversationManager
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
                                     try
                                     {
-                                        var result = await mcpTool.InvokeAsync(arguments).AsTask().WaitAsync(McpToolTimeout);
+                                        var result = await mcpTool.InvokeAsync(arguments, cancellationToken).AsTask().WaitAsync(McpToolTimeout, cancellationToken);
                                         var resultString = result?.ToString() ?? string.Empty;
                                         allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
                                         LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
@@ -899,7 +948,7 @@ public class ConversationManager
                 }
 
                 // Get another response after tool execution
-                return await SendMessageInternalAsync(nextInjectedReminder);
+                return await SendMessageInternalAsync(nextInjectedReminder, cancellationToken);
             }
             else
             {
@@ -928,12 +977,18 @@ public class ConversationManager
                         _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
                         _lastRemindedTodos = currentSet;
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Pending todos; reminding model[/]");
-                        return await SendMessageInternalAsync("todos");
+                        return await SendMessageInternalAsync("todos", cancellationToken);
                     }
                 }
             }
 
             return Transcript.ExitReasons.Ok;
+        }
+        catch (OperationCanceledException)
+        {
+            // Deadline / caller cancel — let RunAsync classify it (time_budget vs rethrow),
+            // don't bury it as a provider error.
+            throw;
         }
         catch (Exception ex)
         {
@@ -1856,7 +1911,7 @@ public class ConversationManager
         return (int)(totalChars / 3.5);
     }
 
-    private async Task CompactHistoryAsync()
+    private async Task CompactHistoryAsync(CancellationToken cancellationToken = default)
     {
         // Identify head: all leading system messages
         int headEnd = 0;
@@ -1944,7 +1999,7 @@ public class ConversationManager
                 new(ChatRole.User, sb.ToString())
             };
             var summarizeOptions = new ChatOptions { MaxOutputTokens = 2000 };
-            var response = await _client.GetResponseAsync(summarizeMessages, summarizeOptions);
+            var response = await _client.GetResponseAsync(summarizeMessages, summarizeOptions, cancellationToken);
             summary = response.Text ?? "";
         }
         catch

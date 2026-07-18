@@ -47,6 +47,16 @@ public sealed record NbOptions
     /// </summary>
     public long? TokenBudget { get; init; }
 
+    /// <summary>
+    /// Session-cumulative wall-clock ceiling in milliseconds: the run aborts
+    /// (<c>exit_reason time_budget</c>, exit code 3) once elapsed time crosses it, cancelling
+    /// the in-flight model call. Null uses config (<c>WallClockBudgetMs</c>) or leaves it
+    /// unlimited. A program's <c>budget wall_ms</c> directive overrides this. (Independent of
+    /// the <see cref="System.Threading.CancellationToken"/> passed to <c>RunAsync</c>, which a
+    /// caller can also use to impose a deadline.)
+    /// </summary>
+    public long? WallClockBudgetMs { get; init; }
+
     /// <summary>Where engine chrome is written; null suppresses it (stdout stays clean).</summary>
     public TextWriter? DiagnosticsWriter { get; init; }
 }

@@ -334,6 +334,20 @@ run_prog_jsonl "loop: 'loop off' silences the nudge" \
     '[.[]|select(.type=="user").text//""|test("repetitive loop")]|any' "false" \
     $'loop off\nbudget tool_calls 8\nrun MOCK:loop=bash echo hi'
 
+# Wall-clock budget: a 1ms ceiling can't outlast even one model round-trip, so the
+# run aborts as time_budget (exit 3). The CancellationToken now threads to the model
+# call, so this preempts an in-flight hang rather than waiting it out.
+run_prog "budget: wall_ms ceiling aborts the run (exit 3)" 3 \
+    $'budget wall_ms 1\nrun hi'
+
+run_prog_jsonl "budget: wall_ms abort carries exit_reason time_budget" \
+    '[.[]|select(.type=="result").exit_reason]|first' "time_budget" \
+    $'budget wall_ms 1\nrun hi'
+
+# A generous wall budget doesn't false-trip a normal run.
+run_prog "budget: generous wall_ms lets a normal run finish (exit 0)" 0 \
+    $'budget wall_ms 60000\nrun MOCK:response=done'
+
 # --validate catches malformed loop/budget directives.
 run_prog_contains "loop: --validate rejects threshold < 2" 1 "invalid loop threshold" \
     $'loop 1\nrun hi' --validate

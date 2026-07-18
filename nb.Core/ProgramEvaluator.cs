@@ -44,10 +44,10 @@ public sealed class ProgramEvaluator
         _warnings = warnings ?? new List<string>();
     }
 
-    public async Task EvaluateAsync(IReadOnlyList<TranscriptEvent> program)
+    public async Task EvaluateAsync(IReadOnlyList<TranscriptEvent> program, CancellationToken cancellationToken = default)
     {
         foreach (var ev in program)
-            await EvaluateEventAsync(ev);
+            await EvaluateEventAsync(ev, cancellationToken);
 
         // Trailing turns with no run after them still join the built conversation.
         FlushTurns();
@@ -59,7 +59,7 @@ public sealed class ProgramEvaluator
     /// A <c>run</c> flushes buffered turns and invokes; trailing turns are flushed by
     /// <see cref="EvaluateAsync"/> (or left to the session end for a REPL).
     /// </summary>
-    public async Task EvaluateEventAsync(TranscriptEvent ev)
+    public async Task EvaluateEventAsync(TranscriptEvent ev, CancellationToken cancellationToken = default)
     {
         switch (ev)
         {
@@ -90,7 +90,7 @@ public sealed class ProgramEvaluator
             case RunEvent r:
                 FlushTurns();
                 _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
-                await _conversation.RunAsync(r.Prompt);
+                await _conversation.RunAsync(r.Prompt, cancellationToken);
                 break;
             // ThinkingEvent / AssistantJsonEvent / ResultEvent: output-only, ignored on input.
         }
@@ -155,8 +155,11 @@ public sealed class ProgramEvaluator
             case "tool_calls":
                 _conversation.SetMaxToolCalls((int)Math.Clamp(bg.Value, 0, int.MaxValue));
                 break;
+            case "wall_ms":
+                _conversation.SetWallBudget(bg.Value <= 0 ? null : bg.Value);
+                break;
             default:
-                _warnings.Add($"budget key '{bg.Key}' unknown (tokens | tool_calls) — ignored");
+                _warnings.Add($"budget key '{bg.Key}' unknown (tokens | tool_calls | wall_ms) — ignored");
                 break;
         }
     }

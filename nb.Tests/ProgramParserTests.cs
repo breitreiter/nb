@@ -118,6 +118,14 @@ public class ProgramParserTests
     }
 
     [Fact]
+    public void Budget_WallMs_Parses()
+    {
+        var e = Assert.IsType<BudgetEvent>(ProgramParser.Parse("budget wall_ms 30000")[0]);
+        Assert.Equal("wall_ms", e.Key);
+        Assert.Equal(30000, e.Value);
+    }
+
+    [Fact]
     public void Budget_NonNumericValue_Throws()
     {
         Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("budget tokens lots"));

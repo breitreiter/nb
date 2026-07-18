@@ -96,7 +96,7 @@ Builder methods (each returns the builder):
 | `.Assistant(text)` | assistant | Append an assistant-role message (premise). |
 | `.Run(prompt?)` | run | Invoke the model. `Run("x")` = `User("x")` then `Run()`. Multiple runs allowed; usage sums across them. |
 | `.Loop(n)` / `.LoopOff()` | loop | Doom-loop detector for subsequent runs — threshold `n` (≥ 2), or off. On by default. |
-| `.Budget(key, value)` | budget | Resource budget: `("tokens", n)` = session-cumulative token ceiling (abort `token_budget`), `("tool_calls", n)` = per-turn tool-call cap. |
+| `.Budget(key, value)` | budget | Resource budget: `("tokens", n)` = session-cumulative token ceiling (abort `token_budget`), `("tool_calls", n)` = per-turn tool-call cap, `("wall_ms", n)` = wall-clock ceiling in ms (abort `time_budget`, cancels the in-flight call). |
 | `.Add(events)` | (any) | Append pre-built `TranscriptEvent`s — for directives the builder has no shortcut for (tool-surface, approval, fabricated tool rounds) and for seeding (§4). |
 
 The builder deliberately covers the common directives. For **tool-surface**
@@ -148,7 +148,9 @@ fabricating multi-event rounds; null for run-level events).
 - `LoopEvent { bool Enabled, int Threshold }` — doom-loop detector. `Enabled=false`
   is `loop off`; otherwise `Threshold` (>= 2) repetitions trip a soft nudge. On by default.
 - `BudgetEvent { string Key, long Value }` — `Key` in `tokens` (session-cumulative
-  ceiling -> abort `token_budget`), `tool_calls` (per-turn cap, overrides `MaxToolCalls`).
+  ceiling -> abort `token_budget`), `tool_calls` (per-turn cap, overrides `MaxToolCalls`),
+  `wall_ms` (session-cumulative wall-clock ceiling in ms -> cancel the in-flight call,
+  abort `time_budget`).
 
 **Output-only enrichment** (present in `RunResult.Events`, ignored if you replay
 them as input): `ThinkingEvent`, `AssistantJsonEvent`, `ResultEvent` (the run
@@ -215,6 +217,7 @@ new NbOptions
     ApprovePatterns    = new[] { "git status" }, // bash auto-approve patterns
     DoomLoopThreshold  = null,    // null = default (3, on); <= 0 disables; `loop` directive overrides
     TokenBudget        = null,    // session-cumulative token ceiling (abort token_budget); null = unlimited
+    WallClockBudgetMs  = null,    // session-cumulative wall-clock ceiling in ms (abort time_budget); null = unlimited
     DiagnosticsWriter  = null,    // where engine chrome goes; null suppresses it
 }
 ```
@@ -256,7 +259,7 @@ turn, or an approval denial come back as `ExitReason`/`ExitCode`:
 | --- | --- | --- |
 | `ok` | 0 | A final answer was produced. |
 | `provider_error` | 2 | The provider/model failed mid-turn. |
-| `max_tool_calls` / `tool_error_limit` / `token_budget` | 3 | Aborted on a budget/limit (tool-call cap / repeated tool failure / token budget spent). |
+| `max_tool_calls` / `tool_error_limit` / `token_budget` / `time_budget` | 3 | Aborted on a budget/limit (tool-call cap / repeated tool failure / token or wall-clock budget spent). |
 | `approval_denied` | 4 | A tool needed approval and policy denied it. |
 
 **Exceptions are for things that stop a run from happening at all:**
@@ -265,6 +268,11 @@ turn, or an approval denial come back as `ExitReason`/`ExitCode`:
   or `bwrap` requested where unavailable.
 - `TranscriptFormatException` — the program is malformed (an unpaired/ill-ordered
   fabricated tool round).
+- `OperationCanceledException` — the `CancellationToken` you passed to `RunAsync` was
+  cancelled. It is honored (it threads into the model call), so a `CancellationTokenSource(timeout)`
+  is a caller-side deadline. Note the distinction: **your** cancellation surfaces as this
+  exception, whereas the in-program `budget wall_ms` deadline is a clean `time_budget`
+  outcome on the result.
 
 ```csharp
 try

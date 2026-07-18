@@ -20,13 +20,14 @@ public static class ExitReasons
     public const string MaxToolCalls = "max_tool_calls";      // 3: turn aborted — tool-call budget exhausted
     public const string ToolErrorLimit = "tool_error_limit";  // 3: turn aborted — a tool failed repeatedly
     public const string TokenBudget = "token_budget";         // 3: run aborted — token budget exhausted
+    public const string TimeBudget = "time_budget";           // 3: run aborted — wall-clock budget exhausted
     public const string ApprovalDenied = "approval_denied";   // 4: approval required but policy denied
 
     public static int ToExitCode(string reason) => reason switch
     {
         Ok => 0,
         ProviderError => 2,
-        MaxToolCalls or ToolErrorLimit or TokenBudget => 3,
+        MaxToolCalls or ToolErrorLimit or TokenBudget or TimeBudget => 3,
         ApprovalDenied => 4,
         _ => 0,
     };

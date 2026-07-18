@@ -46,7 +46,7 @@ public static class Nb
 
             var warnings = new List<string>();
             var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory, warnings);
-            await evaluator.EvaluateAsync(program);
+            await evaluator.EvaluateAsync(program, cancellationToken);
 
             var events = TranscriptMapper.FromHistory(runtime.Conversation.History);
             UsageInfo? usage = runtime.Conversation.TotalUsage is { } u

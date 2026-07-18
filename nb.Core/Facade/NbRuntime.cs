@@ -107,12 +107,15 @@ internal sealed class NbRuntime : IDisposable
         int doomThreshold = doomOpt is int dv && dv >= 2 ? dv : DoomLoopDetector.DefaultThreshold;
         long? tokenBudget = options.TokenBudget ?? (long.TryParse(config["TokenBudget"], out var tb) ? tb : null);
         if (tokenBudget is <= 0) tokenBudget = null;
+        long? wallBudgetMs = options.WallClockBudgetMs ?? (long.TryParse(config["WallClockBudgetMs"], out var wb) ? wb : null);
+        if (wallBudgetMs is <= 0) wallBudgetMs = null;
 
         var conversation = new ConversationManager(
             client, mcp, fakeTools, bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, applyPatch,
             approval, providerName, options.Verbose, trust, maxToolCalls, maxContextTokens, compactionThreshold,
             debugStream: false, temperature, presencePenalty,
-            doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget);
+            doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget,
+            wallClockBudgetMs: wallBudgetMs);
 
         return new NbRuntime(config, providers, mcp, conversation);
     }

@@ -422,8 +422,8 @@ public class Program
                 case LoopEvent { Enabled: true } l when l.Threshold < 2:
                     errors.Add($"invalid loop threshold '{l.Threshold}'. Use an integer >= 2, or 'loop off'.");
                     break;
-                case BudgetEvent b when b.Key is not ("tokens" or "tool_calls"):
-                    errors.Add($"invalid budget key '{b.Key}'. Valid: tokens, tool_calls.");
+                case BudgetEvent b when b.Key is not ("tokens" or "tool_calls" or "wall_ms"):
+                    errors.Add($"invalid budget key '{b.Key}'. Valid: tokens, tool_calls, wall_ms.");
                     break;
                 case BudgetEvent b when b.Value <= 0:
                     errors.Add($"invalid budget value '{b.Value}' for '{b.Key}'. Use a positive integer.");
@@ -454,7 +454,7 @@ public class Program
         string approvalDefault = "prompt", sandbox = "none";
         int bashRules = 0, mcpRules = 0;
         string loop = "default";
-        long? tokenBudget = null, toolCallBudget = null;
+        long? tokenBudget = null, toolCallBudget = null, wallBudget = null;
         int run = 0;
 
         foreach (var ev in program)
@@ -471,6 +471,7 @@ public class Program
                 case LoopEvent l: loop = l.Enabled ? $"on({l.Threshold})" : "off"; break;
                 case BudgetEvent { Key: "tokens" } b: tokenBudget = b.Value; break;
                 case BudgetEvent { Key: "tool_calls" } b: toolCallBudget = b.Value; break;
+                case BudgetEvent { Key: "wall_ms" } b: wallBudget = b.Value; break;
                 case RunEvent:
                     run++;
                     // Fold through the same resolver the evaluator runs, so what this
@@ -480,7 +481,7 @@ public class Program
                     var toolStr = surface.NativeAllow is null
                         ? "all"
                         : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
-                    var budgetStr = $"tokens:{(tokenBudget?.ToString() ?? "-")} tool_calls:{(toolCallBudget?.ToString() ?? "-")}";
+                    var budgetStr = $"tokens:{(tokenBudget?.ToString() ?? "-")} tool_calls:{(toolCallBudget?.ToString() ?? "-")} wall_ms:{(wallBudget?.ToString() ?? "-")}";
                     Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
                     break;
             }
