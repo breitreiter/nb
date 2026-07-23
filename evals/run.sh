@@ -334,6 +334,20 @@ run_prog_jsonl "loop: 'loop off' silences the nudge" \
     '[.[]|select(.type=="user").text//""|test("repetitive loop")]|any' "false" \
     $'loop off\nbudget tool_calls 8\nrun MOCK:loop=bash echo hi'
 
+# Tool-error rail: error-ness is a typed ToolOutcome flag, not an "Error:" text sniff.
+# A genuinely failing tool (unknown name) IS counted, tripping tool_error_limit at 3...
+run_prog_jsonl "tool errors: repeated failures abort via tool_error_limit" \
+    '[.[]|select(.type=="result").exit_reason]|first' "tool_error_limit" \
+    $'run MOCK:loop=frobnicate zzz'
+
+# ...but a SUCCEEDING tool whose stdout merely begins with "Error:" is NOT miscounted.
+# The old string-sniff tripped tool_error_limit at 3 here; typed, it runs clean to the
+# tool_calls cap (5). tool_calls 5 > the error limit (3), so a regression would surface
+# as tool_error_limit before the cap is reached.
+run_prog_jsonl "tool errors: 'Error:'-prefixed success is not a failure (typed outcome)" \
+    '[.[]|select(.type=="result").exit_reason]|first' "max_tool_calls" \
+    $'approval bash echo *\nloop off\nbudget tool_calls 5\nrun MOCK:loop=bash echo Error:-still-a-success'
+
 # Wall-clock budget: a 1ms ceiling can't outlast even one model round-trip, so the
 # run aborts as time_budget (exit 3). The CancellationToken now threads to the model
 # call, so this preempts an in-flight hang rather than waiting it out.
