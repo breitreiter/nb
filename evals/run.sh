@@ -400,6 +400,25 @@ run_prog_jsonl "mcp: bare program (no directive) refuses the MCP tool (strict-em
 
 rm -f "$MCP_MANIFEST"
 
+# A server that dies on startup (mcp-tester --die-on-startup) never completes the
+# handshake. Named explicitly (mcp +dead) that is a hard error — fail noisily, exit 1;
+# left unnamed it is a non-fatal warning and the run still completes (exit 0).
+MCP_DEAD_MANIFEST="$FIX/mcp-dead.generated.json"
+cat > "$MCP_DEAD_MANIFEST" <<JSON
+{ "servers": { "dead": { "type": "stdio", "command": "dotnet",
+  "args": ["run","--project","$MCP_TESTER","--","--die-on-startup"] } } }
+JSON
+
+run_prog_contains "mcp: dead server named explicitly hard-fails (exit 1)" 1 \
+    "was requested (mcp +dead) but failed to start" \
+    "$(printf 'mcp +dead\nrun MOCK:response=hi')" --mcp "$MCP_DEAD_MANIFEST"
+
+run_prog_contains "mcp: dead server left unnamed is a warning, run still exits 0" 0 \
+    "MCP server 'dead' failed to start" \
+    "run MOCK:response=hi" --mcp "$MCP_DEAD_MANIFEST"
+
+rm -f "$MCP_DEAD_MANIFEST"
+
 echo ""
 echo "--- validate / resolve ---"
 echo ""

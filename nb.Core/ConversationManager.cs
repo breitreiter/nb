@@ -190,7 +190,13 @@ public class ConversationManager
     /// Default (<see cref="Transcript.ToolSurface.All"/>): all native tools, all
     /// connected MCP servers. See plans/tool-surface-directives.md.
     /// </summary>
-    public void SetToolSurface(Transcript.ToolSurface surface) => _toolSurface = surface;
+    public void SetToolSurface(Transcript.ToolSurface surface)
+    {
+        // A program that names a server (mcp +name) which failed to connect is asking
+        // for tools that will never arrive — hard-fail rather than run toolless.
+        _mcpManager.AssertServersAvailable(surface.McpServers);
+        _toolSurface = surface;
+    }
 
     /// <summary>The live conversation history — the emit source for transcript output.</summary>
     public IReadOnlyList<AIChatMessage> History => _conversationHistory;
@@ -470,7 +476,7 @@ public class ConversationManager
                 _conversationHistory.AddRange(response.Messages.Select(StripThinkBlocksFromMessage));
 
                 // Collect all tool results in a single list
-                var allToolResults = new List<AIContent>();
+                var allToolResults = new List<ToolOutcome>();
 
                 // Execute tool calls
                 foreach (var message in response.Messages)
@@ -486,7 +492,7 @@ public class ConversationManager
                             if (!(requestOptions.Tools?.Any(t => t.Name == functionCall.Name) ?? false))
                             {
                                 var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                 continue;
                             }
@@ -512,20 +518,20 @@ public class ConversationManager
                                     {
                                         var result = await resourceTool.InvokeAsync(arguments, cancellationToken).AsTask().WaitAsync(McpToolTimeout, cancellationToken);
                                         var resultString = result?.ToString() ?? string.Empty;
-                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                        allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
                                         LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                     }
                                     catch (TimeoutException)
                                     {
                                         var errorMsg = $"Error: Tool '{functionCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
-                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                        allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                     }
                                 }
                                 else
                                 {
                                     var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                 }
                             }
@@ -536,7 +542,7 @@ public class ConversationManager
                                 var command = functionCall.Arguments?["command"]?.ToString() ?? "";
                                 var result = await HandleBashToolCall(functionCall.CallId, command, description);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is read_file (auto in cwd sandbox, prompt outside)
                             else if (functionCall.Name == "read_file" && _readFileTool != null)
@@ -554,7 +560,7 @@ public class ConversationManager
                                 if (!ApproveReadPath("Read", fullReadPath, _readFileTool.GetCwd()))
                                 {
                                     var rejMsg = "Error: User rejected read_file. Path is outside working directory.";
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, rejMsg));
+                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejMsg));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
                                     continue;
                                 }
@@ -567,7 +573,7 @@ public class ConversationManager
                                 {
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(readResult.Error ?? "Unknown error")}[/]");
                                     var errorString = $"Error: {readResult.Error}";
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorString));
+                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorString));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, errorString);
                                 }
                                 else if (readResult.FileType == "image")
@@ -578,7 +584,7 @@ public class ConversationManager
                                     var imageContent = new DataContent(imageBytes, readResult.MimeType!);
                                     var textNote = new TextContent($"[Image loaded: {Path.GetFileName(path)} ({readResult.ImageSizeBytes:N0} bytes)]");
                                     // Return tool result with both text description and image data
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, new List<AIContent> { textNote, imageContent }));
+                                    allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, new List<AIContent> { textNote, imageContent }));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, $"[image: {readResult.MimeType}]");
                                 }
                                 else
@@ -589,7 +595,7 @@ public class ConversationManager
                                         : $"{readResult.LinesReturned} lines ({readResult.TotalLines} total)";
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {label}[/]");
                                     var resultString = readResult.Content ?? "";
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                    allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                                 }
                             }
@@ -603,7 +609,7 @@ public class ConversationManager
                                     && functionCall.Arguments["replace_all"]?.ToString()?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
                                 var result = HandleEditFileToolCall(functionCall.CallId, path, oldString, newString, replaceAll);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is find_files (auto in cwd sandbox, prompt outside)
                             else if (functionCall.Name == "find_files" && _findFilesTool != null)
@@ -618,7 +624,7 @@ public class ConversationManager
                                 if (!ApproveReadPath("Find", fullFindPath, _findFilesTool.GetCwd()))
                                 {
                                     var rejMsg = "Error: User rejected find_files. Path is outside working directory.";
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, rejMsg));
+                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejMsg));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
                                     continue;
                                 }
@@ -638,7 +644,9 @@ public class ConversationManager
                                     resultString = $"Error: {findResult.Error}";
                                 }
 
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                allToolResults.Add(findResult.Success
+                                    ? ToolOutcome.Ok(functionCall.CallId, resultString)
+                                    : ToolOutcome.Fail(functionCall.CallId, resultString));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                             }
                             // Check if this is grep (auto in cwd sandbox, prompt outside)
@@ -658,7 +666,7 @@ public class ConversationManager
                                 if (!ApproveReadPath("Grep", fullGrepPath, _grepTool.GetCwd()))
                                 {
                                     var rejMsg = "Error: User rejected grep. Path is outside working directory.";
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, rejMsg));
+                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejMsg));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
                                     continue;
                                 }
@@ -680,7 +688,9 @@ public class ConversationManager
                                     resultString = $"Error: {grepResult.Error}";
                                 }
 
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                allToolResults.Add(grepResult.Success
+                                    ? ToolOutcome.Ok(functionCall.CallId, resultString)
+                                    : ToolOutcome.Fail(functionCall.CallId, resultString));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                             }
                             // Check if this is list_dir (auto in cwd sandbox, prompt outside)
@@ -692,7 +702,7 @@ public class ConversationManager
                                 if (!ApproveReadPath("List", fullListPath, _listDirTool.GetCwd()))
                                 {
                                     var rejMsg = "Error: User rejected list_dir. Path is outside working directory.";
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, rejMsg));
+                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejMsg));
                                     LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
                                     continue;
                                 }
@@ -713,7 +723,9 @@ public class ConversationManager
                                     resultString = $"Error: {listResult.Error}";
                                 }
 
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                allToolResults.Add(listResult.Success
+                                    ? ToolOutcome.Ok(functionCall.CallId, resultString)
+                                    : ToolOutcome.Fail(functionCall.CallId, resultString));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                             }
                             // Check if this is fetch_url (custom approval UX — always prompts)
@@ -722,7 +734,7 @@ public class ConversationManager
                                 var url = functionCall.Arguments?["url"]?.ToString() ?? "";
                                 var result = await HandleFetchUrlToolCall(functionCall.CallId, url);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is write_file (custom approval UX)
                             else if (functionCall.Name == "write_file" && _writeFileTool != null)
@@ -731,7 +743,7 @@ public class ConversationManager
                                 var content = functionCall.Arguments?["content"]?.ToString() ?? "";
                                 var result = await HandleWriteFileToolCall(functionCall.CallId, path, content);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is apply_patch (custom approval UX for multi-file patches)
                             else if (functionCall.Name == "apply_patch" && _applyPatchTool != null)
@@ -739,7 +751,7 @@ public class ConversationManager
                                 var input = functionCall.Arguments?["input"]?.ToString() ?? "";
                                 var result = HandleApplyPatchToolCall(functionCall.CallId, input);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Result?.ToString() ?? "");
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // todo_write / todo_read — always auto-approve, no approval prompt
                             else if (functionCall.Name == "todo_write")
@@ -747,14 +759,14 @@ public class ConversationManager
                                 var changes = ParseTodoChanges(functionCall.Arguments);
                                 var resultString = _todoTool.Write(changes);
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_write ({changes.Count} change(s))[/]");
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                             }
                             else if (functionCall.Name == "todo_read")
                             {
                                 var resultString = _todoTool.Read();
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_read[/]");
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                             }
                             // Check if this is a fake tool (always auto-approve)
@@ -780,7 +792,7 @@ public class ConversationManager
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(expandedResponse)}[/]");
                                 }
 
-                                allToolResults.Add(new FunctionResultContent(functionCall.CallId, expandedResponse));
+                                allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, expandedResponse));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, expandedResponse);
                             }
                             else
@@ -842,7 +854,7 @@ public class ConversationManager
                                             ? "Error: User rejected this tool call. Permission denied. Do not retry this action."
                                             : $"Error: User rejected this tool call. Reason: {reason}. Please consider an alternative approach based on the user's feedback.";
 
-                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, rejectionMessage));
+                                        allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejectionMessage));
 
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool call rejected, notifying model[/]");
                                         LogToolCall(functionCall.Name, functionCall.Arguments, rejectionMessage);
@@ -865,20 +877,20 @@ public class ConversationManager
                                     {
                                         var result = await mcpTool.InvokeAsync(arguments, cancellationToken).AsTask().WaitAsync(McpToolTimeout, cancellationToken);
                                         var resultString = result?.ToString() ?? string.Empty;
-                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, resultString));
+                                        allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
                                         LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                     }
                                     catch (TimeoutException)
                                     {
                                         var errorMsg = $"Error: Tool '{functionCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
-                                        allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                        allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                     }
                                 }
                                 else
                                 {
                                     var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
-                                    allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                 }
                             }
@@ -889,7 +901,7 @@ public class ConversationManager
                         catch (Exception ex)
                         {
                             var errorMsg = $"Error: {ex.Message}";
-                            allToolResults.Add(new FunctionResultContent(functionCall.CallId, errorMsg));
+                            allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
                             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool error ({Markup.Escape(functionCall.Name)}): {Markup.Escape(ex.Message)}[/]");
                             LogToolCall(functionCall.Name, functionCall.Arguments, errorMsg);
                         }
@@ -905,18 +917,15 @@ public class ConversationManager
                     var call = functionCalls[i];
                     if (_doomLoopEnabled) _doomLoopDetector.Record(call.Name, SerializeArgs(call.Arguments));
 
-                    if (allToolResults[i] is FunctionResultContent frc)
+                    var (frc, isError) = allToolResults[i];
+                    _errorTracker.RecordResult(call.Name, isError);
+                    if (isError)
                     {
-                        var resultText = frc.Result?.ToString() ?? "";
-                        var isError = resultText.StartsWith("Error:", StringComparison.Ordinal);
-                        _errorTracker.RecordResult(call.Name, isError);
-                        if (isError)
+                        var remaining = _errorTracker.RemainingAttempts(call.Name);
+                        if (remaining > 0)
                         {
-                            var remaining = _errorTracker.RemainingAttempts(call.Name);
-                            if (remaining > 0)
-                            {
-                                frc.Result = $"{resultText}\n\n[nb] {call.Name} has failed {_errorTracker.ErrorCount(call.Name)} time(s); {remaining} attempt(s) left before this turn is aborted. Analyze the root cause and try a different approach — do not retry the same call.";
-                            }
+                            var resultText = frc.Result?.ToString() ?? "";
+                            frc.Result = $"{resultText}\n\n[nb] {call.Name} has failed {_errorTracker.ErrorCount(call.Name)} time(s); {remaining} attempt(s) left before this turn is aborted. Analyze the root cause and try a different approach — do not retry the same call.";
                         }
                     }
                 }
@@ -924,7 +933,8 @@ public class ConversationManager
                 // Add all tool results as a single message
                 if (allToolResults.Count > 0)
                 {
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, allToolResults));
+                    var toolContents = allToolResults.Select(o => (AIContent)o.Content).ToList();
+                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, toolContents));
                 }
 
                 // Hard-abort the turn if any tool has hit its failure budget
@@ -1209,10 +1219,20 @@ public class ConversationManager
     // or a thrown ReadKey. (A richer per-tool policy arrives with Phase 5.)
     private static bool NonInteractive => Console.IsInputRedirected;
 
-    private static FunctionResultContent DenyNonInteractive(string callId, string what)
+    // A dispatched tool call's outcome: the content returned to the model plus whether
+    // it represents a failure. IsError is decided where the result is built — a tool's
+    // Success flag, a denial, a timeout, a caught exception — so error accounting
+    // (ToolErrorTracker) never has to sniff the result text for an "Error:" prefix.
+    private readonly record struct ToolOutcome(FunctionResultContent Content, bool IsError)
+    {
+        public static ToolOutcome Ok(string callId, object? result) => new(new FunctionResultContent(callId, result), false);
+        public static ToolOutcome Fail(string callId, string message) => new(new FunctionResultContent(callId, message), true);
+    }
+
+    private static ToolOutcome DenyNonInteractive(string callId, string what)
     {
         Console.Error.WriteLine($"[nb] denied: {what} needs approval, but stdin is not a TTY and nothing pre-approved it.");
-        return new FunctionResultContent(callId,
+        return ToolOutcome.Fail(callId,
             $"Error: {what} requires approval, but this is a non-interactive session (stdin is not a TTY) " +
             "and no pre-approval (--approve/--trust) matched. Permission denied — do not retry; try a different approach.");
     }
@@ -1220,10 +1240,10 @@ public class ConversationManager
     // The approval policy's default is deny: this call matched no allow-rule, so it
     // is refused without a prompt (even interactively). Distinct from the non-TTY
     // deny — it's a deliberate lockdown, not a missing terminal.
-    private static FunctionResultContent DenyByPolicy(string callId, string what)
+    private static ToolOutcome DenyByPolicy(string callId, string what)
     {
         Console.Error.WriteLine($"[nb] denied: {what} — approval policy default is deny and nothing allow-listed it.");
-        return new FunctionResultContent(callId,
+        return ToolOutcome.Fail(callId,
             $"Error: {what} was denied by the approval policy (default: deny) and no allow-rule matched. " +
             "Permission denied — do not retry; try a different approach.");
     }
@@ -1231,7 +1251,7 @@ public class ConversationManager
     /// <summary>The resolved approval policy — the <c>approval</c> directive layers onto it (Phase 5.2b).</summary>
     public ApprovalPolicy ApprovalPolicy => _approvalPolicy;
 
-    private async Task<FunctionResultContent> HandleBashToolCall(string callId, string command, string description)
+    private async Task<ToolOutcome> HandleBashToolCall(string callId, string command, string description)
     {
         try
         {
@@ -1311,7 +1331,7 @@ public class ConversationManager
                         : $"Error: User rejected this command. Reason: {reason}";
 
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Command rejected[/]");
-                    return new FunctionResultContent(callId, rejectionMessage);
+                    return ToolOutcome.Fail(callId, rejectionMessage);
                 }
                 else if (key == '?')
                 {
@@ -1331,15 +1351,15 @@ public class ConversationManager
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Approval error: {Markup.Escape(ex.Message)}[/]");
-            return new FunctionResultContent(callId, $"Error during command approval: {ex.Message}");
+            return ToolOutcome.Fail(callId, $"Error during command approval: {ex.Message}");
         }
     }
 
-    private async Task<FunctionResultContent> ExecuteBashCommand(string callId, string command)
+    private async Task<ToolOutcome> ExecuteBashCommand(string callId, string command)
     {
         if (_bashTool == null)
         {
-            return new FunctionResultContent(callId, "Error: Bash tool not initialized");
+            return ToolOutcome.Fail(callId, "Error: Bash tool not initialized");
         }
 
         try
@@ -1378,16 +1398,18 @@ public class ConversationManager
             var statusIcon = result.ExitCode == 0 ? "✓" : "✗";
             AnsiConsole.MarkupLine($"[{statusColor}]{statusIcon}[/] [{UIColors.SpectreMuted}]exit {result.ExitCode}[/]");
 
-            return new FunctionResultContent(callId, outputStr);
+            // A non-zero exit is not flagged as a tool error — it's a normal shell
+            // outcome the model should read, matching the prior "Error:"-prefix rule.
+            return ToolOutcome.Ok(callId, outputStr);
         }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
-            return new FunctionResultContent(callId, $"Error executing command: {ex.Message}");
+            return ToolOutcome.Fail(callId, $"Error executing command: {ex.Message}");
         }
     }
 
-    private Task<FunctionResultContent> HandleWriteFileToolCall(string callId, string path, string content)
+    private Task<ToolOutcome> HandleWriteFileToolCall(string callId, string path, string content)
     {
         try
         {
@@ -1398,10 +1420,10 @@ public class ConversationManager
             if (File.Exists(fullPath))
             {
                 if (!_fileReadTracker.HasBeenRead(fullPath))
-                    return Task.FromResult(new FunctionResultContent(callId, "Error: You must read_file before overwriting an existing file."));
+                    return Task.FromResult(ToolOutcome.Fail(callId, "Error: You must read_file before overwriting an existing file."));
 
                 if (_fileReadTracker.HasBeenModifiedSinceRead(fullPath))
-                    return Task.FromResult(new FunctionResultContent(callId, "Error: File has been modified since you last read it. Read it again before writing."));
+                    return Task.FromResult(ToolOutcome.Fail(callId, "Error: File has been modified since you last read it. Read it again before writing."));
             }
 
             var lineCount = content.Split('\n').Length;
@@ -1421,19 +1443,19 @@ public class ConversationManager
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• write {Markup.Escape(fullPath)} ({lineCount} lines)[/]");
 
                     if (_writeFileTool == null)
-                        return Task.FromResult(new FunctionResultContent(callId, "Error: Write file tool not initialized"));
+                        return Task.FromResult(ToolOutcome.Fail(callId, "Error: Write file tool not initialized"));
 
                     var writeResult = _writeFileTool.WriteFile(path, content);
                     if (writeResult.Success)
                     {
                         _fileReadTracker.RecordWrite(writeResult.Path);
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {writeResult.BytesWritten} bytes[/]");
-                        return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {writeResult.BytesWritten} bytes to {writeResult.Path}"));
+                        return Task.FromResult(ToolOutcome.Ok(callId, $"Successfully wrote {writeResult.BytesWritten} bytes to {writeResult.Path}"));
                     }
                     else
                     {
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(writeResult.Error ?? "Unknown error")}[/]");
-                        return Task.FromResult(new FunctionResultContent(callId, $"Error writing file: {writeResult.Error}"));
+                        return Task.FromResult(ToolOutcome.Fail(callId, $"Error writing file: {writeResult.Error}"));
                     }
                 }
             }
@@ -1463,7 +1485,7 @@ public class ConversationManager
                 {
                     // Rejected (default is No for writes)
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write rejected[/]");
-                    return Task.FromResult(new FunctionResultContent(callId, "Error: User rejected file write. Permission denied."));
+                    return Task.FromResult(ToolOutcome.Fail(callId, "Error: User rejected file write. Permission denied."));
                 }
                 else if (key == '?')
                 {
@@ -1478,7 +1500,7 @@ public class ConversationManager
                     // Approved - execute write
                     if (_writeFileTool == null)
                     {
-                        return Task.FromResult(new FunctionResultContent(callId, "Error: Write file tool not initialized"));
+                        return Task.FromResult(ToolOutcome.Fail(callId, "Error: Write file tool not initialized"));
                     }
 
                     var result = _writeFileTool.WriteFile(path, content);
@@ -1487,12 +1509,12 @@ public class ConversationManager
                     {
                         _fileReadTracker.RecordWrite(result.Path);
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {result.BytesWritten} bytes[/]");
-                        return Task.FromResult(new FunctionResultContent(callId, $"Successfully wrote {result.BytesWritten} bytes to {result.Path}"));
+                        return Task.FromResult(ToolOutcome.Ok(callId, $"Successfully wrote {result.BytesWritten} bytes to {result.Path}"));
                     }
                     else
                     {
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
-                        return Task.FromResult(new FunctionResultContent(callId, $"Error writing file: {result.Error}"));
+                        return Task.FromResult(ToolOutcome.Fail(callId, $"Error writing file: {result.Error}"));
                     }
                 }
             }
@@ -1500,11 +1522,11 @@ public class ConversationManager
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write error: {Markup.Escape(ex.Message)}[/]");
-            return Task.FromResult(new FunctionResultContent(callId, $"Error during file write: {ex.Message}"));
+            return Task.FromResult(ToolOutcome.Fail(callId, $"Error during file write: {ex.Message}"));
         }
     }
 
-    private async Task<FunctionResultContent> HandleFetchUrlToolCall(string callId, string url)
+    private async Task<ToolOutcome> HandleFetchUrlToolCall(string callId, string url)
     {
         try
         {
@@ -1539,7 +1561,7 @@ public class ConversationManager
                         ? "Error: User rejected fetch_url. Permission denied."
                         : $"Error: User rejected fetch_url. Reason: {reason}";
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Fetch rejected[/]");
-                    return new FunctionResultContent(callId, rejectionMessage);
+                    return ToolOutcome.Fail(callId, rejectionMessage);
                 }
                 else if (key == 'y' || key == 'Y')
                 {
@@ -1554,22 +1576,22 @@ public class ConversationManager
                 var chars = result.Content?.Length ?? 0;
                 var truncNote = result.Truncated ? " (truncated)" : "";
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{chars:N0} chars{truncNote}[/]");
-                return new FunctionResultContent(callId, result.Content ?? "");
+                return ToolOutcome.Ok(callId, result.Content ?? "");
             }
             else
             {
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
-                return new FunctionResultContent(callId, $"Error: {result.Error}");
+                return ToolOutcome.Fail(callId, $"Error: {result.Error}");
             }
         }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Fetch error: {Markup.Escape(ex.Message)}[/]");
-            return new FunctionResultContent(callId, $"Error during fetch: {ex.Message}");
+            return ToolOutcome.Fail(callId, $"Error during fetch: {ex.Message}");
         }
     }
 
-    private FunctionResultContent HandleEditFileToolCall(string callId, string path, string oldString, string newString, bool replaceAll)
+    private ToolOutcome HandleEditFileToolCall(string callId, string path, string oldString, string newString, bool replaceAll)
     {
         try
         {
@@ -1577,10 +1599,10 @@ public class ConversationManager
 
             // Guard: file must have been read first
             if (!_fileReadTracker.HasBeenRead(fullPath))
-                return new FunctionResultContent(callId, "Error: You must read_file before editing. Read the file first to see its current content.");
+                return ToolOutcome.Fail(callId, "Error: You must read_file before editing. Read the file first to see its current content.");
 
             if (_fileReadTracker.HasBeenModifiedSinceRead(fullPath))
-                return new FunctionResultContent(callId, "Error: File has been modified since you last read it. Read it again before editing.");
+                return ToolOutcome.Fail(callId, "Error: File has been modified since you last read it. Read it again before editing.");
 
             // Auto-approve edits within cwd sandbox
             if (_bashTool != null)
@@ -1596,7 +1618,7 @@ public class ConversationManager
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• edit {Markup.Escape(fullPath)}[/]");
 
                     if (_editFileTool == null)
-                        return new FunctionResultContent(callId, "Error: Edit file tool not initialized");
+                        return ToolOutcome.Fail(callId, "Error: Edit file tool not initialized");
 
                     var editResult = _editFileTool.EditFile(path, oldString, newString, replaceAll);
                     if (editResult.Success)
@@ -1606,12 +1628,12 @@ public class ConversationManager
                             ? $"Successfully edited {editResult.Path} (1 replacement)"
                             : $"Successfully edited {editResult.Path} ({editResult.Replacements} replacements)";
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
-                        return new FunctionResultContent(callId, msg);
+                        return ToolOutcome.Ok(callId, msg);
                     }
                     else
                     {
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(editResult.Error ?? "Unknown error")}[/]");
-                        return new FunctionResultContent(callId, $"Error: {editResult.Error}");
+                        return ToolOutcome.Fail(callId, $"Error: {editResult.Error}");
                     }
                 }
             }
@@ -1646,12 +1668,12 @@ public class ConversationManager
                 if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
                 {
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Edit rejected[/]");
-                    return new FunctionResultContent(callId, "Error: User rejected file edit. Permission denied.");
+                    return ToolOutcome.Fail(callId, "Error: User rejected file edit. Permission denied.");
                 }
                 else if (key == 'y' || key == 'Y')
                 {
                     if (_editFileTool == null)
-                        return new FunctionResultContent(callId, "Error: Edit file tool not initialized");
+                        return ToolOutcome.Fail(callId, "Error: Edit file tool not initialized");
 
                     var result = _editFileTool.EditFile(path, oldString, newString, replaceAll);
 
@@ -1662,12 +1684,12 @@ public class ConversationManager
                             ? $"Successfully edited {result.Path} (1 replacement)"
                             : $"Successfully edited {result.Path} ({result.Replacements} replacements)";
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
-                        return new FunctionResultContent(callId, msg);
+                        return ToolOutcome.Ok(callId, msg);
                     }
                     else
                     {
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
-                        return new FunctionResultContent(callId, $"Error: {result.Error}");
+                        return ToolOutcome.Fail(callId, $"Error: {result.Error}");
                     }
                 }
             }
@@ -1675,14 +1697,14 @@ public class ConversationManager
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Edit error: {Markup.Escape(ex.Message)}[/]");
-            return new FunctionResultContent(callId, $"Error during file edit: {ex.Message}");
+            return ToolOutcome.Fail(callId, $"Error during file edit: {ex.Message}");
         }
     }
 
-    private FunctionResultContent HandleApplyPatchToolCall(string callId, string input)
+    private ToolOutcome HandleApplyPatchToolCall(string callId, string input)
     {
         if (_applyPatchTool == null)
-            return new FunctionResultContent(callId, "Error: apply_patch tool not initialized");
+            return ToolOutcome.Fail(callId, "Error: apply_patch tool not initialized");
 
         List<FileOp> ops;
         try
@@ -1692,7 +1714,7 @@ public class ConversationManager
         catch (PatchParseException ex)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch parse error: {Markup.Escape(ex.Message)}[/]");
-            return new FunctionResultContent(callId, $"Error parsing patch: {ex.Message}");
+            return ToolOutcome.Fail(callId, $"Error parsing patch: {ex.Message}");
         }
 
         var cwd = _applyPatchTool.GetCwd();
@@ -1705,7 +1727,7 @@ public class ConversationManager
         catch (PatchApplyException ex)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch error: {Markup.Escape(ex.Message)}[/]");
-            return new FunctionResultContent(callId, $"Error: {ex.Message}");
+            return ToolOutcome.Fail(callId, $"Error: {ex.Message}");
         }
 
         // Check sandbox for every affected absolute path — both source (for updates/deletes) and destination (for moves/adds).
@@ -1743,11 +1765,11 @@ public class ConversationManager
             catch (Exception ex)
             {
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch failed: {Markup.Escape(ex.Message)}[/]");
-                return new FunctionResultContent(callId, $"Error applying patch: {ex.Message}");
+                return ToolOutcome.Fail(callId, $"Error applying patch: {ex.Message}");
             }
             var summary = BuildApplySummary(preview);
             AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(summary)}[/]");
-            return new FunctionResultContent(callId, summary);
+            return ToolOutcome.Ok(callId, summary);
         }
 
         if (_approvalPolicy.Default == ApprovalDefault.Deny)
@@ -1767,7 +1789,7 @@ public class ConversationManager
             if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
             {
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Patch rejected[/]");
-                return new FunctionResultContent(callId, "Error: User rejected apply_patch. Permission denied.");
+                return ToolOutcome.Fail(callId, "Error: User rejected apply_patch. Permission denied.");
             }
             else if (key == 'y' || key == 'Y')
             {
@@ -1778,11 +1800,11 @@ public class ConversationManager
                 catch (Exception ex)
                 {
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch failed: {Markup.Escape(ex.Message)}[/]");
-                    return new FunctionResultContent(callId, $"Error applying patch: {ex.Message}");
+                    return ToolOutcome.Fail(callId, $"Error applying patch: {ex.Message}");
                 }
                 var summary = BuildApplySummary(preview);
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(summary)}[/]");
-                return new FunctionResultContent(callId, summary);
+                return ToolOutcome.Ok(callId, summary);
             }
         }
     }

@@ -59,3 +59,13 @@ The current solution uses basic `Func<string, string>` delegates that wrap stati
 - Basic test tools: `Echo`, `ReverseEcho`, `CurrentTime`
 - Demonstrates MCP tool functionality
 - Easy to extend with additional tools as needed
+
+### Failure simulation
+- Per-call chaos lives in `ChaosTools` (`ThrowError`, `HangForever`, `SlowResponse`,
+  `ReturnNull`, `ReturnEmpty`) — these exercise a client's *post-handshake* resilience.
+- Startup failure is a flag, not a tool (the handshake happens inside `RunAsync`, so
+  it must be short-circuited in `Main`): pass **`--die-on-startup`** and the server
+  writes one stderr line and exits 1 before answering `initialize`. Simulates a stdio
+  server that crashes on launch and never completes the handshake. Used by the evals
+  (`evals/run.sh`) to prove nb hard-fails an explicitly-named dead server and warns on
+  an unnamed one.

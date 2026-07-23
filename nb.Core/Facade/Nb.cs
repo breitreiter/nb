@@ -19,10 +19,13 @@ public static class Nb
     /// <summary>
     /// Assemble a fresh engine from <paramref name="config"/>, evaluate
     /// <paramref name="program"/>, and return the transcript, answer, usage, and exit
-    /// reason. Throws <see cref="NbStartupException"/> if the engine can't be built and
-    /// <see cref="TranscriptFormatException"/> if the program is malformed; run
-    /// *outcomes* (provider_error, approval_denied, …) are carried in the result, never
-    /// thrown. Engine chrome goes to <c>options.DiagnosticsWriter</c> (suppressed by default).
+    /// reason. Throws <see cref="NbStartupException"/> if the engine can't be built,
+    /// <see cref="TranscriptFormatException"/> if the program is malformed, and
+    /// <see cref="MCP.McpServerUnavailableException"/> if the program selects an MCP
+    /// server (<c>mcp +name</c>) that failed to start; run *outcomes* (provider_error,
+    /// approval_denied, …) are carried in the result, never thrown. A server that fails
+    /// but is never selected is a non-fatal <see cref="RunResult.Warnings"/> entry.
+    /// Engine chrome goes to <c>options.DiagnosticsWriter</c> (suppressed by default).
     /// </summary>
     public static async Task<RunResult> RunAsync(
         IConfiguration config,
@@ -44,7 +47,12 @@ public static class Nb
             using var runtime = await NbRuntime.BuildAsync(config, options);
             await runtime.Mcp.ConnectAllAsync();
 
+            // A configured server that failed to connect is a non-fatal warning here;
+            // it only hard-fails (below, during evaluation) if the program selects it.
             var warnings = new List<string>();
+            foreach (var (name, error) in runtime.Mcp.FailedServers)
+                warnings.Add($"MCP server '{name}' failed to start: {error}");
+
             var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory, warnings);
             await evaluator.EvaluateAsync(program, cancellationToken);
 

@@ -164,7 +164,10 @@ Delta semantics. Tokens are `+name`, `-name`, or the lone `none` (reset/clear).
   removes it, which also silences the nudge (no todos can be created without it).
 - **`mcp`** — MCP servers. Baseline **strict-empty**: a program exposes no MCP tools
   unless it names servers. `mcp +figma` exposes that server's tools (as `figma_*`).
-  MCP tools are exposed under the composite name `{server}_{tool}`.
+  MCP tools are exposed under the composite name `{server}_{tool}`. Naming a server
+  that failed to start (crashed on startup, never completed the handshake) hard-fails
+  the run (exit 1) — you asked for tools that will never arrive. A configured server
+  that fails but is *not* named is a non-fatal warning instead, and the run continues.
 
 A tool call outside the advertised surface is **refused** ("Error: Tool … not
 found"), not executed. `--resolve` prints the resolved surface at each run point.
@@ -376,5 +379,8 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
   before the run stops. `loop`/`budget` values below their floor (threshold < 2,
   non-positive) are rejected by `--validate` (exit 1).
 - **`approval sandbox bwrap` on a non-Linux / no-bwrap host** → hard-fail, exit 1.
+- **`mcp +server` naming a server that failed to start** → hard-fail, exit 1 (the
+  program selected tools that will never arrive). A configured server that fails but
+  is never named is a non-fatal warning to stderr and the run continues.
 - **Unsandboxed bash quoting:** the non-sandboxed bash tool escapes `$` and backticks,
   so `$(...)` / `$VAR` don't run there; the bwrap sandbox passes the command raw.

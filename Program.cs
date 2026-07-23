@@ -170,6 +170,8 @@ public class Program
         {
             _mcpManager.LoadConfig(_mcpManifest);
             await _mcpManager.ConnectAllAsync();
+            foreach (var (name, error) in _mcpManager.FailedServers)
+                Console.Error.WriteLine($"MCP server '{name}' failed to start: {error}");
             var manifest = _mcpManager.BuildToolManifest();
             var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
             var outputPath = Path.Combine(Directory.GetCurrentDirectory(), "mcp-tools.json");
@@ -245,6 +247,8 @@ public class Program
         using (runtime)
         {
             await runtime.Mcp.ConnectAllAsync();
+            foreach (var (name, error) in runtime.Mcp.FailedServers)
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP server '{name}' failed to start: {Markup.Escape(error)}[/]");
             var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory);
 
             var mcpServers = runtime.Mcp.GetConnectedServerNames();
@@ -278,7 +282,7 @@ public class Program
                         foreach (var ev in events)
                             await evaluator.EvaluateEventAsync(ev);
                     }
-                    catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException)
+                    catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or McpServerUnavailableException)
                     {
                         Console.Error.WriteLine($"Error: {ex.Message}");
                     }
@@ -344,10 +348,10 @@ public class Program
         {
             result = await Nb.RunAsync(config, program, BuildNbOptions());
         }
-        catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or NbStartupException)
+        catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or NbStartupException or McpServerUnavailableException)
         {
-            // Malformed fabricated tool round, an unhonorable `approval sandbox`, or an
-            // unassemblable engine — fail fast.
+            // Malformed fabricated tool round, an unhonorable `approval sandbox`, an
+            // unassemblable engine, or a selected-but-dead MCP server — fail fast.
             Console.Error.WriteLine($"Error: {ex.Message}");
             Environment.ExitCode = 1;
             return;

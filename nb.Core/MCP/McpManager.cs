@@ -15,7 +15,17 @@ public class McpManager : IDisposable
     private readonly List<string> _connectedServerNames = new();
     private readonly Dictionary<string, List<AIFunction>> _toolsByServer = new();
     private readonly HashSet<string> _alwaysAllowTools = new();
+    private readonly Dictionary<string, string> _failedServers = new();
     private McpConfig _config = new();
+
+    /// <summary>
+    /// Configured servers that failed to connect/handshake (name -> error message),
+    /// populated by <see cref="ConnectAllAsync"/>. A failed server that a program
+    /// never names is a non-fatal warning the caller surfaces from here; one that a
+    /// program explicitly selects (<c>mcp +name</c>) hard-fails via
+    /// <see cref="AssertServersAvailable"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> FailedServers => _failedServers;
 
     /// <summary>
     /// Reads the MCP manifest and caches the config. No network connections are
@@ -58,9 +68,29 @@ public class McpManager : IDisposable
         foreach (var (name, serverConfig) in servers)
         {
             if (_connectedServerNames.Contains(name)) continue;
+            // Record the failure rather than printing it: a broken server is only a
+            // warning if the program never selects it, but a hard error if it does
+            // (AssertServersAvailable). Callers decide how to surface FailedServers.
             try { await ConnectServerAsync(name, serverConfig); }
-            catch (Exception ex) { AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP error: {name} — {Markup.Escape(ex.Message)}[/]"); }
+            catch (Exception ex) { _failedServers[name] = ex.Message; }
         }
+    }
+
+    /// <summary>
+    /// Throw if any explicitly named server (<c>mcp +name</c>) failed to connect. A
+    /// program that selects a server it needs must not silently run without those
+    /// tools — that is the "I'm trying to use this MCP server and it won't start"
+    /// case, and it aborts the run, like a requested-but-unavailable sandbox. A
+    /// null list (the bare-path surface) selects all connected servers and asserts
+    /// nothing; unnamed failures stay warnings (see <see cref="FailedServers"/>).
+    /// </summary>
+    public void AssertServersAvailable(IEnumerable<string>? serverNames)
+    {
+        if (serverNames is null) return;
+        foreach (var name in serverNames)
+            if (_failedServers.TryGetValue(name, out var error))
+                throw new McpServerUnavailableException(
+                    $"MCP server '{name}' was requested (mcp +{name}) but failed to start: {error}");
     }
 
     private async Task ConnectServerAsync(string serverName, McpServerConfig serverConfig)
@@ -350,6 +380,18 @@ public class McpManager : IDisposable
         };
         return JsonSerializer.Deserialize<McpConfig>(File.ReadAllText(path), options);
     }
+}
+
+/// <summary>
+/// Thrown when a conversation-program explicitly selects an MCP server
+/// (<c>mcp +name</c>) that failed to start. Requested-but-unavailable is a hard
+/// error — the program expects tools that will never exist — so it aborts the run
+/// (exit 1), mirroring <c>SandboxUnavailableException</c>. A server that fails but
+/// is never named is a non-fatal warning instead.
+/// </summary>
+public sealed class McpServerUnavailableException : Exception
+{
+    public McpServerUnavailableException(string message) : base(message) { }
 }
 
 public class McpServerConfig
