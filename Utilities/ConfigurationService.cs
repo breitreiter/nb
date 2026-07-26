@@ -54,6 +54,7 @@ public class ConfigurationService
         foreach (var (key, value) in config.AsEnumerable())
         {
             if (string.IsNullOrEmpty(value) || !value.Contains("${")) continue;
+            if (IsCommentKey(key)) continue;
 
             config[key] = envRef.Replace(value, m =>
             {
@@ -65,6 +66,13 @@ public class ConfigurationService
             });
         }
     }
+
+    // "//"-prefixed keys are comments by convention in appsettings.json. They are
+    // never read as settings, and the comments documenting the ${VAR} syntax
+    // contain a literal ${VAR} — so expanding them warns about a variable nobody
+    // meant to reference. Keys are colon-delimited paths, so test the last segment.
+    private static bool IsCommentKey(string key) =>
+        key.AsSpan(key.LastIndexOf(':') + 1).StartsWith("//");
 
     private static string LoadSystemPrompt()
     {
