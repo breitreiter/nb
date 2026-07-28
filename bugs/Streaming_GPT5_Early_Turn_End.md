@@ -1,6 +1,9 @@
 # GPT-5x ends turn early under streaming
 
-Status: Investigating (2026-04-24) — workaround: `git revert aba44f8` locally; testing in progress.
+Status: On hold (2026-07-28) — real but unreproduced since; nobody is bisecting
+it. Diagnostics landed in `aafb050`; the bisect plan below is still the right
+starting point if it resurfaces. Workaround while investigating was
+`git revert aba44f8` locally.
 
 ---
 
