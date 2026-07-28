@@ -1,8 +1,7 @@
 using System.Text;
-using iText.Kernel.Pdf;
-using iText.Kernel.Pdf.Canvas.Parser;
-using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using Microsoft.Extensions.AI;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
 namespace nb.Shell;
 
@@ -107,16 +106,14 @@ public class ReadFileTool
 
     private ReadFileResult ReadPdf(string fullPath)
     {
-        using var reader = new PdfReader(fullPath);
-        using var document = new PdfDocument(reader);
+        using var document = PdfDocument.Open(fullPath);
 
         var pages = new List<string>();
-        var pageCount = document.GetNumberOfPages();
+        var pageCount = document.NumberOfPages;
         for (int i = 1; i <= pageCount; i++)
         {
             var page = document.GetPage(i);
-            var strategy = new SimpleTextExtractionStrategy();
-            pages.Add(PdfTextExtractor.GetTextFromPage(page, strategy));
+            pages.Add(ContentOrderTextExtractor.GetText(page));
         }
 
         var content = string.Join("\n", pages);

@@ -16,7 +16,7 @@ NotaBene (nb) - A C# console application that provides both interactive and sing
 - [Spectre.Console Documentation](https://spectreconsole.net/)
 - [MCP Specification](https://modelcontextprotocol.io/)
 - [.NET MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk)
-- [iText7 PDF Library](https://itextpdf.com/en/products/itext-7)
+- [PdfPig PDF Library](https://github.com/UglyToad/PdfPig) (Apache-2.0 — replaced iText7, which is AGPL and incompatible with nb's MIT license)
 
 ## Build & Test Commands
 ```bash
