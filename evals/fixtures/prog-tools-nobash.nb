@@ -1,0 +1,2 @@
+tools -bash
+run MOCK:tool=bash echo hi

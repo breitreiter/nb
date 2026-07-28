@@ -36,23 +36,6 @@ public class ListDirToolTests : IDisposable
     }
 
     [Fact]
-    public void ListDir_SkipsNbStateFiles()
-    {
-        // The lock file is the awkward half: it exists only while nb is running,
-        // so listing it shows the model an artifact of the observation itself.
-        CreateFiles(
-            NbStateFiles.ConversationHistory,
-            NbStateFiles.ConversationHistoryLock,
-            NbStateFiles.ActiveKits,
-            "notes.txt");
-
-        var result = _tool.ListDir();
-
-        Assert.True(result.Success);
-        Assert.Equal("[file] notes.txt", result.Output);
-    }
-
-    [Fact]
     public void ListDir_SkipsBuildDirectories()
     {
         CreateFiles("src/App.cs", "bin/app.dll", "obj/assets.json", ".git/HEAD");
@@ -77,17 +60,6 @@ public class ListDirToolTests : IDisposable
     [Fact]
     public void ListDir_EmptyDirectory_ReportsEmpty()
     {
-        var result = _tool.ListDir();
-
-        Assert.True(result.Success);
-        Assert.Equal("(empty directory)", result.Output);
-    }
-
-    [Fact]
-    public void ListDir_DirectoryHoldingOnlyStateFiles_ReportsEmpty()
-    {
-        CreateFiles(NbStateFiles.ConversationHistory, NbStateFiles.ConversationHistoryLock);
-
         var result = _tool.ListDir();
 
         Assert.True(result.Success);

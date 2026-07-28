@@ -1,9 +1,11 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using nb.Providers;
 using nb.MCP;
 using nb.Shell;
+using nb.Transcript;
 using nb.Utilities;
 using UglyPrompt;
 
@@ -12,36 +14,12 @@ namespace nb;
 
 public class Program
 {
-    private static IChatClient _client = null!;
+    // Static services used by the CLI shell. The engine itself is assembled by
+    // nb.Core (NbRuntime / Nb.RunAsync); these cover the two shell-only paths:
+    // --dump-tools (needs an McpManager) and --validate (needs the provider list).
     private static McpManager _mcpManager = new McpManager();
-    private static FakeToolManager _fakeToolManager = new FakeToolManager();
-    private static ConversationManager _conversationManager = null!;
-    private static ConfigurationService _configurationService = new ConfigurationService();
+    private static ConfigurationService _configurationService = null!;
     private static ProviderManager _providerManager = new ProviderManager();
-    private static CommandProcessor _commandProcessor = null!;
-    private static HistoryLock _historyLock = new HistoryLock(NbStateFiles.ConversationHistoryLock);
-    private static ShellEnvironment _shellEnvironment = null!;
-    private static BashTool _bashTool = null!;
-    private static ReadFileTool _readFileTool = null!;
-    private static WriteFileTool _writeFileTool = null!;
-    private static EditFileTool _editFileTool = null!;
-    private static FindFilesTool _findFilesTool = null!;
-    private static GrepTool _grepTool = null!;
-    private static ListDirTool _listDirTool = null!;
-    private static FetchUrlTool _fetchUrlTool = null!;
-    private static ApplyPatchTool _applyPatchTool = null!;
-    private static ApprovalPatterns _approvalPatterns = new ApprovalPatterns();
-    private static KitManager _kitManager = new KitManager();
-    private static readonly List<CompletionHint> _commandHints = new()
-    {
-        new("//", "Back"),
-        new("/clear", "Clear conversation"),
-        new("/edit", "Compose in $EDITOR"),
-        new("/kit", "List or manage active kits"),
-        new("/provider", "Switch AI provider"),
-        new("/tools", "List available tools and approval status"),
-        new("/quit", "Quit"),
-    };
 
     private static LineEditor _lineEditor = CreateLineEditor();
 
@@ -49,235 +27,79 @@ public class Program
     {
         var editor = new LineEditor();
 
-        // Slash-commands: line-start trigger, filtered against the static list.
-        editor.AddSource(new CompletionSource('/', TriggerAnchor.LineStart,
-            body => _commandHints
-                .Where(c => c.Name.StartsWith("/" + body, StringComparison.OrdinalIgnoreCase))
-                .ToList()));
-
-        // Kit completions (+trigger): a live view of loaded kits, so kits read
-        // by LoadKits later appear without re-registering the source.
-        editor.AddSource(new CompletionSource('+', TriggerAnchor.LineStart,
-            body => _kitManager.Kits.Values
-                .Select(k => new CompletionHint("+" + k.Name, k.Description))
-                .Where(h => h.Name.StartsWith("+" + body, StringComparison.OrdinalIgnoreCase))
-                .ToList()));
-
         // File mentions (@trigger): word-start, indexed once from the launch
-        // directory then filtered in memory.
+        // directory then filtered in memory. This is the `@file` include of the
+        // source syntax, so it stays useful in the program REPL.
         editor.AddSource(FileMentionSource.Create(Directory.GetCurrentDirectory()));
 
         return editor;
     }
 
-    private static string? _systemPromptOverride = null;
-    private static bool _noBash = false;
     private static bool _verbose = false;
     private static bool _dumpTools = false;
     private static bool _showHelp = false;
-    private static bool _trustMode = false;
-    private static bool _debugStream = false;
-    private static bool _clearKits = false;
-
-    private static string BuildUserInput(string[] args, string? stdinContent)
-    {
-        // Treat piped stdin as content to include in the message
-        // Args (if present) become the instruction for what to do with the content
-
-        if (!string.IsNullOrWhiteSpace(stdinContent))
-        {
-            var content = stdinContent.TrimEnd();
-
-            // If we have args, format as: <content>\n\n<instruction>
-            if (args.Length > 0)
-            {
-                var instruction = string.Join(" ", args);
-                return $"```\n{content}\n```\n\n{instruction}";
-            }
-            // If no args, just send the content wrapped in code block
-            else
-            {
-                return $"```\n{content}\n```";
-            }
-        }
-        else
-        {
-            // No stdin, just use args as normal
-            return string.Join(" ", args);
-        }
-    }
-
-    private static string LoadSystemPrompt()
-    {
-        // If --system flag was provided, load from that path
-        if (!string.IsNullOrEmpty(_systemPromptOverride))
-        {
-            if (!File.Exists(_systemPromptOverride))
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: System prompt file not found: {Markup.Escape(_systemPromptOverride)}[/]");
-                Environment.Exit(1);
-            }
-            return File.ReadAllText(_systemPromptOverride);
-        }
-
-        // Otherwise use default from ConfigurationService
-        return _configurationService.GetSystemPrompt();
-    }
-
-    private static string? LoadProjectContext(string cwd)
-    {
-        // Look for NB.md in cwd, then walk up to find it in parent dirs
-        var dir = Path.GetFullPath(cwd);
-        string? nbMdPath = null;
-
-        while (dir != null)
-        {
-            var candidate = Path.Combine(dir, "NB.md");
-            if (File.Exists(candidate))
-            {
-                nbMdPath = candidate;
-                break;
-            }
-            dir = Path.GetDirectoryName(dir);
-        }
-
-        var sections = new List<string>();
-
-        if (nbMdPath != null)
-        {
-            var content = File.ReadAllText(nbMdPath).Trim();
-            if (!string.IsNullOrEmpty(content))
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Loaded project context: {Markup.Escape(nbMdPath)}[/]");
-                sections.Add($"## Project Context (NB.md)\n\n{content}");
-            }
-        }
-
-        // Check for other vendor context files — don't auto-load, just tell the model they exist
-        var contextFiles = new[] { "CLAUDE.md", "AGENTS.md", "COPILOT.md", "CURSORRULES", ".cursorrules", "GEMINI.md", ".github/copilot-instructions.md" };
-        var found = contextFiles
-            .Select(f => Path.Combine(Path.GetFullPath(cwd), f))
-            .Where(File.Exists)
-            .Select(f => Path.GetFileName(f))
-            .ToList();
-
-        if (found.Count > 0)
-        {
-            sections.Add($"## Other Context Files\n\nThe following project context files exist in the working directory: {string.Join(", ", found)}. Use `read_file` to read them if they seem relevant to the user's request.");
-        }
-
-        return sections.Count > 0 ? string.Join("\n\n", sections) : null;
-    }
-
-    private static float? ResolveProviderFloat(Microsoft.Extensions.Configuration.IConfiguration config, string providerName, string key)
-    {
-        foreach (var provider in config.GetSection("ChatProviders").GetChildren())
-        {
-            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
-                return float.TryParse(provider[key], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
-        }
-        return null;
-    }
-
-    private static int ResolveMaxContextTokens(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
-    {
-        var providers = config.GetSection("ChatProviders").GetChildren();
-        foreach (var provider in providers)
-        {
-            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
-            {
-                if (int.TryParse(provider["MaxContextTokens"], out var providerTokens))
-                    return providerTokens;
-                break;
-            }
-        }
-        return int.TryParse(config["MaxContextTokens"], out var tokens) ? tokens : 128000;
-    }
-
-    // The provider implementation backing an entry label, or null if there is no such entry.
-    private static string? ResolveImplementationName(Microsoft.Extensions.Configuration.IConfiguration config, string providerName) =>
-        nb.Providers.ProviderEntries.Find(nb.Providers.ProviderEntries.ReadAll(config), providerName)?.Implementation;
-
-    // Returns the first prompt file that exists, or null. Candidates run most specific first.
-    private static string? FirstExistingPrompt(IEnumerable<string> fileNames) =>
-        fileNames
-            .Select(name => Path.Combine(AppContext.BaseDirectory, "prompts", name))
-            .FirstOrDefault(File.Exists);
-
-    private static string? ResolveActiveModelSlug(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
-    {
-        var providers = config.GetSection("ChatProviders").GetChildren();
-        foreach (var provider in providers)
-        {
-            if (provider["Name"]?.Equals(providerName, StringComparison.OrdinalIgnoreCase) == true)
-            {
-                var model = provider["Model"] ?? provider["ChatDeploymentName"];
-                return string.IsNullOrEmpty(model) ? null : SlugifyModelName(model);
-            }
-        }
-        return null;
-    }
-
-    private static string SlugifyModelName(string model)
-    {
-        // Lowercase + collapse non-alphanumeric runs to '-'. Keeps "gpt-oss-20b" as-is,
-        // turns "meta-llama/Llama-3.1-8B" into "meta-llama-llama-3-1-8b".
-        var lower = model.ToLowerInvariant();
-        var sb = new System.Text.StringBuilder(lower.Length);
-        var lastWasDash = false;
-        foreach (var ch in lower)
-        {
-            if (char.IsLetterOrDigit(ch))
-            {
-                sb.Append(ch);
-                lastWasDash = false;
-            }
-            else if (!lastWasDash)
-            {
-                sb.Append('-');
-                lastWasDash = true;
-            }
-        }
-        return sb.ToString().Trim('-');
-    }
+    private static string _outputMode = "interactive"; // interactive | porcelain | jsonl
+    private static string? _seedFile = null;
+    private static string? _configPath = null;
+    private static string? _programFile = null;        // program path, "-" for stdin, or null (REPL)
+    private static string? _mcpManifest = null;
+    private static bool _validate = false;
+    private static bool _resolve = false;
 
     private static string[] ParseFlags(string[] args)
     {
         var remainingArgs = new List<string>();
 
+        // NB_OUTPUT seeds the flag default; an explicit --output below wins.
+        var envOutput = Environment.GetEnvironmentVariable("NB_OUTPUT");
+        if (!string.IsNullOrEmpty(envOutput))
+        {
+            _outputMode = envOutput.ToLowerInvariant();
+            if (_outputMode is not ("interactive" or "jsonl" or "porcelain"))
+            {
+                Console.Error.WriteLine($"Error: unknown NB_OUTPUT mode '{_outputMode}'. Valid modes: interactive, porcelain, jsonl.");
+                Environment.Exit(1);
+            }
+        }
+
         for (int i = 0; i < args.Length; i++)
         {
-            if (args[i] == "--approve" && i + 1 < args.Length)
-            {
-                _approvalPatterns.Add(args[++i]);
-            }
-            else if (args[i] == "--system" && i + 1 < args.Length)
-            {
-                _systemPromptOverride = args[++i];
-            }
-            else if (args[i] == "--nobash")
-            {
-                _noBash = true;
-            }
-            else if (args[i] == "--verbose")
+            if (args[i] == "--verbose")
             {
                 _verbose = true;
-            }
-            else if (args[i] == "--trust")
-            {
-                _trustMode = true;
             }
             else if (args[i] == "--dump-tools")
             {
                 _dumpTools = true;
             }
-            else if (args[i] == "--debug-stream")
+            else if (args[i] == "--output" && i + 1 < args.Length)
             {
-                _debugStream = true;
+                _outputMode = args[++i].ToLowerInvariant();
+                if (_outputMode is not ("interactive" or "jsonl" or "porcelain"))
+                {
+                    Console.Error.WriteLine($"Error: unknown --output mode '{_outputMode}'. Valid modes: interactive, porcelain, jsonl.");
+                    Environment.Exit(1);
+                }
             }
-            else if (args[i] == "--no-kits")
+            else if (args[i] == "--seed" && i + 1 < args.Length)
             {
-                _clearKits = true;
+                _seedFile = args[++i];
+            }
+            else if (args[i] == "--config" && i + 1 < args.Length)
+            {
+                _configPath = args[++i];
+            }
+            else if (args[i] == "--mcp" && i + 1 < args.Length)
+            {
+                _mcpManifest = args[++i];
+            }
+            else if (args[i] == "--validate")
+            {
+                _validate = true;
+            }
+            else if (args[i] == "--resolve")
+            {
+                _resolve = true;
             }
             else if (args[i] == "--help" || args[i] == "-h")
             {
@@ -302,36 +124,54 @@ public class Program
             try { Console.Write("\x1b[?25h\x1b[?2004l"); Console.Out.Flush(); } catch { }
         };
 
-        // Parse flags (--approve, --system) before processing other args
         var remainingArgs = ParseFlags(args);
+
+        // The input is a program: a positional file, `-`, or piped stdin. With no
+        // input and a TTY, we drop into the program REPL. nb is not a chat client:
+        // there is no positional prompt.
+        if (remainingArgs.Length > 1)
+        {
+            Console.Error.WriteLine("Error: expected at most one program (a file path or '-'). nb runs conversation-programs, not prompts.");
+            Environment.Exit(1);
+        }
+        _programFile = remainingArgs.Length == 1 ? remainingArgs[0]
+            : (Console.IsInputRedirected ? "-" : null);
+        bool runRepl = _programFile == null && !_validate && !_resolve;
+
+        // A program run is machine-oriented: default its output to jsonl (the
+        // bytecode) so chrome relocates to stderr like the other machine modes.
+        if (_programFile != null && _outputMode == "interactive")
+            _outputMode = "jsonl";
+
+        // Machine-output modes send all chrome (banners, streamed render, tool
+        // noise) to stderr so stdout carries only the transcript. One seam: every
+        // AnsiConsole.* call relocates with this.
+        if (_outputMode is "jsonl" or "porcelain")
+        {
+            AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Out = new AnsiConsoleOutput(Console.Error),
+            });
+        }
+
+        // Honor NO_COLOR (https://no-color.org). Spectre drops ANSI when output is
+        // redirected but does not read NO_COLOR itself; applied after the jsonl swap.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR")))
+            AnsiConsole.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
 
         if (_showHelp)
         {
-            Console.WriteLine("Usage: nb [options] [prompt]");
-            Console.WriteLine();
-            Console.WriteLine("Options:");
-            Console.WriteLine("  --help, -h              Show this help message");
-            Console.WriteLine("  --system <file>         Load system prompt from file");
-            Console.WriteLine("  --approve <pattern>     Pre-approve shell commands matching pattern");
-            Console.WriteLine("  --trust                 Auto-approve file tools and safe bash commands within cwd");
-            Console.WriteLine("  --nobash                Disable shell tool");
-            Console.WriteLine("  --verbose               Enable verbose output");
-            Console.WriteLine("  --dump-tools            Write MCP tool manifest to mcp-tools.json and exit");
-            Console.WriteLine("  --debug-stream          Always dump streaming response telemetry to .nb_turn_dumps/");
-            Console.WriteLine("  --no-kits               Clear any persisted active kits for this directory");
-            Console.WriteLine();
-            Console.WriteLine("With no arguments, starts interactive mode.");
-            Console.WriteLine("With a prompt argument, runs in single-shot mode.");
-            Console.WriteLine("Leading +kit tokens activate kits (e.g. nb +review \"check this\").");
-            Console.WriteLine("Stdin is accepted and included as context.");
+            PrintHelp();
             return;
         }
 
-        // --dump-tools: connect to MCP servers, write manifest, exit
+        // --dump-tools: connect to MCP servers, write manifest, exit.
         if (_dumpTools)
         {
-            _mcpManager.LoadConfig();
+            _mcpManager.LoadConfig(_mcpManifest);
             await _mcpManager.ConnectAllAsync();
+            foreach (var (name, error) in _mcpManager.FailedServers)
+                Console.Error.WriteLine($"MCP server '{name}' failed to start: {error}");
             var manifest = _mcpManager.BuildToolManifest();
             var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
             var outputPath = Path.Combine(Directory.GetCurrentDirectory(), "mcp-tools.json");
@@ -341,524 +181,347 @@ public class Program
             return;
         }
 
-        var config = _configurationService.GetConfiguration();
-
-        // Load theme
-        UIColors.LoadTheme();
-
-        // Initialize shell environment (unless --nobash)
+        // Build configuration — --config selects a hermetic single-file config,
+        // otherwise the layered install/user/project resolution applies. A missing
+        // --config file is a fatal config error.
         try
         {
-            _shellEnvironment = ShellEnvironment.Detect();
+            _configurationService = new ConfigurationService(_configPath);
         }
-        catch (InvalidOperationException ex)
+        catch (FileNotFoundException)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{Markup.Escape(ex.Message)}[/]");
-            return;
-        }
-        if (!_noBash)
-        {
-            var bashTimeoutSeconds = int.TryParse(config["BashTimeoutSeconds"], out var bts) ? bts : 120;
-            _bashTool = new BashTool(_shellEnvironment, defaultTimeoutSeconds: bashTimeoutSeconds);
-            _readFileTool = new ReadFileTool(_shellEnvironment);
-            _findFilesTool = new FindFilesTool(_shellEnvironment);
-            _grepTool = new GrepTool(_shellEnvironment);
-            _listDirTool = new ListDirTool(_shellEnvironment);
-            _fetchUrlTool = new FetchUrlTool();
-
-            var providerConfig = config.GetSection("ChatProviders").GetChildren()
-                .FirstOrDefault(c => string.Equals(c["Name"], config["ActiveProvider"], StringComparison.OrdinalIgnoreCase));
-            var useApplyPatch = string.Equals(providerConfig?["EditToolStyle"], "ApplyPatch", StringComparison.OrdinalIgnoreCase);
-            if (useApplyPatch)
-            {
-                _applyPatchTool = new ApplyPatchTool(_shellEnvironment);
-            }
-            else
-            {
-                _writeFileTool = new WriteFileTool(_shellEnvironment);
-                _editFileTool = new EditFileTool(_shellEnvironment);
-            }
-        }
-
-        // Check for trust mode from config
-        if (!_trustMode)
-        {
-            var trustSetting = config["Trust"];
-            if (trustSetting?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
-                _trustMode = true;
-        }
-
-        // Initialize chat client using provider system
-        var activeProviderName = config["ActiveProvider"] ?? string.Empty;
-        _client = _providerManager.TryCreateChatClient(config)!;
-        if (_client == null)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to initialize chat client. Please check your configuration.[/]");
-            _providerManager.ShowProviderStatus(config);
+            Console.Error.WriteLine($"Error: config file not found: {_configPath}");
             Environment.Exit(1);
         }
 
-        // Load MCP config (no connections yet — servers connect on kit activation)
-        _mcpManager.LoadConfig();
+        var config = _configurationService.GetConfiguration();
+        UIColors.LoadTheme();
 
-        // Load fake tools
-        await _fakeToolManager.LoadFakeToolsAsync();
-
-        var isInteractiveMode = remainingArgs.Length == 0;
-
-        // Initialize conversation manager with dependencies
-        var maxToolCalls = int.TryParse(config["MaxToolCalls"], out var mtc) ? mtc : 25;
-        var maxContextTokens = ResolveMaxContextTokens(config, activeProviderName);
-        var compactionThreshold = double.TryParse(config["CompactionThreshold"], out var ct) ? ct : 0.75;
-        var temperature = ResolveProviderFloat(config, activeProviderName, "Temperature");
-        var presencePenalty = ResolveProviderFloat(config, activeProviderName, "PresencePenalty");
-        _conversationManager = new ConversationManager(
-            _client, _mcpManager, _fakeToolManager, _bashTool, _readFileTool, _writeFileTool, _editFileTool, _findFilesTool, _grepTool, _listDirTool, _fetchUrlTool, _applyPatchTool, _approvalPatterns, activeProviderName, _verbose, _trustMode, maxToolCalls, maxContextTokens, compactionThreshold, _debugStream, temperature, presencePenalty);
-
-        // Build enhanced system prompt with environment context (skip shell section if --nobash)
-        var basePrompt = LoadSystemPrompt();
-        var fullPrompt = _noBash
-            ? basePrompt
-            : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
-
-        // Prompt files are looked up by entry label first, then by the implementation
-        // behind it -- so an entry labelled "LocalCoder" still picks up system.LocalLlm.md
-        // unless it has a file of its own. Entries not using a "Provider" field have
-        // identical label and implementation, so this is a no-op for them.
-        var promptScopes = new List<string> { activeProviderName };
-        var activeImplementation = ResolveImplementationName(config, activeProviderName);
-        if (!string.IsNullOrEmpty(activeImplementation)
-            && !string.Equals(activeImplementation, activeProviderName, StringComparison.OrdinalIgnoreCase))
-        {
-            promptScopes.Add(activeImplementation);
-        }
-
-        // Append provider-specific system prompt if present (e.g. system.AzureFoundry.md)
-        var providerPrompt = FirstExistingPrompt(promptScopes.Select(s => $"system.{s}.md"));
-        if (providerPrompt != null)
-            fullPrompt += $"\n\n{File.ReadAllText(providerPrompt)}";
-
-        // Append provider+model-specific prompt if present (e.g. system.LocalLlm.qwen-coder.md).
-        // Lets one provider host multiple models with distinct quirks.
-        var activeModelSlug = ResolveActiveModelSlug(config, activeProviderName);
-        if (!string.IsNullOrEmpty(activeModelSlug))
-        {
-            var modelPrompt = FirstExistingPrompt(promptScopes.Select(s => $"system.{s}.{activeModelSlug}.md"));
-            if (modelPrompt != null)
-                fullPrompt += $"\n\n{File.ReadAllText(modelPrompt)}";
-        }
-
-        // Auto-load project context from NB.md in working directory
-        var projectContext = LoadProjectContext(_noBash ? "." : _shellEnvironment.ShellCwd);
-        if (projectContext != null)
-            fullPrompt += $"\n\n{projectContext}";
-
-        _conversationManager.InitializeWithSystemPrompt(fullPrompt);
-        _conversationManager.GetActiveMcpServers = () => _kitManager.GetActiveMcpServers();
-
-        // Show trust mode banner
-        if (_trustMode)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Trust mode active[/] [{UIColors.SpectreMuted}]— auto-approving within {Markup.Escape(_shellEnvironment.ShellCwd)}[/]");
-        }
-
-        // Acquire per-directory history lock. If another nb session owns it, skip load/save
-        // so parallel instances don't clobber each other.
-        if (_historyLock.TryAcquire())
-        {
-            await _conversationManager.LoadConversationHistoryAsync();
-        }
+        if (runRepl)
+            await RunReplAsync(config);
         else
+            await RunProgramAsync(config);
+    }
+
+    private static void PrintHelp()
+    {
+        Console.WriteLine("Usage: nb [options] [program-file | -]");
+        Console.WriteLine();
+        Console.WriteLine("nb evaluates a conversation-program. Give a program file, or '-' / piped");
+        Console.WriteLine("stdin to read one from stdin. With no input on a TTY, nb starts a REPL that");
+        Console.WriteLine("interprets the same source syntax line by line.");
+        Console.WriteLine();
+        Console.WriteLine("Options (each varies how a program runs; it never replaces a program verb):");
+        Console.WriteLine("  --help, -h              Show this help message");
+        Console.WriteLine("  --output <mode>         jsonl (default for a program), porcelain, or interactive. jsonl/porcelain put the transcript on stdout, chrome on stderr");
+        Console.WriteLine("  --seed <file>           Prepend a transcript (jsonl) as premise history before the program runs");
+        Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
+        Console.WriteLine("  --mcp <file>            Use this MCP manifest only (hermetic); default layers mcp.json across install/user/project");
+        Console.WriteLine("  --validate              Parse and check the program, run nothing (exit 1 on error)");
+        Console.WriteLine("  --resolve               Print the effective envelope at each run point, run nothing");
+        Console.WriteLine("  --verbose               Verbose engine diagnostics (to stderr)");
+        Console.WriteLine("  --dump-tools            Write the MCP tool manifest to mcp-tools.json and exit");
+        Console.WriteLine();
+        Console.WriteLine("Program verbs (source syntax): provider, model, mcp, tools, approval,");
+        Console.WriteLine("loop, budget, system, user, assistant, run. See docs/conversation-program-cli.md.");
+    }
+
+    // The program REPL: interpret the same source syntax line by line. Each entered
+    // line is parsed to directives and fed to one long-lived evaluator; a `run`
+    // invokes the model and renders live. Not a chat client — no slash commands, no
+    // persona. Ctrl-D (EOF) exits, exactly as a source program ends.
+    private static async Task RunReplAsync(IConfiguration config)
+    {
+        NbRuntime runtime;
+        try
         {
-            var owner = _historyLock.OwnerPid?.ToString() ?? "unknown";
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Another nb session (pid {owner}) owns this directory — history will not be loaded or saved.[/]");
+            runtime = await NbRuntime.BuildAsync(config, BuildNbOptions());
+        }
+        catch (NbStartupException ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            Environment.Exit(1);
+            return;
         }
 
-        // Initialize kits. The line editor's '+' completion source reads
-        // _kitManager.Kits live, so no separate hint registration is needed.
-        _kitManager.LoadKits(AppContext.BaseDirectory);
-
-        // Restore kits active in this directory from a previous run, unless the
-        // user asked to clear them. Skip when another session owns the lock so we
-        // don't reconnect servers we won't be allowed to persist.
-        if (_clearKits)
+        using (runtime)
         {
-            if (File.Exists(ActiveKitsFile)) File.Delete(ActiveKitsFile);
-        }
-        else if (_historyLock.IsOwner)
-        {
-            await RestoreActiveKitsAsync();
-        }
+            await runtime.Mcp.ConnectAllAsync();
+            foreach (var (name, error) in runtime.Mcp.FailedServers)
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP server '{name}' failed to start: {Markup.Escape(error)}[/]");
+            var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory);
 
-        // Initialize refactored services
-        _commandProcessor = new CommandProcessor(_conversationManager, _configurationService, _providerManager);
+            var mcpServers = runtime.Mcp.GetConnectedServerNames();
+            var mcpList = mcpServers.Count > 0 ? string.Join(", ", mcpServers) : "none";
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]nb · {Markup.Escape(runtime.Conversation.GetCurrentProvider())} · mcp: {Markup.Escape(mcpList)} · enter program directives · Ctrl-D to exit[/]");
 
-        // Check if stdin is being piped
-        string? stdinContent = null;
-        if (Console.IsInputRedirected)
-        {
-            stdinContent = await Console.In.ReadToEndAsync();
-        }
-
-        // Execute based on mode
-        if (remainingArgs.Length > 0 || stdinContent != null)
-        {
-            // Single-shot mode: activate any leading +kit tokens, then execute.
-            var (kitTokens, promptArgs) = SplitLeadingKits(remainingArgs);
-            bool kitsOk = true;
-            foreach (var token in kitTokens)
-                kitsOk &= await ActivateKitAsync(token);
-
-            var userInput = BuildUserInput(promptArgs, stdinContent);
-            // Don't run on a kit-resolution failure, and don't send an empty prompt
-            // when the invocation was kit-activation only (e.g. `nb +review`).
-            if (kitsOk && !string.IsNullOrWhiteSpace(userInput))
-            {
-                if (IsKitCommand(userInput))
-                    HandleKitCommand(userInput);
-                else if (userInput.Trim() == "/tools")
-                    HandleToolsCommand();
-                else
-                    await ExecuteSingleCommand(userInput);
-            }
-        }
-        else
-        {
-            // Interactive mode: enable bracketed paste so multi-line pastes don't submit early
             bool bracketedPaste = !Console.IsInputRedirected;
             if (bracketedPaste) Console.Write("\x1b[?2004h");
             try
             {
-                await StartChatLoop();
+                while (true)
+                {
+                    var line = _lineEditor.ReadLine($"[38;5;154m›[0m {UIColors.NativeUserInput}");
+                    Console.Write(UIColors.NativeReset);
+                    if (line == null) break;                       // EOF (Ctrl-D)
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    IReadOnlyList<TranscriptEvent> events;
+                    try
+                    {
+                        events = ProgramParser.Parse(line, ResolveInclude);
+                    }
+                    catch (ProgramParseException ex)
+                    {
+                        Console.Error.WriteLine(ex.Message);
+                        continue;
+                    }
+
+                    try
+                    {
+                        foreach (var ev in events)
+                            await evaluator.EvaluateEventAsync(ev);
+                    }
+                    catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or McpServerUnavailableException)
+                    {
+                        Console.Error.WriteLine($"Error: {ex.Message}");
+                    }
+                }
             }
             finally
             {
                 if (bracketedPaste) Console.Write("\x1b[?2004l");
             }
         }
-        
-        // Save conversation history and active kits before exit (only if we own the lock)
-        if (_historyLock.IsOwner)
-        {
-            await _conversationManager.SaveConversationHistoryAsync();
-            await SaveActiveKitsAsync();
-        }
-
-        _historyLock.Dispose();
-
-        // Cleanup MCP clients
-        _mcpManager.Dispose();
     }
 
-
-
-    private static async Task StartChatLoop()
+    // Emit the transcript schema as JSONL on stdout (trailer inline). Chrome has
+    // already been diverted to stderr (see the --output seam in Main).
+    private static void EmitJsonl(IReadOnlyList<TranscriptEvent> events, ResultEvent trailer)
     {
-        // Get configured providers and current provider
-        var config = _configurationService.GetConfiguration();
-        var configuredProviders = _providerManager.GetConfiguredProviders(config);
-        var currentProvider = _conversationManager.GetCurrentProvider();
-        var providersList = string.Join(", ", configuredProviders.Select(p =>
-            p == currentProvider ? $"[{UIColors.SpectreInfo}]{p}[/]" : $"[{UIColors.SpectreMuted}]{p}[/]"));
-
-        // Get connected MCP servers
-        var mcpServers = _mcpManager.GetConnectedServerNames();
-        var mcpList = mcpServers.Count > 0
-            ? string.Join(", ", mcpServers.Select(s => $"[{UIColors.SpectreMuted}]{s}[/]"))
-            : "[dim]none[/]";
-
-        Console.Write(" " + UIColors.robot_img_1);
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]AI: [/]{providersList}");
-        Console.Write(" " + UIColors.robot_img_2);
-        AnsiConsole.MarkupLine($"  [{UIColors.SpectreMuted}]MCP: [/]{mcpList}");
-        Console.Write(" " + UIColors.robot_img_3);
-        AnsiConsole.MarkupLine($"  NotaBene 0.10.0β [{UIColors.SpectreMuted}]▪[/] [{UIColors.SpectreAccent}]/[/] [{UIColors.SpectreMuted}]for commands[/] [{UIColors.SpectreAccent}]+[/] [{UIColors.SpectreMuted}]for kits[/]");
-        
-        while (true)
-        {
-            // Add visual separator before user input
-            string divider = string.Concat(Enumerable.Repeat("🞌", Console.WindowWidth));
-            Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
-
-            var userInput = _lineEditor.ReadLine($"\u001b[38;5;154m›\u001b[0m {UIColors.NativeUserInput}");
-            Console.Write(UIColors.NativeReset);
-            
-            // Add visual separator after user input
-            Console.WriteLine($"{UIColors.NativeMuted}{divider}{UIColors.NativeReset}");
-
-            if (string.IsNullOrWhiteSpace(userInput))
-                continue;
-
-            // Kit activation — returned by the line editor when "+" guard mode selects a kit
-            if (userInput.StartsWith("+"))
-            {
-                await ActivateKitAsync(userInput);
-                continue;
-            }
-
-            // Kit management command
-            if (IsKitCommand(userInput))
-            {
-                HandleKitCommand(userInput);
-                continue;
-            }
-
-            // Tool listing command
-            if (userInput.Trim() == "/tools")
-            {
-                HandleToolsCommand();
-                continue;
-            }
-
-            // Process command through the command processor
-            var result = _commandProcessor.ProcessCommand(userInput);
-
-            switch (result.Action)
-            {
-                case CommandAction.Exit:
-                    return;
-                
-                case CommandAction.Continue:
-                    // Check if this was a non-command that should go to LLM
-                    if (!userInput.TrimStart().StartsWith("/"))
-                    {
-                        await _conversationManager.SendMessageAsync(userInput);
-                    }
-                    break;
-
-                case CommandAction.SendToLlm:
-                    await _conversationManager.SendMessageAsync(result.ModifiedInput!);
-                    break;
-
-                case CommandAction.AddToHistory:
-                    _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
-                    break;
-            }
-        }
+        var all = new List<TranscriptEvent>(events) { trailer };
+        Console.Out.Write(TranscriptSerializer.Serialize(all));
+        Console.Out.Flush();
     }
 
-    private const string ActiveKitsFile = NbStateFiles.ActiveKits;
-
-    // Splits leading +kit tokens off the front of the args. Stops at the first
-    // non-+ token so "nb +review check this" → kits ["+review"], rest ["check","this"].
-    private static (string[] kits, string[] rest) SplitLeadingKits(string[] args)
+    // Emit the same events as porcelain text on stdout; the run trailer goes to
+    // stderr so stdout stays parseable (TOOL/RESULT lines + verbatim prose).
+    private static void EmitPorcelain(IReadOnlyList<TranscriptEvent> events, ResultEvent trailer)
     {
-        int i = 0;
-        var kits = new List<string>();
-        while (i < args.Length && args[i].StartsWith("+") && args[i].Length > 1)
-            kits.Add(args[i++]);
-        return (kits.ToArray(), args[i..]);
+        Console.Out.Write(TranscriptPorcelainWriter.Write(events));
+        Console.Out.Flush();
+        Console.Error.WriteLine(TranscriptPorcelainWriter.Trailer(trailer));
     }
 
-    // Re-activate kits persisted from a previous session in this directory.
-    // Quiet (announce: false) — restore shouldn't spam the banner area.
-    private static async Task RestoreActiveKitsAsync()
+    // Emit a facade RunResult in the resolved mode.
+    private static void EmitResult(RunResult result, string mode)
     {
-        if (!File.Exists(ActiveKitsFile)) return;
+        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage);
+        if (mode == "porcelain") EmitPorcelain(result.Events, trailer);
+        else EmitJsonl(result.Events, trailer);
+    }
+
+    // Evaluate a conversation-program: read it (positional file / stdin), optionally
+    // prepend a --seed transcript, detect source vs bytecode, then run it through the
+    // library facade (which assembles its own engine, connects MCP, evaluates) and
+    // emit. --validate / --resolve inspect without running.
+    private static async Task RunProgramAsync(IConfiguration config)
+    {
+        var warnings = new List<string>();
+        List<TranscriptEvent> program;
         try
         {
-            var names = JsonSerializer.Deserialize<string[]>(await File.ReadAllTextAsync(ActiveKitsFile));
-            if (names == null) return;
-            foreach (var name in names)
-                await ActivateKitAsync(name, announce: false);
+            program = await BuildProgramAsync(warnings);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is TranscriptFormatException or ProgramParseException or FileNotFoundException)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Could not restore active kits: {Markup.Escape(ex.Message)}[/]");
-        }
-    }
-
-    // Persist the active-kit set so it survives across single-shot invocations.
-    // Deletes the file when nothing is active so an empty set doesn't linger.
-    private static async Task SaveActiveKitsAsync()
-    {
-        try
-        {
-            var names = _kitManager.ActiveKitNames.ToArray();
-            if (names.Length == 0)
-            {
-                if (File.Exists(ActiveKitsFile)) File.Delete(ActiveKitsFile);
-                return;
-            }
-            await File.WriteAllTextAsync(ActiveKitsFile,
-                JsonSerializer.Serialize(names, new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-                }));
-        }
-        catch { /* best-effort; kit state is convenience, not correctness */ }
-    }
-
-    private static bool IsKitCommand(string input)
-    {
-        var t = input.TrimStart();
-        return t == "/kit" || t.StartsWith("/kit ", StringComparison.Ordinal);
-    }
-
-    // /kit              — show active and available kits
-    // /kit clear        — deactivate all kits
-    // /kit drop <name>  — deactivate one kit (drop/remove/off accepted)
-    private static void HandleKitCommand(string input)
-    {
-        var parts = input.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var sub = parts.Length > 1 ? parts[1].ToLowerInvariant() : "";
-
-        switch (sub)
-        {
-            case "":
-                ShowKitStatus();
-                break;
-
-            case "clear":
-                if (_kitManager.ActiveKitNames.Count == 0)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No kits active.[/]");
-                    break;
-                }
-                _kitManager.ClearActive();
-                _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]All kits deactivated.[/]");
-                break;
-
-            case "drop":
-            case "remove":
-            case "off":
-                if (parts.Length < 3)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Usage: /kit drop <name>[/]");
-                    break;
-                }
-                var name = parts[2].StartsWith("+") ? parts[2] : "+" + parts[2];
-                if (_kitManager.Deactivate(name))
-                {
-                    _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Deactivated {Markup.Escape(name)}.[/] [{UIColors.SpectreMuted}]MCP tools update on the next message.[/]");
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Not active: {Markup.Escape(name)}[/]");
-                }
-                break;
-
-            default:
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Unknown: /kit {Markup.Escape(sub)}[/] [{UIColors.SpectreMuted}]— use /kit, /kit clear, or /kit drop <name>[/]");
-                break;
-        }
-    }
-
-    private static void ShowKitStatus()
-    {
-        var active = _kitManager.ActiveKitNames;
-        if (active.Count > 0)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]Active kits:[/]");
-            foreach (var n in active)
-            {
-                var desc = _kitManager.Kits.TryGetValue(n, out var k) ? k.Description : "";
-                AnsiConsole.MarkupLine($"  [{UIColors.SpectreSuccess}]{Markup.Escape(n)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(desc)}[/]");
-            }
-        }
-        else
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No kits active.[/]");
-        }
-
-        var inactive = _kitManager.Kits.Values.Where(k => !active.Contains(k.Name)).ToList();
-        if (inactive.Count > 0)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Available: {string.Join(", ", inactive.Select(k => Markup.Escape(k.Name)))}[/]");
-        }
-    }
-
-    private static void HandleToolsCommand()
-    {
-        var tools = _conversationManager.GetAvailableTools();
-        if (tools.Count == 0)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No tools available.[/]");
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            Environment.ExitCode = 1;
             return;
         }
 
-        var table = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
-        table.AddColumn("Tool");
-        table.AddColumn("Approval");
+        if (_validate) { ValidateProgram(program, config, warnings); return; }
+        if (_resolve) { ResolveProgram(program); return; }
 
-        foreach (var group in tools.GroupBy(t => t.Group))
+        RunResult result;
+        try
         {
-            table.AddEmptyRow();
-            table.AddRow($"[{UIColors.SpectreInfo}]{Markup.Escape(group.Key)}[/]", "");
-            foreach (var t in group)
-            {
-                var color = t.Approval.StartsWith("auto") ? UIColors.SpectreSuccess : UIColors.SpectreWarning;
-                table.AddRow($"  {Markup.Escape(t.Name)}", $"[{color}]{Markup.Escape(t.Approval)}[/]");
-            }
+            result = await Nb.RunAsync(config, program, BuildNbOptions());
         }
-        AnsiConsole.Write(table);
+        catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or NbStartupException or McpServerUnavailableException)
+        {
+            // Malformed fabricated tool round, an unhonorable `approval sandbox`, an
+            // unassemblable engine, or a selected-but-dead MCP server — fail fast.
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            Environment.ExitCode = 1;
+            return;
+        }
 
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]auto = no prompt · (cwd) within the working-dir sandbox · (trust) needs --trust · (always-allow) listed in mcp.json[/]");
+        foreach (var w in warnings) Console.Error.WriteLine($"program: {w}");        // parse/seed warnings
+        foreach (var w in result.Warnings) Console.Error.WriteLine($"program: {w}"); // evaluator warnings
 
-        // Diagnostic: MCP tools surface only through active kits.
-        if (!tools.Any(t => t.Group.StartsWith("MCP")))
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]No MCP tools active — they're exposed only via active kits. Use [/][{UIColors.SpectreAccent}]+kit[/][{UIColors.SpectreMuted}] or [/][{UIColors.SpectreAccent}]/kit[/][{UIColors.SpectreMuted}] to activate.[/]");
+        EmitResult(result, _outputMode);
+        Environment.ExitCode = result.ExitCode;
     }
 
-    // Activates one kit: sets its prompt context and connects its MCP servers.
-    // Shared by interactive (+) selection, single-shot +kit tokens, and startup
-    // restore — so re-activation always restores prompt AND servers together.
-    // Returns false (and reports) if the kit name is unknown.
-    private static async Task<bool> ActivateKitAsync(string kitName, bool announce = true)
+    // The per-invocation facade options carried from the CLI flags. Engine chrome goes
+    // to stderr, matching the machine-output contract. Trust / no-tools / bash
+    // auto-approve are program/config concerns now, not flags.
+    private static NbOptions BuildNbOptions() => new()
     {
-        if (!_kitManager.Activate(kitName))
+        Verbose = _verbose,
+        McpManifestPath = _mcpManifest,
+        DiagnosticsWriter = Console.Error,
+    };
+
+    // Assemble the program: an optional --seed premise prefix, then the body from the
+    // positional file / stdin.
+    private static async Task<List<TranscriptEvent>> BuildProgramAsync(IList<string> warnings)
+    {
+        var program = new List<TranscriptEvent>();
+
+        if (_seedFile != null)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Kit not found: {Markup.Escape(kitName)}[/]");
-            return false;
+            if (!File.Exists(_seedFile))
+                throw new FileNotFoundException($"seed file not found: {_seedFile}");
+            program.AddRange(TranscriptSerializer.Parse(await File.ReadAllTextAsync(_seedFile), warnings));
         }
 
-        var kit = _kitManager.Kits[kitName];
-        if (announce)
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Kit: {Markup.Escape(kitName)}[/] [{UIColors.SpectreMuted}]— {Markup.Escape(kit.Description)}[/]");
-        _conversationManager.SetKitContext(_kitManager.GetCombinedPrompt());
-
-        // Connect any MCP servers declared by this kit that aren't connected yet
-        if (kit.McpServers.Length > 0)
+        if (_programFile != null)
         {
-            var pending = kit.McpServers
-                .Except(_mcpManager.GetConnectedServerNames(), StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            if (pending.Length > 0)
-            {
-                if (announce) AnsiConsole.Markup($"[{UIColors.SpectreMuted}]Connecting MCP: {Markup.Escape(string.Join(", ", pending))}…[/]");
-                await _mcpManager.EnsureServersConnectedAsync(pending);
-                if (announce) AnsiConsole.MarkupLine($" [{UIColors.SpectreSuccess}]done[/]");
-            }
+            var source = _programFile == "-"
+                ? await Console.In.ReadToEndAsync()
+                : await File.ReadAllTextAsync(_programFile);
+            program.AddRange(ParseProgramSource(source, warnings));
         }
-        return true;
+
+        return program;
     }
 
-    private static async Task ExecuteSingleCommand(string userInput)
+    // --validate: parse succeeded (we got here); report structural warnings and
+    // semantic errors (unknown provider, bad approval directive), run nothing. Exit 1
+    // on any error, 0 otherwise.
+    private static void ValidateProgram(IReadOnlyList<TranscriptEvent> program, IConfiguration config, IList<string> warnings)
     {
-        // Process command through the command processor (same logic as interactive mode)
-        var result = _commandProcessor.ProcessCommand(userInput);
+        var providers = _providerManager.GetConfiguredProviders(config)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var errors = new List<string>();
 
-        switch (result.Action)
+        foreach (var ev in program)
         {
-            case CommandAction.Exit:
-                // Exit command processed, just return
-                return;
-            
-            case CommandAction.Continue:
-                // Check if this was a non-command that should go to LLM
-                if (!userInput.TrimStart().StartsWith("/"))
-                {
-                    await _conversationManager.SendMessageAsync(userInput);
-                }
-                break;
-            
-            case CommandAction.AddToHistory:
-                // Maintain conversation history just like interactive mode
-                _conversationManager.AddToConversationHistory(result.ModifiedInput ?? userInput);
-                break;
+            switch (ev)
+            {
+                case ProviderEvent p when providers.Count > 0 && !providers.Contains(p.Name):
+                    errors.Add($"unknown provider '{p.Name}'. Configured: {string.Join(", ", providers)}.");
+                    break;
+                case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "default" or "sandbox"):
+                    errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, default, sandbox.");
+                    break;
+                case ApprovalEvent { Key: "default" } a when a.Value is not ("prompt" or "deny"):
+                    errors.Add($"invalid approval default '{a.Value}'. Valid: prompt, deny.");
+                    break;
+                case ApprovalEvent { Key: "sandbox" } a when !BwrapSandbox.TryParse(a.Value, out _, out _):
+                    errors.Add($"invalid approval sandbox '{a.Value}'. Valid: none, bwrap, bwrap-net.");
+                    break;
+                case LoopEvent { Enabled: true } l when l.Threshold < 2:
+                    errors.Add($"invalid loop threshold '{l.Threshold}'. Use an integer >= 2, or 'loop off'.");
+                    break;
+                case BudgetEvent b when b.Key is not ("tokens" or "tool_calls" or "wall_ms"):
+                    errors.Add($"invalid budget key '{b.Key}'. Valid: tokens, tool_calls, wall_ms.");
+                    break;
+                case BudgetEvent b when b.Value <= 0:
+                    errors.Add($"invalid budget value '{b.Value}' for '{b.Key}'. Use a positive integer.");
+                    break;
+            }
         }
+
+        foreach (var w in warnings) Console.Error.WriteLine($"warning: {w}");
+        foreach (var e in errors) Console.Error.WriteLine($"error: {e}");
+
+        if (errors.Count > 0)
+        {
+            Console.Error.WriteLine($"invalid: {errors.Count} error(s).");
+            Environment.ExitCode = 1;
+        }
+        else
+        {
+            Console.Error.WriteLine($"valid: {program.Count} directive(s).");
+        }
+    }
+
+    // --resolve: walk the directives without invoking, printing the effective
+    // envelope at each run point (the ordering inspector for anywhere-config).
+    private static void ResolveProgram(IReadOnlyList<TranscriptEvent> program)
+    {
+        string provider = "(default)", model = "(default)", output = _outputMode;
+        var surfaceDirectives = new List<SurfaceDirectiveEvent>();
+        string approvalDefault = "prompt", sandbox = "none";
+        int bashRules = 0, mcpRules = 0;
+        string loop = "default";
+        long? tokenBudget = null, toolCallBudget = null, wallBudget = null;
+        int run = 0;
+
+        foreach (var ev in program)
+        {
+            switch (ev)
+            {
+                case ProviderEvent p: provider = p.Name; break;
+                case ModelEvent m: model = m.Name; break;
+                case SurfaceDirectiveEvent sd: surfaceDirectives.Add(sd); break;
+                case ApprovalEvent { Key: "default" } a: approvalDefault = a.Value; break;
+                case ApprovalEvent { Key: "sandbox" } a: sandbox = a.Value; break;
+                case ApprovalEvent { Key: "bash" }: bashRules++; break;
+                case ApprovalEvent { Key: "mcp" }: mcpRules++; break;
+                case LoopEvent l: loop = l.Enabled ? $"on({l.Threshold})" : "off"; break;
+                case BudgetEvent { Key: "tokens" } b: tokenBudget = b.Value; break;
+                case BudgetEvent { Key: "tool_calls" } b: toolCallBudget = b.Value; break;
+                case BudgetEvent { Key: "wall_ms" } b: wallBudget = b.Value; break;
+                case RunEvent:
+                    run++;
+                    // Fold through the same resolver the evaluator runs, so what this
+                    // prints is provably what a run exposes (plans/tool-surface-directives.md).
+                    var surface = ToolSurface.Fold(surfaceDirectives, ConversationManager.NativeToolNames);
+                    var mcpStr = surface.McpServers is { Count: > 0 } s ? string.Join(",", s) : "(none)";
+                    var toolStr = surface.NativeAllow is null
+                        ? "all"
+                        : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
+                    var budgetStr = $"tokens:{(tokenBudget?.ToString() ?? "-")} tool_calls:{(toolCallBudget?.ToString() ?? "-")} wall_ms:{(wallBudget?.ToString() ?? "-")}";
+                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
+                    break;
+            }
+        }
+
+        if (run == 0)
+            Console.WriteLine($"no runs. provider={provider} model={model} output={output}");
+    }
+
+    // First non-blank, non-comment line starting with '{' => JSONL bytecode.
+    private static bool LooksLikeJsonl(string source)
+    {
+        foreach (var line in source.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0 || t.StartsWith("#")) continue;
+            return t.StartsWith("{");
+        }
+        return false;
+    }
+
+    private static IReadOnlyList<TranscriptEvent> ParseProgramSource(string source, IList<string> warnings) =>
+        LooksLikeJsonl(source)
+            ? TranscriptSerializer.Parse(source, warnings)
+            : ProgramParser.Parse(source, ResolveInclude);
+
+    // Resolve an @file include for the source parser: relative to the program
+    // file's directory (or cwd for a stdin/REPL program), fail fast if missing.
+    private static string ResolveInclude(string relPath)
+    {
+        var baseDir = _programFile is not null and not "-"
+            ? Path.GetDirectoryName(Path.GetFullPath(_programFile)) ?? "."
+            : Directory.GetCurrentDirectory();
+        var full = Path.IsPathRooted(relPath) ? relPath : Path.Combine(baseDir, relPath);
+        if (!File.Exists(full))
+            throw new ProgramParseException($"@include not found: {relPath}");
+        return File.ReadAllText(full);
     }
 }

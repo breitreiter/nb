@@ -2,9 +2,9 @@
 kind: plan
 title: The transcript schema — nb's one wire format for output, seeds, export, and hooks
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-11
 status: current
-state: exploring
+state: active
 touches:
   files:
     - ConversationManager.cs
@@ -48,8 +48,11 @@ promotes this schema from "output/seed format" to *the program
 representation* for the whole system — output, seeds, tasks, `/save`, hooks,
 and the library. Two additions this plan must absorb to serve that role,
 flagged here and folded in on the next revision: **config directives**
-(`provider`/`model`/`output`/`approval` as first-class events, interleaved
-with turns), a **`system` message event** (a *turn* event — a plain
+(`provider`/`model`/`output`/`approval`/`mcp`/`tools` as first-class events,
+interleaved with turns; `mcp` toggles MCP-server exposure and `tools` the
+native-tool surface, both via `+name`/`-name` tokens — see the evaluator plan's
+"The `mcp` directive" and "The `tools` directive" sections), a
+**`system` message event** (a *turn* event — a plain
 system-role message — not config; "the system prompt" as a singular owned
 entity is a fiction), and an explicit **`run` event** — the sole invocation
 directive. `user`/`assistant` events always assert history; only `run` invokes
@@ -411,31 +414,42 @@ special-casing a message type:
 emits `system` events, but they are now just messages in the transcript —
 neither privileged on output nor stripped on input.
 
-## Open decisions (flag before building)
+## Decisions (locked 2026-07-11 unless noted)
 
-1. **Does `--output jsonl` interleave `thinking` and `tool_result.output` in
-   full, or cap sizes?** A 5 MB bash output as a JSON string is legal but
-   ugly. Proposal: emit full by default (the seed needs it), offer
-   `--max-output-bytes` that truncates *with a `truncated:true` marker* — but
-   truncation breaks round-trip, so it must be opt-in and loud. Decide whether
-   truncation belongs here or only in the porcelain path.
-2. **One file or two for `/save`?** The umbrella plan's `/save` exports *both*
-   a transcript (seed) and an effective run-spec. Those are different schemas
-   (this one vs the spec schema). Confirm they're sibling files, not one
-   envelope.
+All record-shaping decisions are now ratified; S1 (the type hierarchy +
+serializer) may proceed against them.
+
+1. **Large outputs: full by default, opt-in loud truncation.** `--output jsonl`
+   emits `tool_result.output` and `thinking` in **full** — the seed needs them
+   byte-for-byte, so the round-trip guarantee depends on it. `--max-output-bytes`
+   is the opt-in escape: it truncates *with a `truncated:true` marker*, and
+   because that breaks round-trip it must be explicitly requested, never a
+   default. Truncation lives in the jsonl path as this opt-in only; the
+   porcelain path keeps its own display-oriented truncation independently (it
+   carries no round-trip promise). *(locked 2026-07-11)*
+2. **`/save` writes two sibling files.** A transcript (seed, this schema) and an
+   effective run-spec/preset (the spec schema) are different schemas and stay
+   **separate sibling files**, not one envelope — record → edit → replay wants
+   the transcript standalone, and the preset is reusable across transcripts.
+   *(locked 2026-07-11)*
 3. *(Resolved 2026-07-09 — see "The system message and the prompt floor"
    above. `system` is a plain message that round-trips; nothing is dropped or
    injected; the floor is the default preset carrying the prompt layers as
    `system` directives, loaded only on the human/`-p` path. The earlier
    seed-drop / drop-warning / `--seed-system` design is retired.)*
-4. **Arguments fidelity.** History reconstruction already coerces JSON number
-   arguments to raw strings on load (`ConversationManager.cs:1794`). Decide
-   whether the schema preserves original JSON types (cleaner) or inherits that
-   quirk. Preserving types is the right call for a public contract.
-5. **Event `type` names.** `assistant_text` vs `assistant`; `tool_call` vs
-   `call`. Lock the vocabulary once — it's the public surface. Recommend the
-   verbose forms already in `headless-machine-output.md` (they read well in
-   `jq` selectors: `select(.type=="tool_call")`).
+4. **Arguments preserve their original JSON types.** The schema keeps
+   `tool_call.arguments` values as their true JSON types (numbers stay numbers,
+   bools stay bools) — the right call for a versioned public contract. This
+   **drops** the current load-time coercion of JSON numbers to raw strings
+   (`ConversationManager.cs:1794`); the seed loader must round-trip types
+   faithfully rather than inherit that quirk. *(locked 2026-07-11)*
+5. **Event `type` names: the verbose forms.** `user`, `assistant_text`,
+   `tool_call`, `tool_result`, `thinking`, `assistant_json`, `result` — the
+   forms already in `headless-machine-output.md`. Verbose over terse
+   (`assistant`/`call`/`result`) because they read well in `jq` selectors
+   (`select(.type=="tool_call")`) and `assistant_text` doesn't collide with the
+   `assistant` *turn directive* in the source syntax. This is the public
+   surface; locked. *(locked 2026-07-11)*
 
 ## Relationship to the parent plans + phasing
 
@@ -460,14 +474,37 @@ Concretely it feeds:
 
 Suggested build order for the schema work itself (small, ahead of Phase 3):
 
-- **S0 — ratify the vocabulary.** This doc + the two open-decision locks (5,
-  and 3) that change record shape. No code.
-- **S1 — define the types + serializer.** `TranscriptEvent` hierarchy and a
-  reader/writer, unit-tested against the two captured runs in this doc as
-  golden fixtures (round-trip A → jsonl → A). This is the single highest-value
-  artifact: it de-risks Phases 3+4 before either touches
-  `ConversationManager`.
-- **S2 — wire emit + load** behind the umbrella plan's phases.
+- **S0 — ratify the vocabulary. ✅ Done 2026-07-11.** Decisions locked (see
+  "Decisions" above): verbose event names, JSON-typed arguments,
+  full-output-by-default, two-file `/save`, sibling `mcp`/`tools` verbs.
+- **S1 — define the types + serializer. ✅ Done 2026-07-11.**
+  `Transcript/TranscriptEvent.cs` (the record hierarchy) and
+  `Transcript/TranscriptSerializer.cs` (JSONL reader/writer), unit-tested in
+  `nb.Tests/TranscriptSerializerTests.cs` against this doc's worked example as a
+  golden round-trip fixture. Self-contained — no `ConversationManager` contact.
+  Structural parsing only (required-field checks, unknown-type warn+skip); the
+  cross-event validation contract is carried into S2 with the seed loader.
+- **S2 — wire emit + load. ✅ Done 2026-07-11.** Emit:
+  `Transcript/TranscriptMapper.cs` (history → core events) + `--output jsonl`
+  (transcript to stdout, all chrome relocated to stderr via a one-line
+  AnsiConsole redirect; `ConversationManager` gained `History` + per-turn
+  `LastTurnUsage`). Load: `Transcript/TranscriptLoader.cs` (events → history +
+  the validation contract) + `--seed <file>` (premise history before the live
+  prompt; `AppendHistory`; seeded rounds don't replay, so FileReadTracker stays
+  untouched). Round-trip proven by `RoundTrip_EmitLoadEmit_IsStable` and by 7
+  end-to-end cases in `evals/run.sh` (mock provider, jsonl-stdout + seed).
+  **Transitional:** a seed's own `system` messages are dropped with a warning
+  because nb still hardcode-assembles its system prompt; this retires under the
+  preset-floor model, when `system` becomes a program-owned directive.
+- **S3 — config-directive events (Phase 3.1). ✅ Done 2026-07-12.** The
+  "folded in on the next revision" events from the evaluator reframe:
+  `ProviderEvent`/`ModelEvent`/`OutputEvent` (scalar) and
+  `McpEvent`/`ToolsEvent` (a shared `SurfaceDirectiveEvent` base with
+  `add`/`remove`/`reset` delta semantics), plus the already-present `RunEvent`,
+  wired through `TranscriptSerializer` (write + parse) and round-trip-tested.
+  Bytecode only — no evaluator yet. `approval` deferred to Phase 5 with its
+  policy. The event-types jsonc examples above predate this and still show only
+  the turn/tool set.
 
 ## Worked example: the captured tool run as jsonl
 

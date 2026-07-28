@@ -13,6 +13,15 @@ public class Program
 
     public static async Task Main(string[] args)
     {
+        // Test hook: simulate a stdio server that crashes on startup before it ever
+        // completes the MCP handshake. Lets a client exercise its "server failed to
+        // start / never initialized" path rather than a clean tools-only server.
+        if (args.Contains("--die-on-startup"))
+        {
+            Console.Error.WriteLine("mcp-tester: dying on startup before handshake (--die-on-startup)");
+            Environment.Exit(1);
+        }
+
         var builder = Host.CreateApplicationBuilder(args);
         builder.Logging.AddConsole(consoleLogOptions =>
         {

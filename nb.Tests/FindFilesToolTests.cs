@@ -120,41 +120,6 @@ public class FindFilesToolTests : IDisposable
     }
 
     [Fact]
-    public void FindFiles_SkipsNbStateFiles()
-    {
-        // The bug report's fixture: nb's own scratch state sitting alongside the
-        // user's project files, reported back to the model as project content.
-        CreateFiles(
-            NbStateFiles.ConversationHistory,
-            NbStateFiles.ConversationHistoryLock,
-            NbStateFiles.ActiveKits,
-            "notes.txt", "README.md");
-
-        var result = _tool.FindFiles("**/*");
-
-        Assert.True(result.Success);
-        Assert.Equal(
-            new[] { "README.md", "notes.txt" },
-            result.Files.OrderBy(f => f, StringComparer.Ordinal).ToArray());
-    }
-
-    [Fact]
-    public void FindFiles_SkipsNbStateFilesWhenNested()
-    {
-        // nb writes state into whatever directory it was launched from, so a tree
-        // spanning several project roots can carry these at any depth.
-        CreateFiles(
-            $"proj/{NbStateFiles.ConversationHistory}",
-            $"proj/a/b/{NbStateFiles.ConversationHistoryLock}",
-            "proj/App.cs");
-
-        var result = _tool.FindFiles("**/*");
-
-        Assert.True(result.Success);
-        Assert.Equal(new[] { "proj/App.cs" }, result.Files);
-    }
-
-    [Fact]
     public void FindFiles_RespectsMaxResults()
     {
         for (int i = 0; i < 10; i++)

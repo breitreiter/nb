@@ -1,0 +1,5 @@
+{"type":"user","turn":0,"text":"what did ls show?"}
+{"type":"assistant_text","turn":0,"text":"let me check"}
+{"type":"tool_call","turn":0,"id":"c1","name":"bash","arguments":{"command":"ls"}}
+{"type":"tool_result","turn":0,"id":"c1","output":"foo.txt bar.txt"}
+{"type":"run","turn":1}

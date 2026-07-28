@@ -1,0 +1,2 @@
+{"type":"user","turn":0,"text":"hi"}
+{"type":"tool_result","turn":1,"id":"ghost","output":"x"}

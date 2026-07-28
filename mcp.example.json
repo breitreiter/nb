@@ -15,7 +15,10 @@
     },
     "cloudflare_demo_day": {
       "type": "http",
-      "endpoint": "https://demo-day.mcp.cloudflare.com/sse"
+      "endpoint": "https://demo-day.mcp.cloudflare.com/sse",
+      "headers": {
+        "Authorization": "Bearer ${MCP_CLOUDFLARE_TOKEN}"
+      }
     }
   }
 }

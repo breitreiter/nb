@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\nb.Core\nb.Core.csproj" />
     <ProjectReference Include="..\nb.csproj" />
   </ItemGroup>
 

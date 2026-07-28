@@ -2,9 +2,9 @@
 kind: plan
 title: Composable-CLI reorientation — nb as an automation tool first
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-11
 status: current
-state: exploring
+state: active
 touches:
   files:
     - Program.cs
@@ -20,6 +20,15 @@ provenance:
 ---
 
 # Composable-CLI reorientation — nb as an automation tool first
+
+> **Revision (2026-07-12): kits removed entirely.** This plan (Pillar 1, "What
+> this costs") kept kits as demoted prompt/tool *overlays* composing on top of a
+> spec. That's superseded: kits are deleted outright (`KitManager`, `+kit`
+> tokens, `/kit`, `.nb_active_kits.json`, `kits.json`). The tool-focusing use
+> case they served is deprioritized along with nb-as-general-CLI-client, and the
+> `mcp`/`tools` directives (evaluator plan) become the sole tool-surface
+> mechanism. Interim: MCP tools are unexposed until those directives land. The
+> text below is preserved as the original intent.
 
 ## Why this plan exists
 
@@ -617,6 +626,69 @@ system by writing config. Hook paths are trust-gated like writes — never
 auto-approved out of a model-generated spec.
 
 ## Phasing
+
+**Status (2026-07-11).** Design ratified: this plan and its two children
+(`conversation-program-evaluator.md`, `transcript-schema.md`) are now
+`state: active`, and the transcript-schema record-shaping decisions are locked
+(verbose event names, JSON-typed arguments, full-output-by-default, two-file
+`/save`, sibling `mcp`/`tools` config verbs). **Landed early, out of phase
+order:** Phase 3's *deletion half* — `HistoryLock`, `.nb_conversation_history.json`
+save/load, and `.nb_active_kits.json` persistence are removed; every invocation
+is already stateless. Next up is the schema keystone (transcript-schema S1:
+types + serializer + golden round-trip tests), which both Phase 3 (seeds) and
+Phase 4 (jsonl) build on.
+
+**Status (2026-07-14).** Phases 0–3 are landed, plus Phase 4's core (jsonl +
+telemetry arrived early via the S2 transcript seam and the exit-code contract).
+The "specs, not switches" thesis runs as code: layered config, `--program`/
+`--spec` (incl. computed `chat`/text `headless`), `--validate`/`--resolve`,
+mid-stream provider/model swap. **The Phase 3 tail is cleared:** the default
+preset is a first-class directive list routed through the evaluator (the
+prompt-floor invariant, now `rules/preset-floor.md`); `--seed` keeps a
+transcript's own `system` messages; the `mcp`/`tools` directives reshape the tool
+surface (`plans/tool-surface-directives.md`, strict-empty MCP for programs);
+`tool_call`/`tool_result` turns evaluate as fabricated premise; and the result
+trailer sums token usage across all runs. The one deferred item, the `approval`
+directive, is deliberately **Phase 5** work (it ships with the approval-policy
+object + sandbox).
+
+**Status (2026-07-15).** Phase 5 is done (declarative approval policy + the bwrap
+bash sandbox) and the Phase 2 remainder landed: friendly env aliases
+(`NB_PROVIDER`/`NB_MODEL`/`NB_OUTPUT`/`NB_SPEC`) and layered `mcp.json`
+(install → user → project, merged by server name). **Remaining: only Phase 6**
+(the library facade as a package).
+
+**Status (2026-07-16).** Phase 6a landed — the in-process facade. `Facade/Nb.cs`
+exposes `Nb.RunAsync(config, program, options) → RunResult` (Events/Answer/Usage/
+ExitReason/ExitCode, no engine types leaking), plus a fluent `NbProgramBuilder`.
+`Facade/NbRuntime.cs` is the shared assembler that **throws `NbStartupException`
+instead of `Environment.Exit`** and suppresses engine chrome. The CLI's program/
+spec run path is now a thin shell over `Nb.RunAsync` (byte-identical: 297 unit +
+56 evals green). **Deferred to Phase 6b (packaging):** the `nb.Core` project split
++ NuGet, library-host provider loading (still `AppContext.BaseDirectory/providers`),
+removing `AnsiConsole`/`Environment.Exit` from engine classes, and unifying the
+bare/interactive wiring (currently NbRuntime ≈ Program's inline block). Detailed
+6a design: the approved plan (was ~/.claude/plans/fluttering-sleeping-pnueli.md).
+
+**Status (2026-07-16, cont.).** Phase 6b landed — nb is a referenceable library.
+6b.1: provider loading works for a library host — `ProviderManager(string? dir)` is
+injectable (`NbOptions.ProvidersDirectory` ?? `config["ProvidersPath"]` ?? the
+executable-relative default), and the once-silent load failure now emits a
+diagnostic. 6b.2: the engine split into **`nb.Core`** (a self-contained `net10.0`
+library — Transcript/MCP/Shell/Utilities/Facade/Providers-loader + ConversationManager/
+ProgramEvaluator/etc.), with `nb.csproj` reduced to a thin `Exe` (Program +
+CommandProcessor + the line-editor mention source) referencing it. Namespaces stayed
+`nb.*`; the one engine→CLI cycle (three config helpers) moved to
+`nb.Core/ProviderConfigResolver.cs`; `InternalsVisibleTo` spans both assemblies;
+`nb.Core` keeps `RootNamespace=nb` so the embedded robot-logo manifest name is stable.
+A Roslyn-built consumer references `nb.Core` and calls `Nb.RunAsync` in-process — no
+Exe baggage. Byte-identical: 297 unit + 56 evals green, 0 warnings, `bin/` still ships
+`nb` + `nb.Core.dll` + `providers/` + content together. **NuGet is deliberately out**
+(deferred indefinitely — a nice-to-have / community PR; the consumer is assembly refs,
+not packages). **The composable-CLI reorientation is complete.** Remaining loose ends
+are cleanups, not phases: engine `AnsiConsole` chrome (masked by the facade), the
+bare/interactive-vs-NbRuntime wiring duplication, and the owed downstream spec doc
+(TODO.md).
 
 Ordered so each phase delivers standalone value and the weaver harness can
 shed a hack at every step.
