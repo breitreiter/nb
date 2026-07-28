@@ -147,3 +147,20 @@ ignored with no diagnostic at all.
 
 Worth doing 2 regardless of whether 1 lands; the misleading error is most of
 the cost of this bug.
+
+---
+
+## Predates the conversation-program merge (2026-07-28)
+
+Written against the pre-`nb.Core` architecture — interactive REPL, per-directory
+conversation history, kits — which the merge in `92da725` replaced. Paths and
+symbols named above may have moved: `Providers/ProviderEntries.cs` is now
+`nb.Core/ProviderEntries.cs`, and `Providers/ProviderManager.cs` is
+`nb.Core/ProviderManager.cs`.
+
+The fix carried through the merge and its tests still pass. One thing noticed in
+passing and deliberately not chased: `nb.Core/ProviderConfigResolver.cs`, which
+arrived on the merged branch, hand-rolls three `provider["Name"]` lookups of its
+own rather than going through `ProviderEntries`. Those are label lookups, so they
+look correct as written — but they were not audited, and this report is the place
+to settle whether they should share the seam. Do that when closing.

@@ -34,3 +34,17 @@ Both landed Thu 2026-04-23, the morning before the regression was first observed
   - Fall back to `GetResponseAsync` for Responses-API providers.
   - Build the `ChatResponse` manually from accumulated updates instead of relying on `ToChatResponse()`, to guarantee tool-call content survives.
 - [ ] If revert does *not* fix it: re-test against `d06ab84^` to isolate the M.E.AI/Responses-API adapter change.
+
+---
+
+## Predates the conversation-program merge (2026-07-28)
+
+Written against the pre-`nb.Core` architecture — interactive REPL, per-directory
+conversation history, kits — which the merge in `92da725` replaced. The streaming
+path now lives in `nb.Core/ConversationManager.cs`, rewritten at roughly 73%
+similarity, so the bisect plan's commit references (`aafb050`, `aba44f8`,
+`d06ab84`) point into pre-merge history and the reverts described may not apply
+cleanly.
+
+Still on hold, and not re-audited. Re-confirm the symptom against current
+`master` before spending time on the bisect.

@@ -112,3 +112,23 @@ Note this becomes moot for the history files specifically if the
 
 Related: `bugs/FindFiles_Skips_Only_At_Root.md` — the same tool also fails to
 exclude the directories it *does* know about, once they are nested.
+
+---
+
+## Obsoleted by the conversation-program merge (2026-07-28)
+
+The fix recorded above was **reverted** in the merge in `92da725`, deliberately.
+
+This report's premise was that nb writes three files into whatever directory it
+runs from. The merged architecture writes none of them: `HistoryLock` and
+`KitManager` are deleted and per-directory conversation history is gone with
+them. `Shell/NbStateFiles.cs` and its four tests were dropped rather than
+carried, because the class's stated invariant — that the components writing
+these files reference the same constants — no longer held once nothing wrote
+them.
+
+What remains open, if anything, is a different and much weaker question: whether
+discovery should filter *stale* state files left behind in directories where an
+older nb once ran. That is cruft-filtering, not self-filtering, and it was not
+decided. Nothing else here was re-audited against the new architecture. Settle
+that question when closing.

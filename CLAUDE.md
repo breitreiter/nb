@@ -165,7 +165,9 @@ Cross-platform file tools that don't require shell access. All read-only tools a
 
 **Auto-skipped directories:** `.git`, `node_modules`, `bin`, `obj`, `.vs`, `__pycache__`, `.venv`, `venv`, `.idea`, `dist`, `build`, `.next`, `.nuget`
 
-**Auto-skipped files:** nb's own per-directory state — `.nb_conversation_history.json`, `.nb_conversation_history.lock`, `.nb_active_kits.json`. Names and the ignore set both live in `Shell/NbStateFiles.cs`, which the components that *write* these files also reference.
+No files are skipped by name. nb is stateless per-directory — it writes no
+conversation history, lock, or kit state — so there is nothing of its own for
+discovery to filter out. See `bugs/nb_State_Files_Leak_Into_Discovery.md`.
 
 ## Trust Mode (`--trust`)
 Auto-approves file tools and non-dangerous bash commands **within the working directory sandbox**.
@@ -243,7 +245,7 @@ The application uses an array-based provider configuration schema:
   { "Name": "LocalAir",   "Provider": "LocalLlm", "Endpoint": "…:8082/v1", "Model": "glm-4.5-air" }
   ```
 - Provider-specific fields are read directly from the provider's config object (no nested paths)
-- Prompt files resolve by entry label first, then by implementation — `system.LocalCoder.md` if present, else `system.LocalLlm.md`. Same for the model-specific `system.{scope}.{modelslug}.md` form. Entry-label and implementation resolution live in `Providers/ProviderEntries.cs`
+- Prompt files resolve by entry label first, then by implementation — `system.LocalCoder.md` if present, else `system.LocalLlm.md`. Same for the model-specific `system.{scope}.{modelslug}.md` form. Entry-label and implementation resolution live in `nb.Core/ProviderEntries.cs`
 - `EditToolStyle` (optional, per-provider) - Selects the file-edit tool surface exposed to the model. `EditReplace` (default) registers `edit_file` + `write_file`; `ApplyPatch` registers `apply_patch` instead. Mutually exclusive — GPT-family models tend to confuse the two surfaces, so pick one.
 
 ## Important Workflow Reminders

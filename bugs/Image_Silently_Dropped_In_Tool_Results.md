@@ -193,3 +193,19 @@ moot — see `TODO.md` on retiring the history machinery.
 `conversation-program` branch, which rewrites the surrounding tool loop. If that
 branch is close to landing, reimplement there rather than porting a master-side
 patch across the restructure.
+
+---
+
+## The restructure this report anticipated has now landed (2026-07-28)
+
+The note above ends by saying that if the `conversation-program` branch was close
+to landing, candidate 1 should be reimplemented there rather than ported across
+the restructure. That branch landed in `92da725`. So take the second path.
+
+`ConversationManager.cs` is now `nb.Core/ConversationManager.cs`, rewritten at
+roughly 73% similarity, and the surrounding tool loop is not the one described
+above. The parked stash still exists locally but no longer applies to any file in
+the tree — the **Findings (2026-07-28)** section is the durable record, as it says.
+
+Nothing here was re-audited against the new architecture; the symptom itself has
+not been re-tested since the merge. Do that when picking this back up.

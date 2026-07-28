@@ -115,3 +115,15 @@ exists but evidently has no nested-skip case, which is how this survived.
 
 Verify the fix against the fixture above; a root-only test cannot distinguish
 the broken behaviour from the fixed one.
+
+---
+
+## Predates the conversation-program merge (2026-07-28)
+
+Written against the pre-`nb.Core` architecture — interactive REPL, per-directory
+conversation history, kits — which the merge in `92da725` replaced. Paths and
+symbols named above may have moved: `Shell/FindFilesTool.cs` is now
+`nb.Core/Shell/FindFilesTool.cs`.
+
+The fix itself carried through the merge and its tests still pass. Nothing else
+here was re-audited against the new architecture. Do that when closing.
