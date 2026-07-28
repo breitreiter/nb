@@ -219,9 +219,16 @@ The application uses an array-based provider configuration schema:
   ]
 }
 ```
-- `ActiveProvider` - Selects which provider from the array to use
-- `ChatProviders` - Array of provider configurations, each with a `Name` field matching the provider's implementation
+- `ActiveProvider` - Selects which `ChatProviders` entry to use, by its `Name`
+- `ChatProviders` - Array of provider configurations
+- `Name` - Free-form label for the entry. This is what `ActiveProvider` and `/provider` select by, and what per-entry lookups (`MaxContextTokens`, `Temperature`, `EditToolStyle`, prompt files) key off
+- `Provider` (optional) - Name of the provider implementation backing the entry. Defaults to `Name`. Set it when several entries share one implementation — e.g. two `LocalLlm` servers on different ports:
+  ```jsonc
+  { "Name": "LocalCoder", "Provider": "LocalLlm", "Endpoint": "…:8081/v1", "Model": "qwen3-coder-next" },
+  { "Name": "LocalAir",   "Provider": "LocalLlm", "Endpoint": "…:8082/v1", "Model": "glm-4.5-air" }
+  ```
 - Provider-specific fields are read directly from the provider's config object (no nested paths)
+- Prompt files resolve by entry label first, then by implementation — `system.LocalCoder.md` if present, else `system.LocalLlm.md`. Same for the model-specific `system.{scope}.{modelslug}.md` form. Entry-label and implementation resolution live in `Providers/ProviderEntries.cs`
 - `EditToolStyle` (optional, per-provider) - Selects the file-edit tool surface exposed to the model. `EditReplace` (default) registers `edit_file` + `write_file`; `ApplyPatch` registers `apply_patch` instead. Mutually exclusive — GPT-family models tend to confuse the two surfaces, so pick one.
 
 ## Important Workflow Reminders

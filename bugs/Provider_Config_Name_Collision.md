@@ -1,6 +1,53 @@
 # Can't configure two endpoints for one provider implementation
 
-Status: Open (2026-07-26) — no workaround beyond editing `appsettings.json` in place.
+Status: Fixed (2026-07-28) — both candidates landed.
+
+## Fix
+
+New `Providers/ProviderEntries.cs` separates the two keys. `Name` is now a
+free-form label; an optional `Provider` field names the implementation, and
+defaults to `Name` when absent — so every existing config keeps working
+untouched.
+
+`TryCreateChatClient` now resolves the **config entry first** and the
+implementation second. That ordering is the actual fix: the entry is what the
+user selects, and the implementation behind it is a detail of the entry rather
+than the other way round.
+
+One thing in the report was wrong. It predicted the fix would have to touch the
+four name-keyed resolvers in `Program.cs` — `ResolveMaxContextTokens`,
+`ResolveProviderFloat`, `ResolveActiveModelSlug`, and the `EditToolStyle`
+lookup. They all already key off the *config entry* by `Name`, which is exactly
+right once the keys decouple, so none of them changed. Only implementation
+resolution needed the indirection.
+
+The system-prompt lookup did change meaning, as predicted, but not as a break:
+prompt files now resolve by entry label **then** implementation, first match
+wins. So `LocalCoder` picks up `system.LocalLlm.md` and
+`system.LocalLlm.<modelslug>.md` unless it has files of its own. Nobody relying
+on the current filenames loses anything, and per-entry prompts are available to
+anyone who wants that granularity.
+
+Candidate 2's diagnostics landed too, since they were most of the cost:
+
+- An entry naming an unloaded implementation now says which field failed —
+  `Entry 'Broken' names provider implementation 'NoSuchImpl' (via "Provider"),
+  which is not loaded` — rather than pointing at the entry name and reading like
+  a DLL load failure.
+- An entry whose `Name` matches no implementation and has no `Provider` field
+  gets the actionable form: *add a `Provider` field naming one, or rename the
+  entry.*
+- Duplicate labels now warn instead of silently discarding the later entry.
+- All listings are sorted, and `ShowProviderStatus` enumerates entries (showing
+  `LocalCoder (via LocalLlm)`) plus a trailing line naming loaded-but-unused
+  implementations — without it the listing can't tell you what `Provider` is
+  allowed to say.
+
+Coverage in `nb.Tests/ProviderEntriesTests.cs` (11 tests), including this
+report's two-entry fixture verbatim, comment-key entries as they appear in real
+`appsettings.json`, and the duplicate-label case. Verified end-to-end against
+two local servers: `LocalCoder`/`LocalAir` on ports 8081/8082 both resolve, and
+all four diagnostic paths were exercised against a running binary.
 
 ---
 

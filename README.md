@@ -268,6 +268,15 @@ Switch between AI providers during a conversation to leverage different models' 
 
 Conversation history is maintained when switching providers, allowing you to continue the same conversation with different AI models.
 
+The menu lists `ChatProviders` entries, not implementations. An entry's `Name` is a free-form label; the optional `Provider` field names the implementation behind it, so several entries can share one — useful when a single implementation fronts multiple backends, as `LocalLlm` does for local servers:
+
+```jsonc
+{ "Name": "LocalCoder", "Provider": "LocalLlm", "Endpoint": "http://127.0.0.1:8081/v1", "Model": "qwen3-coder-next" },
+{ "Name": "LocalAir",   "Provider": "LocalLlm", "Endpoint": "http://127.0.0.1:8082/v1", "Model": "glm-4.5-air" }
+```
+
+Omit `Provider` and it defaults to `Name`, which is how every single-backend entry above is written.
+
 ### MCP Configuration
 Configure MCP servers in `mcp.json`:
 ```json

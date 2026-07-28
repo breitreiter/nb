@@ -194,6 +194,16 @@ public class Program
         return int.TryParse(config["MaxContextTokens"], out var tokens) ? tokens : 128000;
     }
 
+    // The provider implementation backing an entry label, or null if there is no such entry.
+    private static string? ResolveImplementationName(Microsoft.Extensions.Configuration.IConfiguration config, string providerName) =>
+        nb.Providers.ProviderEntries.Find(nb.Providers.ProviderEntries.ReadAll(config), providerName)?.Implementation;
+
+    // Returns the first prompt file that exists, or null. Candidates run most specific first.
+    private static string? FirstExistingPrompt(IEnumerable<string> fileNames) =>
+        fileNames
+            .Select(name => Path.Combine(AppContext.BaseDirectory, "prompts", name))
+            .FirstOrDefault(File.Exists);
+
     private static string? ResolveActiveModelSlug(Microsoft.Extensions.Configuration.IConfiguration config, string providerName)
     {
         var providers = config.GetSection("ChatProviders").GetChildren();
@@ -411,19 +421,31 @@ public class Program
             ? basePrompt
             : $"{basePrompt}\n\n{_shellEnvironment.BuildSystemPromptSection()}";
 
+        // Prompt files are looked up by entry label first, then by the implementation
+        // behind it -- so an entry labelled "LocalCoder" still picks up system.LocalLlm.md
+        // unless it has a file of its own. Entries not using a "Provider" field have
+        // identical label and implementation, so this is a no-op for them.
+        var promptScopes = new List<string> { activeProviderName };
+        var activeImplementation = ResolveImplementationName(config, activeProviderName);
+        if (!string.IsNullOrEmpty(activeImplementation)
+            && !string.Equals(activeImplementation, activeProviderName, StringComparison.OrdinalIgnoreCase))
+        {
+            promptScopes.Add(activeImplementation);
+        }
+
         // Append provider-specific system prompt if present (e.g. system.AzureFoundry.md)
-        var providerPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", $"system.{activeProviderName}.md");
-        if (File.Exists(providerPromptPath))
-            fullPrompt += $"\n\n{File.ReadAllText(providerPromptPath)}";
+        var providerPrompt = FirstExistingPrompt(promptScopes.Select(s => $"system.{s}.md"));
+        if (providerPrompt != null)
+            fullPrompt += $"\n\n{File.ReadAllText(providerPrompt)}";
 
         // Append provider+model-specific prompt if present (e.g. system.LocalLlm.qwen-coder.md).
         // Lets one provider host multiple models with distinct quirks.
         var activeModelSlug = ResolveActiveModelSlug(config, activeProviderName);
         if (!string.IsNullOrEmpty(activeModelSlug))
         {
-            var modelPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", $"system.{activeProviderName}.{activeModelSlug}.md");
-            if (File.Exists(modelPromptPath))
-                fullPrompt += $"\n\n{File.ReadAllText(modelPromptPath)}";
+            var modelPrompt = FirstExistingPrompt(promptScopes.Select(s => $"system.{s}.{activeModelSlug}.md"));
+            if (modelPrompt != null)
+                fullPrompt += $"\n\n{File.ReadAllText(modelPrompt)}";
         }
 
         // Auto-load project context from NB.md in working directory

@@ -69,32 +69,47 @@ public class ProviderManager
     public IChatClient? TryCreateChatClient(IConfiguration config, string? specificProviderName = null)
     {
         var activeProviderName = specificProviderName ?? config["ActiveProvider"];
+        var entries = ProviderEntries.ReadAll(config);
 
         if (string.IsNullOrEmpty(activeProviderName))
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No active provider specified in configuration (ActiveProvider)[/]");
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Available providers: {string.Join(", ", _providers.Select(p => p.Name))}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Configured entries: {FormatList(entries.Select(e => e.Label))}[/]");
             return null;
         }
 
+        WarnOnDuplicateLabels(entries);
+
+        // The config entry is what the user selects, so resolve it first -- the
+        // implementation behind it is an implementation detail of the entry.
+        var entry = ProviderEntries.Find(entries, activeProviderName);
+
+        if (entry == null)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No configuration found for provider '{activeProviderName}' in ChatProviders array[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Configured entries: {FormatList(entries.Select(e => e.Label))}[/]");
+            return null;
+        }
+
+        var providerConfig = entry.Config;
         var provider = _providers.FirstOrDefault(p =>
-            string.Equals(p.Name, activeProviderName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(p.Name, entry.Implementation, StringComparison.OrdinalIgnoreCase));
 
         if (provider == null)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No provider found for: {activeProviderName}[/]");
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Available providers: {string.Join(", ", _providers.Select(p => p.Name))}[/]");
-            return null;
-        }
+            // Name the field that actually failed. Reporting only the entry name reads as
+            // "the DLL didn't load" and sends you inspecting providers/ for a while.
+            if (entry.IsAliased)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Entry '{entry.Label}' names provider implementation '{entry.Implementation}' (via \"{ProviderEntries.ImplementationKey}\"), which is not loaded[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Entry '{entry.Label}' names no known provider implementation[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Add a \"{ProviderEntries.ImplementationKey}\" field naming one, or rename the entry to match.[/]");
+            }
 
-        // Find the provider's configuration from the ChatProviders array
-        var providerConfigs = config.GetSection("ChatProviders").GetChildren();
-        var providerConfig = providerConfigs.FirstOrDefault(c =>
-            string.Equals(c["Name"], activeProviderName, StringComparison.OrdinalIgnoreCase));
-
-        if (providerConfig == null)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]No configuration found for provider '{activeProviderName}' in ChatProviders array[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Loaded implementations: {FormatList(_providers.Select(p => p.Name))}[/]");
             return null;
         }
 
@@ -104,7 +119,7 @@ public class ProviderManager
                 .Where(key => string.IsNullOrEmpty(providerConfig[key]))
                 .ToArray();
 
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Provider '{provider.Name}' is missing required configuration:[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Entry '{entry.Label}' is missing configuration required by '{provider.Name}':[/]");
             foreach (var key in missingKeys)
             {
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  - {key}[/]");
@@ -118,45 +133,38 @@ public class ProviderManager
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to create client for provider '{provider.Name}': {Markup.Escape(ex.Message)}[/]");
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Failed to create client for '{entry.Label}': {Markup.Escape(ex.Message)}[/]");
             return null;
         }
     }
 
     public IEnumerable<string> GetAvailableProviders() => _providers.Select(p => p.Name);
 
-    public IEnumerable<string> GetConfiguredProviders(IConfiguration config)
-    {
-        var providerConfigs = config.GetSection("ChatProviders").GetChildren();
-
-        return _providers
-            .Where(provider =>
-            {
-                var providerConfig = providerConfigs.FirstOrDefault(c =>
-                    string.Equals(c["Name"], provider.Name, StringComparison.OrdinalIgnoreCase));
-                return providerConfig != null;
-            })
-            .Select(p => p.Name);
-    }
+    /// <summary>
+    /// Entry labels that are actually selectable — those whose implementation is loaded.
+    /// </summary>
+    public IEnumerable<string> GetConfiguredProviders(IConfiguration config) =>
+        ProviderEntries.ReadAll(config)
+            .Where(e => FindImplementation(e) != null)
+            .Select(e => e.Label);
 
     public void ShowProvidersWithStatus(IConfiguration config, string currentProviderName)
     {
-        var providerConfigs = config.GetSection("ChatProviders").GetChildren();
+        var entries = ProviderEntries.ReadAll(config);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Available Providers:[/]");
 
-        foreach (var provider in _providers)
+        foreach (var entry in entries)
         {
-            var providerConfig = providerConfigs.FirstOrDefault(c =>
-                string.Equals(c["Name"], provider.Name, StringComparison.OrdinalIgnoreCase));
-
-            var canCreate = providerConfig != null && provider.CanCreate(providerConfig);
-            var isActive = string.Equals(provider.Name, currentProviderName, StringComparison.OrdinalIgnoreCase);
+            var provider = FindImplementation(entry);
+            var canCreate = provider != null && provider.CanCreate(entry.Config);
+            var isActive = string.Equals(entry.Label, currentProviderName, StringComparison.OrdinalIgnoreCase);
 
             var status = canCreate ? $"[{UIColors.SpectreSuccess}]configured[/]" : $"[{UIColors.SpectreMuted}]not configured[/]";
             var activeMarker = isActive ? $"[{UIColors.SpectreWarning}]*[/] " : "  ";
+            var via = entry.IsAliased ? $"[{UIColors.SpectreMuted}] (via {entry.Implementation})[/]" : string.Empty;
 
-            AnsiConsole.MarkupLine($"{activeMarker}[{UIColors.SpectreInfo}]{provider.Name}[/] {status}");
+            AnsiConsole.MarkupLine($"{activeMarker}[{UIColors.SpectreInfo}]{entry.Label}[/]{via} {status}");
         }
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]* = active provider[/]");
@@ -164,27 +172,32 @@ public class ProviderManager
 
     public void ShowProviderStatus(IConfiguration config)
     {
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Available Chat Providers:[/]");
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Configured Chat Providers:[/]");
 
-        var providerConfigs = config.GetSection("ChatProviders").GetChildren();
+        var entries = ProviderEntries.ReadAll(config);
 
-        foreach (var provider in _providers)
+        if (entries.Count == 0)
         {
-            var providerConfig = providerConfigs.FirstOrDefault(c =>
-                string.Equals(c["Name"], provider.Name, StringComparison.OrdinalIgnoreCase));
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  (none — ChatProviders is empty)[/]");
+        }
 
-            var canCreate = providerConfig != null && provider.CanCreate(providerConfig);
+        foreach (var entry in entries)
+        {
+            var provider = FindImplementation(entry);
+            var canCreate = provider != null && provider.CanCreate(entry.Config);
             var status = canCreate ? $"[{UIColors.SpectreSuccess}]✓[/]" : $"[{UIColors.SpectreError}]✗[/]";
-            AnsiConsole.MarkupLine($"  {status} {provider.Name}");
+            var via = entry.IsAliased ? $" (via {entry.Implementation})" : string.Empty;
 
-            if (providerConfig == null)
+            AnsiConsole.MarkupLine($"  {status} {entry.Label}{via}");
+
+            if (provider == null)
             {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]    No configuration found in ChatProviders array[/]");
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]    No provider implementation named '{entry.Implementation}' is loaded[/]");
             }
             else if (!canCreate)
             {
                 var missingKeys = provider.RequiredConfigKeys
-                    .Where(key => string.IsNullOrEmpty(providerConfig[key]))
+                    .Where(key => string.IsNullOrEmpty(entry.Config[key]))
                     .ToArray();
                 foreach (var key in missingKeys)
                 {
@@ -192,5 +205,36 @@ public class ProviderManager
                 }
             }
         }
+
+        // Implementations nothing points at. Without this the list above can't tell you
+        // what a "Provider" field is allowed to say.
+        var unused = _providers
+            .Select(p => p.Name)
+            .Where(name => !entries.Any(e => string.Equals(e.Implementation, name, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (unused.Count > 0)
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Loaded but unused implementations: {string.Join(", ", unused)}[/]");
+        }
+    }
+
+    private IChatClientProvider? FindImplementation(ProviderEntry entry) =>
+        _providers.FirstOrDefault(p =>
+            string.Equals(p.Name, entry.Implementation, StringComparison.OrdinalIgnoreCase));
+
+    private static void WarnOnDuplicateLabels(List<ProviderEntry> entries)
+    {
+        foreach (var label in ProviderEntries.DuplicateLabels(entries))
+        {
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: more than one ChatProviders entry is named '{label}'; only the first is used[/]");
+        }
+    }
+
+    private static string FormatList(IEnumerable<string> names)
+    {
+        var sorted = names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        return sorted.Count > 0 ? string.Join(", ", sorted) : "(none)";
     }
 }
