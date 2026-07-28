@@ -63,10 +63,13 @@ public class FindFilesTool
             var matcher = new Matcher();
             matcher.AddInclude(pattern);
 
-            // Add exclusions for common directories
+            // Add exclusions for common directories. A pattern whose first segment
+            // is a literal name is anchored at the search root, so "bin/**" only
+            // skips a root-level bin/. The "**/" form catches it at any depth.
             foreach (var dir in SkipDirectories)
             {
                 matcher.AddExclude($"{dir}/**");
+                matcher.AddExclude($"**/{dir}/**");
             }
 
             var directoryInfo = new DirectoryInfoWrapper(new DirectoryInfo(searchDir));

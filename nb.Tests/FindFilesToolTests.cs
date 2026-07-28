@@ -82,6 +82,44 @@ public class FindFilesToolTests : IDisposable
     }
 
     [Fact]
+    public void FindFiles_SkipsNestedBinObjNodeModules()
+    {
+        CreateFiles(
+            "real.txt", "bin/x/f.txt", "obj/x/f.txt", "node_modules/x/f.txt",
+            "proj/real.txt", "proj/bin/x/f.txt", "proj/obj/x/f.txt", "proj/node_modules/x/f.txt");
+
+        var result = _tool.FindFiles("**/*");
+
+        Assert.True(result.Success);
+        Assert.Equal(new[] { "proj/real.txt", "real.txt" }, result.Files.OrderBy(f => f).ToArray());
+    }
+
+    [Fact]
+    public void FindFiles_SkipsDeeplyNestedSkipDirectory()
+    {
+        CreateFiles("a/b/c/App.cs", "a/b/c/bin/Debug/app.dll", "a/b/.git/HEAD");
+
+        var result = _tool.FindFiles("**/*");
+
+        Assert.True(result.Success);
+        Assert.Single(result.Files);
+        Assert.Contains("App.cs", result.Files[0]);
+    }
+
+    [Fact]
+    public void FindFiles_SkipDirectoryAsSearchRoot_StillSearchable()
+    {
+        CreateFiles("bin/Debug/app.dll");
+
+        // Exclusions are relative to the search root, so asking for bin/ explicitly
+        // still works -- the skip list filters incidental hits, not deliberate ones.
+        var result = _tool.FindFiles("**/*", "bin");
+
+        Assert.True(result.Success);
+        Assert.Single(result.Files);
+    }
+
+    [Fact]
     public void FindFiles_RespectsMaxResults()
     {
         for (int i = 0; i < 10; i++)

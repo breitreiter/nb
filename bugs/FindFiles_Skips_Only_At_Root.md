@@ -1,7 +1,26 @@
 # find_files only skips bin/obj/node_modules at the repo root
 
-Status: Open (2026-07-26) — found while investigating
+Status: Fixed (2026-07-28) — found while investigating
 `bugs/nb_State_Files_Leak_Into_Discovery.md`. Higher impact than that one.
+
+## Fix
+
+`FindFilesTool.cs` now adds both forms of each exclusion — `{dir}/**` for the
+root-anchored case and `**/{dir}/**` for any depth. Regression coverage in
+`nb.Tests/FindFilesToolTests.cs`:
+
+- `FindFiles_SkipsNestedBinObjNodeModules` — the fixture from this report,
+  verbatim; expects only `real.txt` and `proj/real.txt`.
+- `FindFiles_SkipsDeeplyNestedSkipDirectory` — three levels down.
+- `FindFiles_SkipDirectoryAsSearchRoot_StillSearchable` — asking for `bin/`
+  explicitly still returns its contents. Exclusions are relative to the search
+  root, so the skip list filters incidental hits, not deliberate ones.
+
+Both regression tests were confirmed to fail against the unfixed tool.
+
+The pre-existing skip tests (`FindFiles_SkipsGitDirectory`,
+`FindFiles_SkipsNodeModules`, `FindFiles_SkipsBinObj`) all placed their junk at
+the search root, which is why the suite was green while the bug was live.
 
 ---
 
