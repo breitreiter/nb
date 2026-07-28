@@ -150,6 +150,8 @@ Cross-platform file tools that don't require shell access. All read-only tools a
 
 **Auto-skipped directories:** `.git`, `node_modules`, `bin`, `obj`, `.vs`, `__pycache__`, `.venv`, `venv`, `.idea`, `dist`, `build`, `.next`, `.nuget`
 
+**Auto-skipped files:** nb's own per-directory state — `.nb_conversation_history.json`, `.nb_conversation_history.lock`, `.nb_active_kits.json`. Names and the ignore set both live in `Shell/NbStateFiles.cs`, which the components that *write* these files also reference.
+
 ## Trust Mode (`--trust`)
 Auto-approves file tools and non-dangerous bash commands **within the working directory sandbox**.
 

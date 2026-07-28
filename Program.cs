@@ -19,7 +19,7 @@ public class Program
     private static ConfigurationService _configurationService = new ConfigurationService();
     private static ProviderManager _providerManager = new ProviderManager();
     private static CommandProcessor _commandProcessor = null!;
-    private static HistoryLock _historyLock = new HistoryLock(".nb_conversation_history.lock");
+    private static HistoryLock _historyLock = new HistoryLock(NbStateFiles.ConversationHistoryLock);
     private static ShellEnvironment _shellEnvironment = null!;
     private static BashTool _bashTool = null!;
     private static ReadFileTool _readFileTool = null!;
@@ -615,7 +615,7 @@ public class Program
         }
     }
 
-    private const string ActiveKitsFile = ".nb_active_kits.json";
+    private const string ActiveKitsFile = NbStateFiles.ActiveKits;
 
     // Splits leading +kit tokens off the front of the args. Stops at the first
     // non-+ token so "nb +review check this" → kits ["+review"], rest ["check","this"].

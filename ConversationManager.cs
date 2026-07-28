@@ -1660,7 +1660,7 @@ public class ConversationManager
         return $"Applied patch: {added} added, {updated} updated, {deleted} deleted";
     }
 
-    public async Task SaveConversationHistoryAsync(string filePath = ".nb_conversation_history.json")
+    public async Task SaveConversationHistoryAsync(string filePath = NbStateFiles.ConversationHistory)
     {
         try
         {
@@ -1733,7 +1733,7 @@ public class ConversationManager
         }
     }
 
-    public async Task LoadConversationHistoryAsync(string filePath = ".nb_conversation_history.json")
+    public async Task LoadConversationHistoryAsync(string filePath = NbStateFiles.ConversationHistory)
     {
         try
         {

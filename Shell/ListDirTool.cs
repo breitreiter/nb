@@ -29,6 +29,7 @@ public class ListDirTool
 
                 Returns entries in "type name" format where type is [file] or [dir].
                 Automatically skips: {string.Join(", ", DefaultSkipDirectories.All)}
+                Also skips nb's own state files: {string.Join(", ", NbStateFiles.All)}
                 """
         );
     }
@@ -59,7 +60,9 @@ public class ListDirTool
 
             foreach (var file in Directory.GetFiles(dirPath).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
             {
-                entries.Add($"[file] {Path.GetFileName(file)}");
+                var name = Path.GetFileName(file);
+                if (!NbStateFiles.All.Contains(name))
+                    entries.Add($"[file] {name}");
             }
 
             var output = entries.Count > 0

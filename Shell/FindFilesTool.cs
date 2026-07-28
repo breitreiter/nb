@@ -8,12 +8,6 @@ public class FindFilesTool
 {
     private const int DefaultMaxResults = 200;
 
-    private static readonly HashSet<string> SkipDirectories = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".git", "node_modules", "bin", "obj", ".vs", "__pycache__",
-        ".venv", "venv", ".idea", "dist", "build", ".next", ".nuget"
-    };
-
     private readonly ShellEnvironment _env;
 
     public FindFilesTool(ShellEnvironment env)
@@ -38,7 +32,8 @@ public class FindFilesTool
                 - path: Directory to search in (absolute or relative to working directory). Empty string or omit for working directory.
                 - max_results: Maximum number of results to return (default: {DefaultMaxResults})
 
-                Automatically skips: {string.Join(", ", SkipDirectories)}
+                Automatically skips: {string.Join(", ", DefaultSkipDirectories.All)}
+                Also skips nb's own state files: {string.Join(", ", NbStateFiles.All)}
                 """
         );
     }
@@ -66,10 +61,18 @@ public class FindFilesTool
             // Add exclusions for common directories. A pattern whose first segment
             // is a literal name is anchored at the search root, so "bin/**" only
             // skips a root-level bin/. The "**/" form catches it at any depth.
-            foreach (var dir in SkipDirectories)
+            foreach (var dir in DefaultSkipDirectories.All)
             {
                 matcher.AddExclude($"{dir}/**");
                 matcher.AddExclude($"**/{dir}/**");
+            }
+
+            // nb's own per-directory state. Same anchoring rule as above: a bare
+            // filename only matches at the search root, so both forms are needed.
+            foreach (var file in NbStateFiles.All)
+            {
+                matcher.AddExclude(file);
+                matcher.AddExclude($"**/{file}");
             }
 
             var directoryInfo = new DirectoryInfoWrapper(new DirectoryInfo(searchDir));
