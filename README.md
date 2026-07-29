@@ -1,141 +1,172 @@
 # NotaBene (nb)
 
-A terminal-native **conversation-program evaluator** with deep shell integration, native file tools, and pluggable AI providers.
+**A small-program evaluator for LLM automation** — evals, model comparison, prompt
+regression, and tool-use testing, driven from one file you can check into git.
 
-![NotaBene Preview](preview.png)
+nb runs a **conversation-program**: one ordered directive document carrying
+provider, model, tool surface, approval policy, fabricated history, and the live
+prompt — so *one document is one runnable program*. Every invocation is stateless,
+output is machine-readable by default, and the output schema is the same schema
+the input accepts, so record → edit → replay is native.
 
-nb runs a **conversation-program**: one ordered directive document that carries provider, model, tool surface, approval policy, fabricated history, and the live prompt — so *one document is one runnable program*. It is not a chat client. Give it a program file (or pipe one on stdin), or drop into a REPL that interprets the same source syntax line by line. Every invocation is stateless; continuity is explicit (`--seed`). nb is also consumable in-process as a .NET library (`nb.Core` → `Nb.RunAsync`).
+```
+# triage.nb
+provider anthropic
+model claude-sonnet-5
+system you are a terse triage assistant. answer with one word: bug, feature, or noise.
+user the login button is 3px off center on Safari
+assistant bug
+run the docs mention a --fast flag that does not exist
+```
 
-Full reference: [`docs/conversation-program-cli.md`](docs/conversation-program-cli.md) (CLI) and [`docs/conversation-program-api.md`](docs/conversation-program-api.md) (library).
+```bash
+$ nb triage.nb --output porcelain
+bug
+```
 
-## Features
+**nb is not a chat client and not a coding harness.** There is no bare-prompt mode,
+no chat loop, no persona, no persisted history, no slash-commands. If you want an
+interactive assistant, use one — nb's job is to make a *scripted* unit of LLM work
+reproducible, inspectable, and cheap to run a thousand times.
 
-- **Conversation Programs**: Configuration, tool surface, approval policy, fabricated history, and the prompt as one directive document — run from a file, stdin, or the REPL. Machine-readable output (`--output jsonl`/`porcelain`) is the same schema `--seed` reads, so record → edit → replay is native.
-- **Multi-Provider AI Support**: Built-in support for Azure OpenAI (Chat Completions and Responses API), OpenAI, Anthropic Claude, and Google Gemini. Bring any Microsoft.Extensions.AI compatible model.
-- **Program REPL**: `nb` on a TTY starts a live interpreter of the source syntax — the authoring/debug surface, not a chat loop.
-- **Native File + Shell Tools**: Cross-platform `bash`, `read_file`, `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`, `fetch_url`, with a read-before-edit guard and a declarative approval policy (`approval` directives + config).
-- **Bubblewrap Sandbox**: `approval sandbox bwrap` runs the bash child in a locked-down namespace (Linux).
-- **File Insertion** (PDF, TXT, MD, JPG, PNG) with multimodal support for vision-capable models
-- **MCP Server Integration** (stdio + HTTP transports) for extensible tools and resources
-- **In-process library**: reference `nb.Core` and call `Nb.RunAsync(config, program, options)`.
-- **Project Context**: `@file` includes and `NB.md` for project-specific context
+Full reference: [`docs/conversation-program-cli.md`](docs/conversation-program-cli.md)
+(CLI/subprocess) and [`docs/conversation-program-api.md`](docs/conversation-program-api.md)
+(in-process library).
+
+## What it's for
+
+- **Evals** — a program per case, `--output jsonl` into your scorer. No history file,
+  so cases run in parallel without stepping on each other. nb's own eval suite
+  (`evals/run.sh`) is written this way against the Mock provider.
+- **Model comparison** — same program, `provider`/`model` swapped, or swapped
+  *mid-document* so one run hands off from a cheap model to an expensive one.
+- **Prompt regression** — the program is a text file: diff it, review it, bisect it.
+- **Tool-use and alignment testing** — declare a tool surface (`tools`, `mcp`),
+  fabricate a prior tool round the model believes it already made, or define
+  `fake-tools.yaml` entries so "destructive" tools return canned results instead of
+  doing anything.
+- **A subroutine inside a bigger agent** — call `Nb.RunAsync` in-process and get a
+  typed result, or spawn `nb` as a subprocess and parse stdout.
+
+The shell and file tools are still here, but their role has changed: they are a
+**tool surface you hand the model under test**, governed by declarative approval
+policy and an optional sandbox — not an interactive coding assistant.
 
 ## Prerequisites
 
-- .NET 10.0 or later
-- API key for at least one supported AI provider:
-  - Azure OpenAI
-  - OpenAI
-  - Anthropic Claude
-  - Google Gemini
+- .NET 10 SDK (to build from source) or .NET 10 runtime (for pre-built binaries)
+- API key for at least one supported provider — Azure OpenAI, OpenAI, Anthropic,
+  Google Gemini, or any local server on the OpenAI wire. (The **Mock** provider
+  needs no key, and is enough to develop programs against.)
+- **Windows only:** [Git for Windows](https://git-scm.com/download/win) — nb uses Git
+  Bash for its shell tool on Windows. PowerShell is not supported, because models mix
+  bash and PowerShell idioms when given a tool named `bash` and produce broken
+  commands. If `bash.exe` isn't found at install time, nb will tell you where to get it.
 
 ## Installation
 
-### Requirements
-
-- .NET 10 SDK (to build from source) or .NET 10 runtime (for pre-built binaries)
-- **Windows only:** [Git for Windows](https://git-scm.com/download/win) — nb uses Git Bash for its shell tool on Windows. PowerShell is not supported, because models mix bash and PowerShell idioms when given a tool named `bash` and produce broken commands. If `bash.exe` isn't found at install time, nb will tell you where to get it.
-
 ### Option 1: Build from Source (Recommended)
 
-1. Clone and configure:
-   ```bash
-   git clone https://github.com/breitreiter/nb
-   cd nb
-   cp appsettings.example.json appsettings.json
-   ```
+```bash
+git clone https://github.com/breitreiter/nb
+cd nb
+cp appsettings.example.json appsettings.json   # then edit in your provider config
+dotnet build
+cd bin/Debug/net10.0
+echo 'run MOCK:response=hello' | ./nb -
+```
 
-2. Edit `appsettings.json` with your AI provider configuration.
-
-3. Build and run:
-   ```bash
-   dotnet build
-   cd bin/Debug/net10.0
-   ./nb
-   ```
-
-   **Note:** nb must run from the bin directory where provider DLLs are located.
+**Note:** nb must run from the bin directory, where the provider DLLs live.
 
 ### Option 2: Pre-built Binaries
 
-Pre-built binaries are available in the [releases section](https://github.com/breitreiter/nb/releases), but they are not code-signed. This means you'll encounter security warnings on both Windows and macOS.
-
-#### Windows
-
-Windows Defender SmartScreen will warn you about running an unsigned application. Click "More info" then "Run anyway" to proceed. See Microsoft's [SmartScreen documentation](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/) for more information.
-
-#### macOS
-
-macOS Gatekeeper will block unsigned applications. See Apple's guide on [safely opening apps on your Mac](https://support.apple.com/en-us/102445) for instructions on how to run unsigned applications.
+Pre-built binaries are in the [releases section](https://github.com/breitreiter/nb/releases),
+but they are not code-signed, so you'll hit security warnings. On Windows, SmartScreen:
+click "More info" → "Run anyway" ([docs](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/)).
+On macOS, Gatekeeper: see Apple's guide on [safely opening apps](https://support.apple.com/en-us/102445).
 
 ## Configuration
 
-After installation, configure nb for your environment:
+Configuration holds **connection** (endpoints, keys) and defaults. Everything about a
+particular run — which model, which tools, what's allowed — belongs in the program.
 
-1. **AI Provider**: Edit `appsettings.json` with your API keys and endpoints. You can configure multiple providers and switch between them at runtime, but you only need to start with one. nb supports local models via HTTP. If your model doesn't have a standard context window size, you'll need to set the `MaxContextTokens` value in `appsettings.json`. nb ships with several prompt extensions for common model, but you can also add your own.
+1. **Providers**: edit `appsettings.json` with keys and endpoints. Configure as many
+   as you like; a program picks one by name. If a model has a non-standard context
+   window, set `MaxContextTokens` on its entry.
+2. **MCP servers** (optional): copy `mcp.example.json` to `mcp.json`.
+3. **Theme** (optional): colors in `theme.json`.
 
-2. **MCP Servers** (Optional): Copy `mcp.example.json` to `mcp.json` and configure your MCP server connections.
+### Config resolution
 
-3. **Theme** (Optional): Customize colors by editing `theme.json`.
+Config resolves in layers, later winning: install defaults (`appsettings.json` next to
+the binary) → user config (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`) →
+the nearest project `.nb/config.json` (walking up from the current directory) →
+`NB_`-prefixed environment variables (`NB_ActiveProvider`, `NB_ChatProviders__0__ApiKey`, …).
+This keeps API keys out of the install directory and lets a CI job set provider/model
+without editing shared config. `--config <file>` uses a single file **hermetically**,
+ignoring the layers — which is what you want for a reproducible test run.
 
-#### Config resolution
+Friendly env aliases for the common knobs: `NB_PROVIDER`, `NB_MODEL`, `NB_OUTPUT`.
+`mcp.json` resolves in the same install → user (`~/.config/nb/mcp.json`) → project
+(`.nb/mcp.json`) layers, merging server definitions by name; `--mcp <file>` selects a
+single manifest hermetically.
 
-Configuration resolves in layers, later winning: install defaults (`appsettings.json` next to the binary) → user config (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`) → the nearest project `.nb/config.json` (found by walking up from the current directory) → `NB_`-prefixed environment variables (`NB_ActiveProvider`, `NB_ChatProviders__0__ApiKey`, …). This keeps API keys out of the install directory and lets a project or CI job set provider/model without editing shared config. Pass `--config <file>` to use a single config file hermetically (ignoring the layers) — handy for isolated test runs.
-
-For the common knobs there are friendly env aliases, so CI doesn't need the raw nested paths: `NB_PROVIDER` (the active provider), `NB_MODEL` (the active provider's model), and `NB_OUTPUT` (the default output mode). `mcp.json` resolves in the same install → user (`~/.config/nb/mcp.json`) → project (`.nb/mcp.json`) layers, merging server definitions by name — so a project can add or override MCP servers without editing the install manifest (`--mcp <file>` still selects a single manifest hermetically).
-
-## Usage
-
-nb runs a program. Give it a file, pipe one on stdin, or start the REPL:
+## Running a program
 
 ```bash
-nb flow.nb                          # run a program file
-echo 'run summarize this' | nb -     # run a one-off program from stdin
-nb                                   # (on a TTY) start the program REPL
+nb flow.nb                           # run a program file
+echo 'run summarize this' | nb -     # a one-off program on stdin
+nb                                   # (on a TTY, no input) the program REPL
 ```
 
-There is **no bare-prompt mode** — `nb "some text"` is read as a program *file* named "some text". To run a quick prompt, wrap it as a program: `echo 'run some text' | nb -`.
+There is **no bare-prompt mode** — `nb "some text"` is read as a program *file* named
+"some text". To run a quick prompt, wrap it: `echo 'run some text' | nb -`.
 
-**The REPL** interprets the same source syntax line by line — each line is a directive, `run` invokes the model, Ctrl-D exits. It is the authoring/debugging surface, not a chat loop.
+**Stateless + explicit continuity.** nb reads and writes no history file, so parallel
+runs just work. Carry continuity with `--seed`, which prepends a captured transcript
+as premise:
 
-**Stateless + explicit continuity.** nb reads and writes no history file, so parallel runs just work. Carry continuity with `--seed`, which prepends a captured transcript as premise:
 ```bash
 echo 'run start a haiku about autumn' | nb - --output jsonl > turn1.jsonl
-echo 'run now finish it' | nb - --seed turn1.jsonl
+echo 'run now finish it'              | nb - --seed turn1.jsonl
 ```
 
-nb exposes the current working directory as an MCP root, to help filesystem MCP servers orient themselves.
+nb exposes the current working directory as an MCP root, to help filesystem MCP
+servers orient themselves.
 
-### Machine-Readable Output
+### Machine-readable output
 
-A program defaults to `--output jsonl`. Both machine modes route the transcript to stdout and all chrome (tool logs, warnings) to stderr, so a script captures a clean result:
+A program defaults to `--output jsonl`. Both machine modes route the transcript to
+**stdout** and all chrome (tool logs, warnings) to **stderr**, so a script captures a
+clean result:
 
 ```bash
 nb flow.nb                       # jsonl: a typed event stream (user/assistant_text/tool_call/… + a result trailer)
 nb flow.nb --output porcelain    # plain text: TOOL/RESULT lines + the answer verbatim (fenced blocks survive)
+nb flow.nb 2>/dev/null | jq -r 'select(.type=="assistant_text").text'
 ```
 
-Color is disabled automatically when stdout is redirected or `NO_COLOR` is set. The process exit code is meaningful: `0` success, `2` provider error, `3` turn aborted (tool-call budget or repeated failures), `4` approval denied.
+Color is disabled automatically when stdout is redirected or `NO_COLOR` is set. Exit
+codes are meaningful: `0` success, `2` provider error, `3` turn aborted (tool-call
+budget or repeated failures), `4` approval denied — so a harness can classify failures
+without parsing text.
 
-### Conversation Programs
+The program format and the transcript format are the **same schema**: `--output jsonl`
+emits it and `--seed` loads it.
 
-A **conversation-program** is an ordered list of directives that builds a conversation and invokes the model — nb's scripting surface, where configuration, fabricated history, and the live prompt are one document instead of three mechanisms.
+## The program format
 
-```
-provider anthropic
-model claude-sonnet-5
-system you are a terse assistant
-user what's 2+2?
-assistant 4
-run and what's the square of that?
-```
+Each line is `<verb> <content>`:
 
-```bash
-nb flow.nb            # from a file
-nb - < flow.nb        # from stdin (a first '{' char is read as jsonl bytecode instead)
-```
+- **Config directives** (`provider`, `model`, `mcp`, `tools`, `approval`) set the
+  envelope going forward.
+- **Turn directives** (`system`, `user`, `assistant`) append messages.
+- **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a
+  `user` turn followed by `run`).
 
-Each line is `<verb> <content>`. **Config directives** (`provider`, `model`, `mcp`, `tools`, `approval`) set the envelope going forward; **turn directives** (`system`, `user`, `assistant`) append messages; **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a `user` turn then `run`). (Output format is the `--output` flag, not a directive — it's caller delivery, not program logic.) Because config directives can appear between runs, one file can drive two models:
+Output format is the `--output` flag, not a directive — it's caller delivery, not
+program logic. Because config directives can appear between runs, one document can
+drive two models:
 
 ```
 model haiku
@@ -144,135 +175,131 @@ model opus
 run now analyze the root cause
 ```
 
-A trailing `\` continues content onto the next line, `#` lines are comments, and `@file` as a directive's whole content includes that file. A program is never given nb's default persona — it gets exactly the `system` directives it writes (nothing, if it writes none), which is what an eval harness wants. Programs default to `--output jsonl`.
+A trailing `\` continues content onto the next line, `#` lines are comments, and
+`@file` as a directive's whole content includes that file (resolved relative to the
+program file — so shared context and shared directives compose without a flag).
 
-A JSONL (bytecode) program can additionally fabricate a **tool round** as premise — `tool_call` and its matching `tool_result` events — which is loaded into history exactly as a `--seed` transcript is (a turn's assistant text and its calls batch into one message; every call must have a result before the run that consumes it). These aren't live invocations; they're recorded rounds you're replaying into the model's view. The source syntax has no verb for them.
+A program is **never given a default persona**. It gets exactly the `system`
+directives it writes, and nothing if it writes none — which is what an eval harness
+wants, and the main reason results here don't drift when nb changes.
 
-The `tools` and `mcp` directives reshape the tool surface, with delta tokens (`+name`, `-name`, or the lone `none`):
+### Fabricated history
+
+`user`/`assistant` directives fabricate turns the model believes already happened —
+few-shot examples, a primed state, a mid-conversation probe. A JSONL (bytecode)
+program can additionally fabricate a **tool round**: `tool_call` and its matching
+`tool_result` events, loaded into history exactly as a `--seed` transcript is (a
+turn's assistant text and its calls batch into one message; every call must have a
+result before the run that consumes it). These aren't live invocations — they're
+recorded rounds you're replaying into the model's view. The source syntax has no verb
+for them.
+
+### Tool surface
+
+The `tools` and `mcp` directives reshape the tool surface with delta tokens (`+name`,
+`-name`, or the lone `none`):
 
 ```
-tools -bash        # drop one native tool (bash, read_file, write_file, edit_file, find_files, grep, list_dir, apply_patch, fetch_url)
+tools -bash        # drop one native tool
 tools none         # no native tools this run
 mcp +figma         # expose the figma MCP server's tools
 ```
 
-Native tools are **all-on** by default; a `tools` directive filters them. MCP servers are **strict-empty**: a program exposes no MCP tools unless it names servers with `mcp +server`. `--resolve` prints the resolved surface at each run point.
+Native tools are **all-on** by default (`bash`, `read_file`, `write_file`,
+`edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`, `fetch_url`); a `tools`
+directive filters them. MCP servers are **strict-empty**: a program exposes no MCP
+tools unless it names servers with `mcp +server`. `edit_file`/`write_file` enforce a
+read-before-edit guard; `read_file` handles text (with line numbers), PDF text
+extraction, and images as base64 for vision-capable models.
 
-The `approval` directive sets the approval policy — which tool calls auto-approve, and what an unmatched call does:
+### Approval policy
+
+Approval is a **declarative policy**, not an interactive prompt — a program run is
+headless, and an unmatched tool call is denied rather than asked about. Set it with
+`approval` directives, or the `Approval` block (`Bash`/`McpTools`/`Default`/`Sandbox`)
+in config:
 
 ```
 approval bash git status   # auto-approve bash commands matching this pattern
-approval mcp weather/*      # auto-approve MCP tools matching this glob ('/' aliases the '_' in weather_current)
-approval default deny       # refuse any unmatched call outright (instead of prompting)
-approval sandbox bwrap      # run the bash child under a bubblewrap sandbox (Linux)
+approval mcp weather/*     # auto-approve MCP tools matching this glob ('/' aliases the '_' in weather_current)
+approval default deny      # refuse any unmatched call outright (instead of prompting)
+approval sandbox bwrap     # run the bash child under a bubblewrap sandbox (Linux)
 ```
 
-These layer onto the `Approval` config block (`Bash`/`McpTools`/`Default`/`Sandbox` in `appsettings.json`), which does the same thing outside a program. In a **headless** run (piped stdin) every unmatched call is already denied, so the allow-lists are what make a scripted run auto-approve exactly the tools it needs; `approval default deny` adds the same lockdown to an interactive session. `--resolve` prints the effective policy per run point.
+The allow-lists are what let a scripted run auto-approve exactly the tools it needs.
+Some commands are always safe: build tools (`dotnet build`, `cargo build`, `make`,
+`npm run`, …), read-only git (`status`/`log`/`diff`/`show`), and read-only queries
+(`which`, `file`, …). A **trust posture** (`"Trust": true` in config) auto-approves
+non-dangerous tools within the cwd sandbox (cwd + system temp) and bumps the max tool
+calls to 50; dangerous commands (`rm -rf`, `sudo`) never auto-approve.
 
-The **bash sandbox** (`approval sandbox bwrap`, or `Approval.Sandbox` in config) wraps the bash child in a [bubblewrap](https://github.com/containers/bubblewrap) namespace: the whole filesystem is read-only, only the current directory and a fresh `/tmp` are writable, known secret dirs (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/nb`) are masked to empty, and there's no network. Use `bwrap-net` to keep the sandbox but allow network. It contains only bash — MCP and `fetch_url` run in-process under their own approval. Requesting `bwrap` on a host without bubblewrap (non-Linux, or `bwrap` not on `PATH`) hard-fails the run.
+The **bash sandbox** (`approval sandbox bwrap`, or `Approval.Sandbox` in config) wraps
+the bash child in a [bubblewrap](https://github.com/containers/bubblewrap) namespace:
+the whole filesystem read-only, only the current directory and a fresh `/tmp`
+writable, known secret dirs (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/nb`) masked to
+empty, and no network. Use `bwrap-net` to keep the sandbox but allow network. It
+contains only bash — MCP and `fetch_url` run in-process under their own approval.
+Requesting `bwrap` on a host without bubblewrap (non-Linux, or not on `PATH`)
+hard-fails the run.
 
-Reuse across programs is composition, not a flag: factor shared directives into a file and pull them in with `@file` includes.
-
-**Inspect a program without running it:**
+### Inspecting a program without running it
 
 ```bash
 nb --validate flow.nb    # parse + check (unknown provider, bad approval directive); exit 1 on error
-nb --resolve  flow.nb    # print the effective envelope at each run point
+nb --resolve  flow.nb    # print the effective envelope — provider, model, tool surface, policy — at each run point
 ```
 
-The program format and the transcript format are the same schema: `--output jsonl` emits it and `--seed` loads it, so record → edit → replay is native.
+`--validate` is cheap enough to run over a whole eval corpus in CI before spending
+tokens on it.
 
-### Tools and approval
+### Command-line flags
 
-Native tools (all-on by default; filter with `tools`): `bash`, `read_file`, `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`, `fetch_url`. `edit_file`/`write_file` enforce a **read-before-edit guard**; read-only file tools auto-approve inside the working-directory sandbox (cwd + system temp), paths outside do not.
-
-Approval is a **declarative policy**, not interactive prompts (a program run is headless — an unmatched tool call is denied, not prompted). Set it with `approval` directives in the program or the `Approval` block in config:
-
-```
-approval bash "git status"     # auto-approve a matching bash command
-approval mcp weather/*          # auto-approve matching MCP tools
-approval default deny           # refuse any unmatched call outright
-approval sandbox bwrap          # run the bash child under a bubblewrap sandbox (Linux)
-```
-
-Some commands are always safe (auto-approved): build tools (`dotnet build`, `cargo build`, `make`, `npm run`, …), read-only git (`git status`/`log`/`diff`/`show`), and read-only queries (`which`, `file`, …). A **trust posture** (`"Trust": true` in config) auto-approves non-dangerous tools within the cwd sandbox and bumps the max tool calls to 50; dangerous commands (`rm -rf`, `sudo`) never auto-approve.
-
-See [Conversation Programs](#conversation-programs) for the full `approval` / `tools` / sandbox semantics.
-
-`--dump-tools` writes the connected MCP tool manifest to `mcp-tools.json`; `--resolve` prints the tool surface a program exposes at each run point.
-
-### Command-Line Flags
-
-Flags vary how a program runs; they never replace or duplicate a program verb. Trust, no-tools, bash auto-approve, provider, and model are program concerns (`approval`/`tools`/`provider`/`model` directives, or config), not flags.
+Flags vary how a program runs; they never replace or duplicate a program verb. Trust,
+no-tools, bash auto-approve, provider, and model are program concerns
+(`approval`/`tools`/`provider`/`model` directives, or config), not flags.
 
 | Flag | Description |
 |------|-------------|
-| `--output <mode>` | `jsonl` (default for a program), `porcelain`, or `interactive` — see [Machine-Readable Output](#machine-readable-output) |
+| `--output <mode>` | `jsonl` (default), `porcelain`, or `interactive` |
 | `--seed <file>` | Prepend a jsonl transcript as premise history before the program runs |
 | `--config <file>` | Use a single config file hermetically, ignoring the layered resolution |
 | `--mcp <file>` | Use a single MCP manifest hermetically, ignoring the layered resolution |
 | `--validate` | Parse and check a program, run nothing (exit 1 on error) |
 | `--resolve` | Print the effective envelope at each run point, run nothing |
 | `--verbose` | Log tool call inputs and outputs (useful for debugging) |
-| `--dump-tools` | Write MCP tool manifest to `mcp-tools.json` and exit |
+| `--dump-tools` | Write the connected MCP tool manifest to `mcp-tools.json` and exit |
 
 The program itself is the positional argument (`nb flow.nb`) or stdin (`nb -`).
 
-### Switching providers
-A program selects its provider/model with the `provider` and `model` directives, and can switch between runs (`model haiku` / run / `model opus` / run) within one document — see [Conversation Programs](#conversation-programs). Connection (endpoint + key) stays in config; only the non-secret model name travels in the program.
+## The REPL
 
-The menu lists `ChatProviders` entries, not implementations. An entry's `Name` is a free-form label; the optional `Provider` field names the implementation behind it, so several entries can share one — useful when a single implementation fronts multiple backends, as `LocalLlm` does for local servers:
+`nb` on a TTY with no input starts a live interpreter of the **same source syntax**:
+each entered line is a directive, `run` invokes, Ctrl-D exits. It is the
+authoring/debugging surface for programs — not a chat loop, and there are no
+slash-commands.
 
-```jsonc
-{ "Name": "LocalCoder", "Provider": "LocalLlm", "Endpoint": "http://127.0.0.1:8081/v1", "Model": "qwen3-coder-next" },
-{ "Name": "LocalAir",   "Provider": "LocalLlm", "Endpoint": "http://127.0.0.1:8082/v1", "Model": "glm-4.5-air" }
+## Testing affordances
+
+### Mock provider
+
+Returns `"OK"` by default, or the value of the `Response` config key, or an inline
+override — prefix a message with `MOCK:response=<text>`. No API key, no network, so
+harness plumbing can be tested without spending tokens:
+
+```bash
+echo 'run MOCK:response=hi' | ./nb - --output jsonl
 ```
 
-Omit `Provider` and it defaults to `Name`, which is how every single-backend entry above is written.
+### Fake tools
 
-### MCP Configuration
-Configure MCP servers in `mcp.json`:
-```json
-{
-  "servers": {
-    "my-server": {
-      "type": "stdio",
-      "command": "my-mcp-server",
-      "args": ["--some-flag"],
-      "alwaysAllow": ["tool1", "tool2"]
-    }
-  }
-}
-```
+nb reads `fake-tools.yaml` and treats those definitions as normal tools; when the
+model calls one, nb returns the configured response. See `fake-tools.example.yaml` for
+the format. Fake definitions **override** MCP definitions — by design, so you can fake
+destructive actions or retune a tool description for alignment testing without
+touching the real server.
 
-The `alwaysAllow` array specifies tools that skip approval prompts. Use `["*"]` to auto-approve all tools from a server (useful for automation):
-```json
-"alwaysAllow": ["*"]
-```
-
-#### HTTP servers and auth headers
-For remote servers, use `"type": "http"` with an `endpoint`. Supply auth via a `headers` object; values support `${VAR}` interpolation against environment variables, so tokens stay out of the committed `mcp.json`:
-```json
-"figma": {
-  "type": "http",
-  "endpoint": "https://mcp.figma.com/mcp",
-  "headers": {
-    "Authorization": "Bearer ${FIGMA_TOKEN}"
-  }
-}
-```
-Only header values are interpolated (not keys). A referenced variable that isn't set logs a warning and resolves to an empty string. Literal values (no `${...}`) work too.
-
-### Built-in MCP Server
-The project includes a test server (`mcp-servers/mcp-tester/`) with basic tools.
-
-### Fake Tools
-nb will read `fake-tools.yaml` and treat those definitions as normal tools. When the model requests a fake tool, nb will return the configured response. Refer to `fake-tools.example.yaml` for the expected format.
-
-Fake tool definitions will override MCP definitions. This is by design, to allow you to fake destructive actions or quickly tune tool descriptions for alignment testing.
-
-#### Response Macros
-Responses support macros for dynamic values, so each invocation produces fresh data instead of identical static strings:
+Responses support macros, so each invocation produces fresh data instead of an
+identical static string:
 
 | Macro | Description | Example |
 |-------|-------------|---------|
@@ -286,27 +313,152 @@ Responses support macros for dynamic values, so each invocation produces fresh d
 | `{{$random_string}}` | Random alphanumeric (8 chars) | `xK9mPq2r` |
 | `{{$random_string(16)}}` | Random alphanumeric (custom length) | `xK9mPq2rT5nLw8yZ` |
 
-Example response template:
 ```yaml
 response: '{"id": "{{$guid}}", "status": "{{$choice(pending,active,completed)}}", "created_at": "{{$timestamp}}"}'
 ```
 
-## Project Context
+### Built-in MCP server
 
-nb injects no implicit context (there's no persona floor). A program includes what it needs explicitly — pull a project-context file into a `system` directive with an `@file` include:
+`mcp-servers/mcp-tester/` is a self-contained C# MCP server with basic tools (echo,
+reverse-echo, current-time) and markdown-driven prompts — useful for exercising the
+MCP path without depending on a third-party server.
 
+## Using nb as a library
+
+Reference `nb.Core` (a self-contained `net10.0` assembly) and run programs in-process
+— no subprocess, no stdout parsing, no `Environment.Exit`:
+
+```csharp
+using nb;
+using nb.Transcript;
+
+var result = await Nb.Program()
+    .Provider("Anthropic")
+    .Model("claude-sonnet-5")
+    .System("You are a careful reviewer. Cite file:line.")
+    .User("Review this diff:\n" + diffText)
+    .Run()
+    .RunAsync(config, new NbOptions { ProvidersDirectory = nbProvidersPath });
+
+Console.WriteLine(result.Answer);   // plus Events, Usage, ExitReason, ExitCode, Warnings
 ```
-system @./NB.md
-run review the staged changes
+
+Run outcomes (provider error, aborted turn, approval denial) come back on the result
+rather than as exceptions; exceptions are reserved for things that stop a run from
+happening at all. Full surface: [`docs/conversation-program-api.md`](docs/conversation-program-api.md).
+
+## Providers
+
+nb has no built-in providers — every provider is a plugin loaded at runtime from
+`providers/` next to the binary, each in its own `AssemblyLoadContext`.
+
+### Shipped providers
+
+- **AzureOpenAI** — Chat Completions on classic Azure OpenAI resources
+- **AzureFoundry** — Responses API on classic Azure OpenAI resources (needed for
+  codex-family models like `gpt-5-codex`, and any other Responses-API-only model)
+- **OpenAI** — direct OpenAI API
+- **Anthropic** — Claude models with function calling
+- **Google Gemini** — Google's generative AI models
+- **LocalLlm** — local servers on the OpenAI wire
+- **Mock** — testing provider, no API key
+
+All are compiled into `bin/{Config}/net10.0/providers/` during build.
+
+### Selecting a provider
+
+A program selects with the `provider` and `model` directives, and can switch between
+runs within one document. Connection (endpoint + key) stays in config; only the
+non-secret model name travels in the program.
+
+Provider entries are labels, not implementations. An entry's `Name` is free-form; the
+optional `Provider` field names the implementation behind it, so several entries can
+share one:
+
+```jsonc
+{ "Name": "LocalCoder", "Provider": "LocalLlm", "Endpoint": "http://127.0.0.1:8081/v1", "Model": "qwen3-coder-next" },
+{ "Name": "LocalAir",   "Provider": "LocalLlm", "Endpoint": "http://127.0.0.1:8082/v1", "Model": "glm-4.5-air" }
 ```
 
-`@file` resolves relative to the program file, so a program can compose shared context and directives from files instead of a flag.
+Omit `Provider` and it defaults to `Name`.
+
+`EditToolStyle` (per entry) selects the file-edit surface: `EditReplace` (default)
+registers `edit_file` + `write_file`; `ApplyPatch` registers `apply_patch` instead.
+They're mutually exclusive — GPT-family models confuse the two when both are present.
+
+### Which Azure provider do I want?
+
+Match the API shape your deployment exposes:
+
+| Your deployment URL looks like... | Use provider |
+|---|---|
+| `https://<name>.{openai.azure.com,cognitiveservices.azure.com}/openai/deployments/<name>/chat/completions?...` | `AzureOpenAI` |
+| `https://<name>.{openai.azure.com,cognitiveservices.azure.com}/openai/responses?...` | `AzureFoundry` |
+
+Both accept either the resource root or the full deployment URL in `Endpoint` — the
+plugin strips to the host. The `Model` field is your **deployment name**, not the model
+family name. If Azure shows an endpoint on `services.ai.azure.com` with a
+`/api/projects/<project>/...` path, that's the newer Foundry Unified Endpoint and
+neither provider targets it directly — open an issue if you need that variant.
+
+### Writing your own provider
+
+1. Create a project and add the abstractions package:
+   ```bash
+   dotnet add package nb.Providers.Abstractions
+   ```
+2. Implement `IChatClientProvider` — supply an `IChatClient` from
+   Microsoft.Extensions.AI plus basic configuration wiring.
+3. Build and copy the assembly to a new subdirectory under `providers/`.
+4. Add the entry to `appsettings.json`.
+
+See [nb.Providers.Abstractions](https://www.nuget.org/packages/nb.Providers.Abstractions)
+for full documentation and examples.
+
+## MCP configuration
+
+```json
+{
+  "servers": {
+    "my-server": {
+      "type": "stdio",
+      "command": "my-mcp-server",
+      "args": ["--some-flag"],
+      "alwaysAllow": ["tool1", "tool2"]
+    }
+  }
+}
+```
+
+`alwaysAllow` lists tools that skip approval; `["*"]` auto-approves everything from a
+server. Remember that a program still has to *expose* the server with `mcp +name` —
+configuring it isn't enough.
+
+### HTTP servers and auth headers
+
+Use `"type": "http"` with an `endpoint`. Auth goes in a `headers` object; values
+support `${VAR}` interpolation against environment variables, so tokens stay out of
+the committed `mcp.json`:
+
+```json
+"figma": {
+  "type": "http",
+  "endpoint": "https://mcp.figma.com/mcp",
+  "headers": {
+    "Authorization": "Bearer ${FIGMA_TOKEN}"
+  }
+}
+```
+
+Only values are interpolated (not keys). An unset variable logs a warning and resolves
+to an empty string. Literal values work too.
 
 ## Theming
 
-nb loads its color scheme from `theme.json` at startup. Color names are from [Spectre.Console](https://spectreconsole.net/appendix/colors)
-
-For example, here's a high-contrast theme (WCAG AAA on standard Windows console background #0C0C0C):
+Interactive output (`--output interactive`, and the REPL) loads its color scheme from
+`theme.json` at startup. Color names come from
+[Spectre.Console](https://spectreconsole.net/appendix/colors). A high-contrast example
+(WCAG AAA on the standard Windows console background, #0C0C0C):
 
 ```json
 {
@@ -321,56 +473,14 @@ For example, here's a high-contrast theme (WCAG AAA on standard Windows console 
 }
 ```
 
-## Building for Distribution
+## Building for distribution
 
 ```bash
 dotnet publish -c Release -r win-x64 --self-contained
 ```
 
-Include `mcp.json` and `theme.json` with your executable for custom configurations. Providers deploy to `providers/` next to the binary.
-
-## AI Provider Architecture
-
-nb includes several built-in AI providers and supports extensibility for additional services:
-
-### Built-in Providers
-- **AzureOpenAI** - Chat Completions on classic Azure OpenAI resources
-- **AzureFoundry** - Responses API on classic Azure OpenAI resources (needed for codex-family models like `gpt-5-codex`, and any other Responses-API-only model)
-- **OpenAI** - Direct OpenAI API integration
-- **Anthropic** - Claude models with function calling support
-- **Google Gemini** - Google's generative AI models
-- **Mock** - Testing provider that requires no API key
-
-#### Which Azure provider do I want?
-
-Azure's product surface spans several ways to expose a model. If you're unsure, match the API shape your deployment exposes:
-
-| Your deployment URL looks like... | Use provider |
-|---|---|
-| `https://<name>.{openai.azure.com,cognitiveservices.azure.com}/openai/deployments/<name>/chat/completions?...` | `AzureOpenAI` |
-| `https://<name>.{openai.azure.com,cognitiveservices.azure.com}/openai/responses?...` | `AzureFoundry` |
-
-Both providers accept either the resource root (`https://<name>.cognitiveservices.azure.com/`) or the full deployment URL in the `Endpoint` field — the plugin strips to the host. The `Model` field is your **deployment name** (what you named it at deploy time), not the model family name.
-
-If Azure shows you an endpoint on `services.ai.azure.com` with a `/api/projects/<project>/...` path, that's the newer Foundry Unified Endpoint and neither current provider targets it directly — open an issue if you need that variant.
-
-All providers are automatically compiled into the `bin/{Config}/net10.0/providers/` directory during build.
-
-The Mock provider returns "OK" by default, or the value of the `Response` config key. You can also control responses inline by prefixing your message with `MOCK:response=<text>`.
-
-### Provider Extensibility
-
-nb uses a pluggable provider architecture built on Microsoft.Extensions.AI. The repo includes 4 common providers, but you can roll your own.
-
-1. Create a new project and add the NuGet package:
-   ```bash
-   dotnet add package nb.Providers.Abstractions
-   ```
-2. Implement the `IChatClientProvider` interface, which requires you to supply an instance of `IChatClient` from Microsoft.Extensions.AI plus some basic configuration tooling.
-3. Build and copy your assembly to a new subdirectory under `providers/`
-4. Add any required configuration to appsettings.json.
-
-See the [nb.Providers.Abstractions](https://www.nuget.org/packages/nb.Providers.Abstractions) package for full documentation and examples.
+Ship `mcp.json` and `theme.json` alongside the executable for custom configurations.
+Providers deploy to `providers/` next to the binary.
 
 ## License
 
