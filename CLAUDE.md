@@ -84,8 +84,9 @@ The REPL takes program directives, not commands; Ctrl-D exits.
 - Configuration is loaded from `appsettings.json`
 - MCP clients are initialized on startup and disposed on exit
 - Tool calling safety: Configurable max tool calls per message via `MaxToolCalls` in appsettings.json (default: 25)
-- **Directory-Based History**: Automatically persisted to `.nb_conversation_history.json` in current working directory
-- **Project Context**: Each directory maintains its own conversation history, perfect for project-specific AI assistance
+- **Stateless**: nb reads and writes no history file, so parallel runs in one directory
+  don't interfere. Continuity is explicit — `--seed` prepends a captured transcript as
+  premise. There is no per-directory conversation state.
 - **Multimodal Support**: Image insertion (JPG, PNG) with DataContent handling for vision-capable models
 - **Provider Architecture**: Pluggable AI providers via IChatClientProvider interface, supporting any Microsoft.Extensions.AI compatible provider
 
@@ -110,7 +111,7 @@ The REPL takes program directives, not commands; Ctrl-D exits.
 - **McpManager.cs** - Manages MCP client lifecycle and exposes tools/resources via interfaces
 - **Tool Integration** - MCP tools are automatically integrated with Microsoft.Extensions.AI tool system
 - **Error Handling** - Graceful fallback when servers don't support prompts (some MCP servers are tools-only)
-- **Configuration** - MCP servers configured in `mcp.json` with command, args, and environment variables
+- **Configuration** - MCP servers configured in `mcp.json` with command, args, and environment variables. There is no `mcp.json` at the repo root — it resolves in layers (executable dir, then `~/.config/nb/`, then the nearest `.nb/mcp.json` walking up from cwd), later winning by server name. `--mcp` overrides with a single hermetic manifest. Template: `mcp.example.json`
 - **Transport** - `StdioClientTransport` for process-based (`stdio`) servers; `HttpClientTransport` for remote (`http`) servers
 - **HTTP auth headers** - HTTP servers accept a `headers` object on `McpServerConfig`. Values support `${VAR}` env interpolation via `McpManager.ResolveHeaders` (keys are not interpolated; unset vars warn and resolve to empty), matching the `${VAR}` convention in `ConfigurationService`. Keeps tokens out of the committed `mcp.json`.
 
@@ -126,10 +127,10 @@ The REPL takes program directives, not commands; Ctrl-D exits.
 Native tool that gives the model shell access with custom approval UX.
 
 **Files:**
-- `Shell/ShellEnvironment.cs` - Detects OS, shell, architecture, available tools at startup
-- `Shell/BashTool.cs` - Executes commands with timeout, output truncation (sandwich strategy)
-- `Shell/CommandClassifier.cs` - Classifies commands (read/write/delete/run) for approval display
-- `Shell/ApprovalPatterns.cs` - Handles --approve flag patterns for automated testing
+- `nb.Core/Shell/ShellEnvironment.cs` - Detects OS, shell, architecture, available tools at startup
+- `nb.Core/Shell/BashTool.cs` - Executes commands with timeout, output truncation (sandwich strategy)
+- `nb.Core/Shell/CommandClassifier.cs` - Classifies commands (read/write/delete/run) for approval display
+- `nb.Core/Shell/ApprovalPatterns.cs` - Handles --approve flag patterns for automated testing
 
 **Features:**
 - Environment context injected into system prompt (OS, shell, available tools, cwd)
@@ -155,13 +156,13 @@ Native tool that gives the model shell access with custom approval UX.
 Cross-platform file tools that don't require shell access. All read-only tools auto-execute with no approval.
 
 **Files:**
-- `Shell/ReadFileTool.cs` - Read file contents (text with line numbers, PDF text extraction, image base64 for vision)
-- `Shell/WriteFileTool.cs` - Create or overwrite files (requires approval unless --trust)
-- `Shell/EditFileTool.cs` - Targeted string replacement in files (requires approval unless --trust)
-- `Shell/FindFilesTool.cs` - Glob-based file discovery using `Microsoft.Extensions.FileSystemGlobbing`
-- `Shell/GrepTool.cs` - Regex content search across files (supports content and files_with_matches output modes)
-- `Shell/ListDirTool.cs` - Lightweight directory listing (files and subdirectories)
-- `Shell/FileReadTracker.cs` - Tracks file reads; enforces read-before-edit/write and detects external modifications
+- `nb.Core/Shell/ReadFileTool.cs` - Read file contents (text with line numbers, PDF text extraction, image base64 for vision)
+- `nb.Core/Shell/WriteFileTool.cs` - Create or overwrite files (requires approval unless --trust)
+- `nb.Core/Shell/EditFileTool.cs` - Targeted string replacement in files (requires approval unless --trust)
+- `nb.Core/Shell/FindFilesTool.cs` - Glob-based file discovery using `Microsoft.Extensions.FileSystemGlobbing`
+- `nb.Core/Shell/GrepTool.cs` - Regex content search across files (supports content and files_with_matches output modes)
+- `nb.Core/Shell/ListDirTool.cs` - Lightweight directory listing (files and subdirectories)
+- `nb.Core/Shell/FileReadTracker.cs` - Tracks file reads; enforces read-before-edit/write and detects external modifications
 
 **Auto-skipped directories:** `.git`, `node_modules`, `bin`, `obj`, `.vs`, `__pycache__`, `.venv`, `venv`, `.idea`, `dist`, `build`, `.next`, `.nuget`
 
@@ -191,7 +192,7 @@ Auto-approves file tools and non-dangerous bash commands **within the working di
 **Other effects:** Bumps effective MaxToolCalls to 50 (minimum)
 
 **Files:**
-- `Shell/TrustSandbox.cs` - Static `IsPathTrusted` / `IsPathTrustedRelative` methods
+- `nb.Core/Shell/TrustSandbox.cs` - Static `IsPathTrusted` / `IsPathTrustedRelative` methods
 
 ## Coding Conventions
 - Follow existing C# conventions in the codebase
