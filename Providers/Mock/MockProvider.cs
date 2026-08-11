@@ -111,9 +111,19 @@ public class MockChatClient : IChatClient
         var response = await GetResponseAsync(chatMessages, options, cancellationToken);
         yield return new ChatResponseUpdate(ChatRole.Assistant, response.Messages[0].Contents);
 
+        // MOCK:nousage / MOCK:partialusage reproduce what a proxy or gateway between nb
+        // and the real provider does to the usage block — drops it entirely, or forwards
+        // the parts without a total. Both are what the estimator fallback and the
+        // total-from-parts derivation exist to survive.
+        var lastUserMessage = chatMessages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? "";
+        if (lastUserMessage.StartsWith("MOCK:nousage", StringComparison.OrdinalIgnoreCase))
+            yield break;
+
         // A second update carrying usage, so ToChatResponse() aggregates it into
         // response.Usage the way a real streaming provider reports token counts.
-        var usage = new UsageDetails { InputTokenCount = UsageInput, OutputTokenCount = UsageOutput, TotalTokenCount = UsageTotal };
+        var usage = lastUserMessage.StartsWith("MOCK:partialusage", StringComparison.OrdinalIgnoreCase)
+            ? new UsageDetails { InputTokenCount = UsageInput, OutputTokenCount = UsageOutput }
+            : new UsageDetails { InputTokenCount = UsageInput, OutputTokenCount = UsageOutput, TotalTokenCount = UsageTotal };
         yield return new ChatResponseUpdate(ChatRole.Assistant, new List<AIContent> { new UsageContent(usage) });
     }
 

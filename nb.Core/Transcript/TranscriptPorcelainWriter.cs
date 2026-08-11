@@ -54,7 +54,10 @@ public static class TranscriptPorcelainWriter
         if (r.Turns is { } t) sb.Append($" turns={t}");
         if (r.ToolCalls is { } tc) sb.Append($" tool_calls={tc}");
         if (r.Usage is { } u)
+        {
             sb.Append($" input={u.Input} output={u.Output} total={u.Total}");
+            if (u.Estimated) sb.Append(" usage=estimated");
+        }
         return sb.ToString();
     }
 

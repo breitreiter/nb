@@ -216,6 +216,14 @@ public sealed record UsageInfo
     public long? Input { get; init; }
     public long? Output { get; init; }
     public long? Total { get; init; }
+
+    /// <summary>
+    /// True when the counts are nb's own size estimate rather than the provider's report
+    /// — the provider (or something between nb and it) sent no usage. Emitted as
+    /// <c>"estimated": true</c> and omitted otherwise, so a measured trailer is
+    /// byte-identical to before. Don't bill from an estimated trailer.
+    /// </summary>
+    public bool Estimated { get; init; }
 }
 
 /// <summary>One part of a multipart message body.</summary>

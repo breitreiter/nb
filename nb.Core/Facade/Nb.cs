@@ -57,9 +57,13 @@ public static class Nb
             await evaluator.EvaluateAsync(program, cancellationToken);
 
             var events = TranscriptMapper.FromHistory(runtime.Conversation.History);
+            var estimated = runtime.Conversation.UsageIsEstimated;
             UsageInfo? usage = runtime.Conversation.TotalUsage is { } u
-                ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total }
+                ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total, Estimated = estimated }
                 : null;
+            if (estimated)
+                warnings.Add("provider reported no token usage; the counts in Usage are estimated from " +
+                             "message size (roughly ±30%), and any token budget was enforced against that estimate");
             var reason = runtime.Conversation.LastOutcome;
 
             return new RunResult

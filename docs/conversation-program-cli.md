@@ -196,7 +196,7 @@ Run-level guards that layer onto config; they govern every run after them.
 | Directive | Syntax | Effect |
 | --- | --- | --- |
 | `loop` | `loop <n>` \| `loop off` | Doom-loop detector. `loop <n>` sets the repetition threshold — after N repeated tool-call sequences a `<system_reminder>` nudge is injected and the run continues. `loop off` disables it. On by default (threshold 3 / config `DoomLoopThreshold`). Threshold must be ≥ 2. |
-| `budget` | `budget tokens <n>` | Session-cumulative token ceiling. Once total usage crosses `<n>`, the run aborts with `exit_reason token_budget` (exit 3). Summed across all runs and tool-loop round-trips. Default unlimited (config `TokenBudget`). |
+| `budget` | `budget tokens <n>` | Session-cumulative token ceiling. Once total usage crosses `<n>`, the run aborts with `exit_reason token_budget` (exit 3). Summed across all runs and tool-loop round-trips. Enforced against *estimated* counts when the provider reports none (§9) — it never silently stops enforcing. Default unlimited (config `TokenBudget`). |
 | `budget` | `budget tool_calls <n>` | Per-turn tool-call cap for subsequent runs — overrides config `MaxToolCalls` and the trust-mode floor. Exhausting it ends the turn with `max_tool_calls`. |
 | `budget` | `budget wall_ms <n>` | Session-cumulative wall-clock ceiling in milliseconds. Once elapsed time (from the first run) crosses `<n>`, the in-flight model call is **cancelled** and the run aborts with `exit_reason time_budget` (exit 3). This bounds a hung provider, not just a runaway loop. Default unlimited (config `WallClockBudgetMs`). |
 
@@ -239,7 +239,8 @@ Invariants:
 - **No implicit persona.** A program gets exactly the `system` directives it writes.
 - **Completed rounds only.** Fabricated tool rounds must be well-formed (each call
   paired with a result, turns monotonic); malformed → exit 1.
-- **Usage sums** across every run and tool-loop round-trip.
+- **Usage sums** across every run and tool-loop round-trip, and is estimated (and
+  flagged) rather than dropped when a provider reports none — see §9.
 
 ---
 
@@ -306,9 +307,25 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 {"type":"result","turn":null,"exit_reason":"ok","usage":{"input":10,"output":5,"total":15},"turns":1,"tool_calls":0}
 ```
 
-Fields: `exit_reason` (§2), `usage{input,output,total}`, `turns`, `tool_calls`,
-`duration_ms`?. Read `exit_reason` for the outcome; read the last `assistant_text` for
-the answer. Multipart `content` (multimodal) is an array of parts
+Fields: `exit_reason` (§2), `usage{input,output,total,estimated?}`, `turns`,
+`tool_calls`, `duration_ms`?. Read `exit_reason` for the outcome; read the last
+`assistant_text` for the answer.
+
+**Estimated usage.** `usage` normally carries the provider's own counts. Two
+degradations are handled rather than papered over:
+
+- A provider that reports the parts but no total (Anthropic has no `total_tokens`
+  field; some gateways drop it) gets its `total` derived as `input + output`. Still a
+  measurement — no flag.
+- A provider that reports *nothing* — commonly a proxy, router, or gateway that
+  terminates the stream and drops the final usage chunk, or a server that ignores
+  `stream_options.include_usage` — gets counts estimated from message size (history +
+  tool schemas in, response out, ~3.5 chars/token). The trailer then carries
+  `"estimated": true` and a warning goes to stderr.
+
+An estimated trailer is a guardrail, not billing data: it's off by roughly ±30% and
+blind to provider-side overheads. `"estimated"` is omitted entirely when the counts
+are measured, so a normal trailer is unchanged. Multipart `content` (multimodal) is an array of parts
 (`{"kind":"text",…}` / `{"kind":"image",…,"note":…}`); images don't fully round-trip
 in v1 — the durable stand-in is `note`.
 

@@ -245,7 +245,7 @@ public sealed record RunResult
 {
     public IReadOnlyList<TranscriptEvent> Events { get; init; } // the completed conversation
     public string  Answer     { get; init; }   // last non-empty assistant text
-    public UsageInfo? Usage   { get; init; }    // { Input, Output, Total }, summed across runs
+    public UsageInfo? Usage   { get; init; }    // { Input, Output, Total, Estimated }, summed across runs
     public string  ExitReason { get; init; }    // "ok" | "provider_error" | "max_tool_calls" | ...
     public int     ExitCode   { get; init; }    // 0 | 2 | 3 | 4
     public IReadOnlyList<string> Warnings { get; init; } // non-fatal evaluator warnings
@@ -295,6 +295,12 @@ catch (TranscriptFormatException e) { /* the program you built is malformed */ }
   executed. `tools` is all-on by default; `mcp` is strict-empty until you add a
   server.
 - **Usage sums** across every run and tool-loop round-trip in the program.
+- **Usage may be estimated.** When the provider reports no token counts — typical of a
+  proxy or gateway that drops the streamed usage chunk — nb estimates them from message
+  size instead of counting zero, sets `Usage.Estimated`, and adds a `Warnings` entry.
+  This keeps `budget tokens` enforceable behind a usage-blind endpoint, at roughly ±30%
+  accuracy. Check `Usage.Estimated` before treating counts as billing data. A provider
+  that reports the parts but no total gets `Total` derived; that stays unflagged.
 - **Chrome suppression is global for the call.** `RunAsync` redirects the engine's
   `AnsiConsole` to `DiagnosticsWriter` (or discards it) for the duration and
   restores it after — so it isn't safe to run many `Nb.RunAsync` calls truly

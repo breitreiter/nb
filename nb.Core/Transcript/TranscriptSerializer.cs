@@ -168,6 +168,7 @@ public static class TranscriptSerializer
             if (u.Input is { } i) w.WriteNumber("input", i);
             if (u.Output is { } o) w.WriteNumber("output", o);
             if (u.Total is { } tot) w.WriteNumber("total", tot);
+            if (u.Estimated) w.WriteBoolean("estimated", true);
             w.WriteEndObject();
         }
         if (r.Turns is { } turns) w.WriteNumber("turns", turns);
@@ -322,6 +323,7 @@ public static class TranscriptSerializer
             Input = GetLong(u, "input"),
             Output = GetLong(u, "output"),
             Total = GetLong(u, "total"),
+            Estimated = u.TryGetProperty("estimated", out var est) && est.ValueKind == JsonValueKind.True,
         };
     }
 

@@ -88,6 +88,51 @@ public class NbFacadeTests
     }
 
     [Fact]
+    public async Task PartialUsage_DerivesTotalFromTheParts()
+    {
+        // MOCK:partialusage reports input and output but no total — the shape a
+        // normalizing gateway (or the Anthropic API, which has no total_tokens field at
+        // all) produces. The total is derived, and it's still a measurement, not a guess.
+        var result = await Nb.Program().Run("MOCK:partialusage").RunAsync(MockConfig(), Options());
+
+        Assert.Equal("ok", result.ExitReason);
+        Assert.Equal(15, result.Usage!.Total);
+        Assert.False(result.Usage.Estimated);
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("estimated"));
+    }
+
+    [Fact]
+    public async Task NoUsageReported_EstimatesAndFlagsIt()
+    {
+        // MOCK:nousage drops the usage chunk the way a proxy that ignores
+        // stream_options.include_usage does. nb estimates rather than counting zero, and
+        // says so — on the trailer and in the warnings.
+        var result = await Nb.Program().Run("MOCK:nousage").RunAsync(MockConfig(), Options());
+
+        Assert.Equal("ok", result.ExitReason);
+        Assert.NotNull(result.Usage);
+        Assert.True(result.Usage!.Estimated);
+        Assert.True(result.Usage.Total > 0, "an estimated round must not count as zero");
+        Assert.Contains(result.Warnings, w => w.Contains("estimated"));
+    }
+
+    [Fact]
+    public async Task TokenBudget_IsEnforcedAgainstEstimates()
+    {
+        // The point of estimating: a budget stays enforceable behind a usage-blind
+        // endpoint. The first run spends past the 1-token ceiling on estimate alone, so
+        // the second never reaches the provider.
+        var result = await Nb.Program()
+            .Budget("tokens", 1)
+            .Run("MOCK:nousage")
+            .Run("MOCK:nousage")
+            .RunAsync(MockConfig(), Options());
+
+        Assert.Equal("token_budget", result.ExitReason);
+        Assert.Equal(3, result.ExitCode);
+    }
+
+    [Fact]
     public async Task Run_DoesNotLeakToStdout()
     {
         // The chrome-suppression contract: with the default (null) diagnostics sink,

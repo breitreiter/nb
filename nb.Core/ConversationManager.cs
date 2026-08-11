@@ -64,6 +64,10 @@ public class ConversationManager
     private long _sessionOutputTokens;
     private long _sessionTotalTokens;
     private bool _sessionHadUsage;
+    // Set when any round-trip's counts came from the size estimator rather than the
+    // provider. Sticky: a session that mixes reported and estimated rounds is reported
+    // as estimated, since the aggregate is no longer a measurement.
+    private bool _usageEstimated;
     // Session-cumulative token ceiling; null = unlimited. When crossed, the run
     // aborts (ExitReasons.TokenBudget). The `budget tokens` directive sets it.
     private long? _tokenBudget;
@@ -209,9 +213,16 @@ public class ConversationManager
     /// </summary>
     public void AppendHistory(IEnumerable<AIChatMessage> messages) => _conversationHistory.AddRange(messages);
 
-    /// <summary>Summed token usage across the whole invocation (all runs, all tool-loop round-trips), or null if the provider reported none.</summary>
+    /// <summary>Summed token usage across the whole invocation (all runs, all tool-loop round-trips), or null if no run happened.</summary>
     public (long input, long output, long total)? TotalUsage =>
         _sessionHadUsage ? (_sessionInputTokens, _sessionOutputTokens, _sessionTotalTokens) : null;
+
+    /// <summary>
+    /// True when <see cref="TotalUsage"/> includes counts the provider never reported —
+    /// nb estimated them from message size. Off by roughly ±30%, and blind to the
+    /// provider's own overheads, so treat it as a guardrail, not billing data.
+    /// </summary>
+    public bool UsageIsEstimated => _usageEstimated;
 
     /// <summary>
     /// The <c>exit_reason</c> of the most recent turn (see <see cref="Transcript.ExitReasons"/>).
@@ -436,13 +447,28 @@ public class ConversationManager
 
             // Accumulate token usage across every model round-trip (the tool loop
             // recurses through SendMessageInternalAsync) and across every run.
-            if (response.Usage is { } usage)
-            {
-                _sessionInputTokens += usage.InputTokenCount ?? 0;
-                _sessionOutputTokens += usage.OutputTokenCount ?? 0;
-                _sessionTotalTokens += usage.TotalTokenCount ?? 0;
-                _sessionHadUsage = true;
-            }
+            //
+            // Microsoft.Extensions.AI passes the provider's usage block through verbatim
+            // and synthesizes nothing, so what arrives here is whatever survived the wire.
+            // Two gaps matter, both common behind a proxy or gateway that sits between nb
+            // and the real provider API:
+            //
+            //   1. A total is missing but the parts are present -> derive it. Nothing
+            //      billed by tokens reports parts without a sum being computable.
+            //   2. Nothing is reported at all (the streamed usage chunk was dropped, or
+            //      the server ignored stream_options.include_usage) -> estimate.
+            //
+            // Gap 2 used to fail silently and dangerously: a null read as zero left
+            // `budget tokens` inert, so a program that asked for a ceiling ran unbounded.
+            // Warn-and-guess beats both alternatives — ignoring usage abandons the budget
+            // the program asked for, and hard-failing forces every caller behind a gateway
+            // to write a carve-out. The guess is flagged all the way out to the trailer so
+            // it is never passed off as a measurement.
+            var (roundInput, roundOutput, roundTotal) = MeasureOrEstimateUsage(response, requestOptions.Tools);
+            _sessionInputTokens += roundInput;
+            _sessionOutputTokens += roundOutput;
+            _sessionTotalTokens += roundTotal;
+            _sessionHadUsage = true;
 
             // Handle tool calls if present - check if any message has tool calls
             var hasToolCalls = response.Messages.Any(m => m.Contents.Any(c => c is FunctionCallContent));
@@ -457,7 +483,8 @@ public class ConversationManager
                 // answer that merely nudges over the line still returns.
                 if (_tokenBudget is { } budget && _sessionTotalTokens >= budget)
                 {
-                    var budgetMessage = $"Stopped: the token budget ({budget}) was reached ({_sessionTotalTokens} tokens used).";
+                    var counted = _usageEstimated ? "estimated tokens used" : "tokens used";
+                    var budgetMessage = $"Stopped: the token budget ({budget}) was reached ({_sessionTotalTokens} {counted}).";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, budgetMessage));
                     RenderMarkdown(budgetMessage);
                     return Transcript.ExitReasons.TokenBudget;
@@ -1904,10 +1931,51 @@ public class ConversationManager
         }
     }
 
-    private int EstimateTokenCount()
+    /// <summary>
+    /// Token counts for one model round-trip: the provider's own numbers when it reported
+    /// them, a derived total when only the parts came back, and a size estimate when
+    /// nothing did. Sets <see cref="UsageIsEstimated"/> (once, with a warning) on the
+    /// estimate path.
+    /// </summary>
+    private (long Input, long Output, long Total) MeasureOrEstimateUsage(ChatResponse response, IList<AITool>? tools)
+    {
+        if (response.Usage is { } usage &&
+            (usage.InputTokenCount ?? usage.OutputTokenCount ?? usage.TotalTokenCount) is not null)
+        {
+            long input = usage.InputTokenCount ?? 0;
+            long output = usage.OutputTokenCount ?? 0;
+            // Anthropic has no total_tokens field at all; a normalizing gateway may drop it.
+            return (input, output, usage.TotalTokenCount ?? input + output);
+        }
+
+        // Called before the response is appended to history, so _conversationHistory is
+        // still exactly the request that was sent — the input side, verbatim. Counting it
+        // fresh each round mirrors how providers bill a tool loop (the whole prefix is
+        // re-sent and re-charged every round-trip).
+        long estInput = EstimateTokens(_conversationHistory) + EstimateToolSchemaTokens(tools);
+        long estOutput = EstimateTokens(response.Messages);
+        NoteUsageEstimated();
+        return (estInput, estOutput, estInput + estOutput);
+    }
+
+    private void NoteUsageEstimated()
+    {
+        if (_usageEstimated) return;
+        _usageEstimated = true;
+        AnsiConsole.MarkupLine(
+            $"[{UIColors.SpectreWarning}]warning: the provider reported no token usage; counts are estimated from message size " +
+            "and any token budget is enforced against the estimate[/]");
+    }
+
+    private int EstimateTokenCount() => EstimateTokens(_conversationHistory);
+
+    // Rough char-count heuristic (~3.5 chars/token). Drives compaction, and — when a
+    // provider reports no usage — stands in for the wire counts. Deliberately crude:
+    // it is a guardrail, not an accountant.
+    private static int EstimateTokens(IEnumerable<AIChatMessage> messages)
     {
         long totalChars = 0;
-        foreach (var message in _conversationHistory)
+        foreach (var message in messages)
         {
             foreach (var content in message.Contents)
             {
@@ -1929,6 +1997,21 @@ public class ConversationManager
                         break;
                 }
             }
+        }
+        return (int)(totalChars / 3.5);
+    }
+
+    // Tool schemas are part of the billed input but live in ChatOptions, not history.
+    // Only walked on the estimate path (a real usage report already includes them),
+    // so the per-round serialization cost is paid rarely.
+    private static int EstimateToolSchemaTokens(IList<AITool>? tools)
+    {
+        if (tools is null) return 0;
+        long totalChars = 0;
+        foreach (var tool in tools)
+        {
+            totalChars += tool.Name.Length + tool.Description.Length;
+            if (tool is AIFunction fn) totalChars += fn.JsonSchema.GetRawText().Length;
         }
         return (int)(totalChars / 3.5);
     }
