@@ -128,6 +128,16 @@ public sealed class ProgramEvaluator
                 else
                     _warnings.Add($"approval default '{ap.Value}' unknown (prompt | deny) — ignored");
                 break;
+            case "search":
+                // search_web is a single capability with no argument worth matching,
+                // so it grants as a flag rather than a pattern list.
+                if (ap.Value.Equals("allow", StringComparison.OrdinalIgnoreCase))
+                    policy.SetSearchAllowed(true);
+                else if (ap.Value.Equals("prompt", StringComparison.OrdinalIgnoreCase))
+                    policy.SetSearchAllowed(false);
+                else
+                    _warnings.Add($"approval search '{ap.Value}' unknown (allow | prompt) — ignored");
+                break;
             case "sandbox":
                 // Requested-but-unavailable hard-fails the run (ratified), like a bad
                 // config Sandbox value — caught by RunProgramAsync → exit 1.
@@ -139,7 +149,7 @@ public sealed class ProgramEvaluator
                     policy.SetSandbox(mode, allowNet);
                 break;
             default:
-                _warnings.Add($"approval key '{ap.Key}' unknown (bash | mcp | default | sandbox) — ignored");
+                _warnings.Add($"approval key '{ap.Key}' unknown (bash | mcp | search | default | sandbox) — ignored");
                 break;
         }
     }

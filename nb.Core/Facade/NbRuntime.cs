@@ -55,6 +55,7 @@ internal sealed class NbRuntime : IDisposable
         GrepTool? grep = null;
         ListDirTool? listDir = null;
         FetchUrlTool? fetchUrl = null;
+        SearchWebTool? searchWeb = null;
         ApplyPatchTool? applyPatch = null;
         if (!options.NoBash)
         {
@@ -65,6 +66,8 @@ internal sealed class NbRuntime : IDisposable
             grep = new GrepTool(shell);
             listDir = new ListDirTool(shell);
             fetchUrl = new FetchUrlTool();
+            try { searchWeb = SearchWebTool.FromConfig(config["Search:Provider"], config["Search:ApiKey"]); }
+            catch (ArgumentException ex) { throw new NbStartupException(ex.Message); }
 
             var providerConfig = config.GetSection("ChatProviders").GetChildren()
                 .FirstOrDefault(c => string.Equals(c["Name"], config["ActiveProvider"], StringComparison.OrdinalIgnoreCase));
@@ -111,7 +114,7 @@ internal sealed class NbRuntime : IDisposable
         if (wallBudgetMs is <= 0) wallBudgetMs = null;
 
         var conversation = new ConversationManager(
-            client, mcp, fakeTools, bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, applyPatch,
+            client, mcp, fakeTools, bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, searchWeb, applyPatch,
             approval, providerName, options.Verbose, trust, maxToolCalls, maxContextTokens, compactionThreshold,
             debugStream: false, temperature, presencePenalty,
             doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget,
@@ -136,6 +139,11 @@ internal sealed class NbRuntime : IDisposable
             ? ApprovalDefault.Deny : ApprovalDefault.Prompt;
 
         var policy = new ApprovalPolicy(trust, bashPatterns, mcp.IsAlwaysAllowed, mcpGlobs, def);
+
+        // search_web has no argument worth pattern-matching, so it grants as a flag:
+        // Approval.Search in config, or the `approval search allow` directive.
+        if (string.Equals(config["Approval:Search"], "true", StringComparison.OrdinalIgnoreCase))
+            policy.SetSearchAllowed(true);
 
         var sandboxValue = config["Approval:Sandbox"];
         if (!string.IsNullOrEmpty(sandboxValue))

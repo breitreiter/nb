@@ -183,6 +183,7 @@ subsequent runs.
 | --- | --- | --- |
 | `bash` | a command pattern | Auto-approve bash commands matching it (glob-ish). Matched against the **whole command string**, not the invocation inside it: `approval bash go *` allows `go mod tidy` but *not* `cd /work && go mod tidy`, since a rule matching anywhere in the line would be trivially escapable. Write the pattern against the line the model will actually send (`approval bash cd * && go *`), or allow the bare program and expect simple invocations. |
 | `mcp` | an allow glob | Auto-approve MCP tools matching it (matched against `{server}_{tool}`; `/` aliases `_`, so `weather/*` matches `weather_current`). |
+| `search` | `allow` \| `prompt` | Auto-approve `search_web`. Needed for headless runs: nb's primary mode is non-interactive, where an unapproved tool can never execute — the search intent is still recorded either way, but without this every headless run reads as a denial. (`Approval.Search` in config does the same.) |
 | `default` | `prompt` \| `deny` | What an unmatched call does — prompt (default) or refuse outright. |
 | `sandbox` | `none` \| `bwrap` \| `bwrap-net` | Run the bash child under a bubblewrap sandbox (Linux). `bwrap` = fs read-only, cwd + a fresh `/tmp` writable, secret dirs masked, no network; `bwrap-net` allows network. Requesting bwrap where it isn't available hard-fails (exit 1). |
 

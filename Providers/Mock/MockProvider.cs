@@ -137,6 +137,7 @@ public class MockChatClient : IChatClient
         name.ToLowerInvariant() switch
         {
             "bash" => new() { ["command"] = arg, ["description"] = "scripted by MockProvider" },
+            "search_web" => new() { ["query"] = arg },
             _ => new() { ["input"] = arg },
         };
 

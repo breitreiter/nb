@@ -28,6 +28,7 @@ public class ConversationManager
     private readonly GrepTool? _grepTool;
     private readonly ListDirTool? _listDirTool;
     private readonly FetchUrlTool? _fetchUrlTool;
+    private readonly SearchWebTool? _searchWebTool;
     private readonly ApplyPatchTool? _applyPatchTool;
     private readonly FileReadTracker _fileReadTracker = new();
     private readonly ApprovalPolicy _approvalPolicy;
@@ -98,7 +99,7 @@ public class ConversationManager
     public static readonly IReadOnlyList<string> NativeToolNames = new[]
     {
         "bash", "read_file", "write_file", "edit_file",
-        "find_files", "grep", "list_dir", "apply_patch", "fetch_url", "todo",
+        "find_files", "grep", "list_dir", "apply_patch", "fetch_url", "search_web", "todo",
     };
 
     public ConversationManager(
@@ -113,6 +114,7 @@ public class ConversationManager
         GrepTool? grepTool,
         ListDirTool? listDirTool,
         FetchUrlTool? fetchUrlTool,
+        SearchWebTool? searchWebTool,
         ApplyPatchTool? applyPatchTool,
         ApprovalPolicy approvalPolicy,
         string providerName = "",
@@ -140,6 +142,7 @@ public class ConversationManager
         _grepTool = grepTool;
         _listDirTool = listDirTool;
         _fetchUrlTool = fetchUrlTool;
+        _searchWebTool = searchWebTool;
         _applyPatchTool = applyPatchTool;
         _approvalPolicy = approvalPolicy;
         _currentProviderName = providerName;
@@ -384,6 +387,11 @@ public class ConversationManager
             if (_fetchUrlTool != null && _toolSurface.AllowsNative("fetch_url"))
             {
                 mcpTools.Add(_fetchUrlTool.CreateTool());
+            }
+
+            if (_searchWebTool != null && _toolSurface.AllowsNative("search_web"))
+            {
+                mcpTools.Add(_searchWebTool.CreateTool());
             }
 
             // todo rides the native surface: on by default, dropped by `tools -todo`
@@ -754,6 +762,16 @@ public class ConversationManager
                                     ? ToolOutcome.Ok(functionCall.CallId, resultString)
                                     : ToolOutcome.Fail(functionCall.CallId, resultString));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                            }
+                            // search_web: custom approval UX, like fetch_url. The call is
+                            // recorded whether or not a backend is configured — capturing that
+                            // the model wanted to search is the point (plans/web-search.md).
+                            else if (functionCall.Name == "search_web" && _searchWebTool != null)
+                            {
+                                var query = functionCall.Arguments?["query"]?.ToString() ?? "";
+                                var result = await HandleSearchWebToolCall(functionCall.CallId, query);
+                                allToolResults.Add(result);
+                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is fetch_url (custom approval UX — always prompts)
                             else if (functionCall.Name == "fetch_url" && _fetchUrlTool != null)
@@ -1550,6 +1568,75 @@ public class ConversationManager
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write error: {Markup.Escape(ex.Message)}[/]");
             return Task.FromResult(ToolOutcome.Fail(callId, $"Error during file write: {ex.Message}"));
+        }
+    }
+
+    private async Task<ToolOutcome> HandleSearchWebToolCall(string callId, string query)
+    {
+        try
+        {
+            var decision = _approvalPolicy.DecideSearch();
+            if (decision == ApprovalDecision.Deny)
+                return DenyByPolicy(callId, "search_web");
+
+            if (decision != ApprovalDecision.Allow)
+            {
+                if (NonInteractive)
+                    return DenyNonInteractive(callId, "search_web");
+
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Search:[/] {Markup.Escape(query)}");
+                AnsiConsole.MarkupLine(_searchWebTool!.HasBackend
+                    ? $"[{UIColors.SpectreWarning}]  Warning: outbound network request[/]"
+                    : $"[{UIColors.SpectreMuted}]  No search backend configured — no query will be sent[/]");
+
+                while (Console.KeyAvailable)
+                {
+                    Console.ReadKey(intercept: true);
+                }
+
+                while (true)
+                {
+                    AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N]][/] ");
+                    var key = Console.ReadKey().KeyChar;
+                    Console.WriteLine();
+
+                    if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
+                    {
+                        var reason = AnsiConsole.Prompt(
+                            new Spectre.Console.TextPrompt<string>($"[{UIColors.SpectreMuted}]Reason (optional):[/]")
+                                .DefaultValue("User declined")
+                                .AllowEmpty());
+                        var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
+                            ? "Error: User rejected search_web. Permission denied."
+                            : $"Error: User rejected search_web. Reason: {reason}";
+                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Search rejected[/]");
+                        return ToolOutcome.Fail(callId, rejectionMessage);
+                    }
+                    else if (key == 'y' || key == 'Y')
+                    {
+                        break;
+                    }
+                    // Any other key: loop and ask again
+                }
+            }
+
+            var result = await _searchWebTool!.SearchAsync(query);
+
+            // A missing backend is Success — it is a configuration state, not a failure.
+            // Returning it as an error would feed ExitReasons.ToolErrorLimit and abort
+            // precisely the runs where the model keeps trying to search.
+            if (result.Success)
+            {
+                if (!NonInteractive)
+                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]OK[/] [{UIColors.SpectreMuted}]{(_searchWebTool.HasBackend ? "search complete" : "no backend")}[/]");
+                return ToolOutcome.Ok(callId, result.Output ?? SearchWebTool.DeclaredOnlyNote);
+            }
+
+            return ToolOutcome.Fail(callId, $"Error: {result.Error}");
+        }
+        catch (Exception ex)
+        {
+            return ToolOutcome.Fail(callId, $"Error during search: {ex.Message}");
         }
     }
 

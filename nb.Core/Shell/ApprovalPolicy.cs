@@ -29,6 +29,7 @@ public sealed class ApprovalPolicy
     private ApprovalDefault _default;
     private SandboxMode _sandbox;                            // Approval.Sandbox + `approval sandbox`
     private bool _sandboxNet;                                // bwrap-net opts network back in
+    private bool _searchAllowed;                             // Approval.Search + `--approve search_web`
 
     public ApprovalPolicy(bool trust, ApprovalPatterns bashPatterns, Func<string, bool> mcpAlwaysAllowed,
         IEnumerable<string>? mcpGlobs = null, ApprovalDefault @default = ApprovalDefault.Prompt)
@@ -112,6 +113,18 @@ public sealed class ApprovalPolicy
 
     /// <summary>fetch_url never auto-approves in v1 — it falls straight to <see cref="Default"/>.</summary>
     public ApprovalDecision DecideFetch() => NonMatch;
+
+    /// <summary>
+    /// search_web auto-approves only when explicitly allow-listed (<c>Approval.Search</c>
+    /// or <c>--approve search_web</c>), else falls to <see cref="Default"/>. The opt-in
+    /// exists because nb's primary diagnostic mode is non-interactive, where an
+    /// unapprovable tool can never execute — search intent would still be recorded, but
+    /// every headless run would read as a denial regardless of configuration.
+    /// </summary>
+    public ApprovalDecision DecideSearch() =>
+        _searchAllowed ? ApprovalDecision.Allow : NonMatch;
+
+    public void SetSearchAllowed(bool allowed) => _searchAllowed = allowed;
 
     // Commands that are always safe to run without approval.
     // Matched against the first token of the command (before pipes/args).

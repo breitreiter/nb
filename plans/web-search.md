@@ -189,6 +189,23 @@ fabricated tool round, which is a program-authoring move rather than a mode of t
 Worth documenting in `docs/conversation-program-cli.md` when this lands, because a reader who
 assumes declared-only is neutral will misread their own transcripts.
 
+## Implementation note — approval in headless runs
+
+Not anticipated when this was drafted: `ApprovalDefault` is only `{Prompt, Deny}`, and the
+`fetch_url` precedent hard-denies whenever stdin isn't a TTY. Since headless jsonl **is** nb's
+primary diagnostic mode, that precedent would have made live search unreachable exactly where
+it matters — intent would still be recorded, but every headless transcript would read as a
+denial regardless of configuration.
+
+So `search_web` gets an explicit grant rather than inheriting the `fetch_url` shape:
+`approval search allow` as a program directive, `Approval.Search: true` in config. It is a
+flag, not a pattern list, because the tool has no argument worth matching. Unapproved, it
+still falls to the policy default and the call is still recorded — the grant governs
+execution, never observation.
+
+`--approve` no longer exists as a CLI flag (`CLAUDE.md` still references it, and is stale on
+this point).
+
 ## Evidence on tool naming
 
 Whether a third-party search tool gets called at the rate a native one would is a real
