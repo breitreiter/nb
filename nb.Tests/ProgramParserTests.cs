@@ -59,6 +59,22 @@ public class ProgramParserTests
     }
 
     [Fact]
+    public void Tools_None_LeadsDeltasOnOneLine()
+    {
+        var e = Assert.IsType<ToolsEvent>(ProgramParser.Parse("tools none +read_file -bash")[0]);
+        Assert.True(e.Reset);
+        Assert.Equal(new[] { "read_file" }, e.Add);
+        Assert.Equal(new[] { "bash" }, e.Remove);
+    }
+
+    [Fact]
+    public void Tools_None_MustComeFirst()
+    {
+        var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("tools +read_file none"));
+        Assert.Contains("only as the first token", ex.Message);
+    }
+
+    [Fact]
     public void Approval_KeyIsFirstToken_ValueIsTheRest()
     {
         var e = Assert.IsType<ApprovalEvent>(ProgramParser.Parse("approval bash git status")[0]);

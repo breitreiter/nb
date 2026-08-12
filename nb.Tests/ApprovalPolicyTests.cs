@@ -105,6 +105,17 @@ public class ApprovalPolicyTests
     }
 
     [Fact]
+    public void DefaultDeny_SuppressesTheSafeAllowlistAndTrust()
+    {
+        // The safe list and --trust are implicit grants: `default deny` outranks both,
+        // or denial would not mean denial (the list includes build commands).
+        var p = new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false, @default: ApprovalDefault.Deny);
+        Assert.Equal(ApprovalDecision.Deny, Bash(p, "git status").Item1);   // safe list
+        Assert.Equal(ApprovalDecision.Deny, Bash(p, "go build ./...").Item1); // safe list, but arbitrary code
+        Assert.Equal(ApprovalDecision.Deny, Bash(p, "dotnet test").Item1);  // trust
+    }
+
+    [Fact]
     public void Fetch_NeverAutoApproves()
     {
         Assert.Equal(ApprovalDecision.Prompt, Policy().DecideFetch());

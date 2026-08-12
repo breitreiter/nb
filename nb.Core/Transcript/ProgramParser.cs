@@ -142,22 +142,24 @@ public static class ProgramParser
             ? content
             : throw new ProgramParseException($"line {lineNo}: '{verb}' requires a value.");
 
-    // Parse "+name -name" delta tokens, or the lone "none" reset.
+    // Parse "+name -name" delta tokens, optionally led by "none" (reset, then the
+    // deltas apply to the cleared surface — `tools none +read_file`).
     private static SurfaceDirectiveEvent ParseSurface(SurfaceDirectiveEvent template, string content, int lineNo)
     {
         var tokens = content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length == 1 && tokens[0].Equals("none", StringComparison.OrdinalIgnoreCase))
-            return template with { Reset = true };
+        var reset = tokens.Length > 0 && tokens[0].Equals("none", StringComparison.OrdinalIgnoreCase);
 
         var add = new List<string>();
         var remove = new List<string>();
-        foreach (var tok in tokens)
+        foreach (var tok in tokens.Skip(reset ? 1 : 0))
         {
             if (tok.Length < 2 || (tok[0] != '+' && tok[0] != '-'))
-                throw new ProgramParseException($"line {lineNo}: '{template.Type}' tokens must be +name, -name, or 'none' — got '{tok}'.");
+                throw new ProgramParseException(tok.Equals("none", StringComparison.OrdinalIgnoreCase)
+                    ? $"line {lineNo}: '{template.Type}' accepts 'none' only as the first token — put the reset before the +name/-name tokens."
+                    : $"line {lineNo}: '{template.Type}' tokens must be +name, -name, or a leading 'none' — got '{tok}'.");
             (tok[0] == '+' ? add : remove).Add(tok[1..]);
         }
-        return template with { Add = add, Remove = remove };
+        return template with { Reset = reset, Add = add, Remove = remove };
     }
 
     // Parse "approval <key> <value>": the first token is the key (bash|mcp|default|sandbox),

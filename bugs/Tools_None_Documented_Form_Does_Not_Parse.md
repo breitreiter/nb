@@ -1,7 +1,10 @@
 # `tools none +read_file` is documented but does not parse
 
-Status: Open (2026-08-11) — found while writing the first program for a harness
-that drives nb against a containerized fixture.
+Status: Fixed (2026-08-11) — found while writing the first program for a harness
+that drives nb against a containerized fixture. All three items addressed:
+`ParseSurface` now accepts a leading `none` before the deltas; §5.3 documents
+whole-command-string matching for `approval bash`; and `default deny` now
+suppresses the built-in safe list and `--trust`, so denial means denial.
 
 ## Symptom
 

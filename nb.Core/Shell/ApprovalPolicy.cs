@@ -77,11 +77,20 @@ public sealed class ApprovalPolicy
     /// allowlist (non-dangerous) → trust+sandbox → else <see cref="Default"/>.
     /// <c>Reason</c> labels an <see cref="ApprovalDecision.Allow"/> so the caller
     /// preserves its log line (pre-approved / safe / trust).
+    ///
+    /// Under <see cref="ApprovalDefault.Deny"/> only the explicit allow-list applies:
+    /// the built-in safe-command list and <c>--trust</c> are both implicit grants, and
+    /// a program that asks for <c>approval default deny</c> means denial — otherwise
+    /// the safe list (which includes <c>make</c>, <c>npx</c>, <c>go build</c>: arbitrary
+    /// code, not just reads) silently outranks it.
     /// </summary>
     public (ApprovalDecision Decision, string? Reason) DecideBash(string command, ClassifiedCommand classified, string cwd, bool bashPresent)
     {
         if (_bashPatterns.IsApproved(command))
             return (ApprovalDecision.Allow, "pre-approved");
+
+        if (_default == ApprovalDefault.Deny)
+            return (ApprovalDecision.Deny, null);
 
         if (!classified.IsDangerous && IsSafeCommand(command))
             return (ApprovalDecision.Allow, "safe");

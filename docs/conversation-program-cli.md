@@ -154,7 +154,9 @@ can drive two models in sequence (see §11).
 
 ### 5.2 Tool-surface directives — `tools` and `mcp`
 
-Delta semantics. Tokens are `+name`, `-name`, or the lone `none` (reset/clear).
+Delta semantics. Tokens are `+name`, `-name`, or `none` (reset/clear). `none` is only
+meaningful first on the line — it clears the surface, and any `+name`/`-name` after it
+apply to the cleared set.
 
 - **`tools`** — native tools. Baseline **all-on**. Names: `bash`, `read_file`,
   `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`,
@@ -179,7 +181,7 @@ subsequent runs.
 
 | Key | Value | Effect |
 | --- | --- | --- |
-| `bash` | a command pattern | Auto-approve bash commands matching it (glob-ish). |
+| `bash` | a command pattern | Auto-approve bash commands matching it (glob-ish). Matched against the **whole command string**, not the invocation inside it: `approval bash go *` allows `go mod tidy` but *not* `cd /work && go mod tidy`, since a rule matching anywhere in the line would be trivially escapable. Write the pattern against the line the model will actually send (`approval bash cd * && go *`), or allow the bare program and expect simple invocations. |
 | `mcp` | an allow glob | Auto-approve MCP tools matching it (matched against `{server}_{tool}`; `/` aliases `_`, so `weather/*` matches `weather_current`). |
 | `default` | `prompt` \| `deny` | What an unmatched call does — prompt (default) or refuse outright. |
 | `sandbox` | `none` \| `bwrap` \| `bwrap-net` | Run the bash child under a bubblewrap sandbox (Linux). `bwrap` = fs read-only, cwd + a fresh `/tmp` writable, secret dirs masked, no network; `bwrap-net` allows network. Requesting bwrap where it isn't available hard-fails (exit 1). |
@@ -188,6 +190,13 @@ subsequent runs.
 that auto-approves exactly what it should and refuses everything else. (`Approval.Bash`
 / `Approval.McpTools` / `Approval.Default` / `Approval.Sandbox` in config do the same
 outside a program.)
+
+Under `default deny` the **explicit allow-list is the only thing that allows**. Outside
+it, bash has two implicit grants that a first-time reader will not expect: a built-in
+safe-command list (`ls`, `pwd`, `git status`, but also `make`, `npx`, `go build`,
+`dotnet run` — build commands, i.e. arbitrary code), and `--trust`, which auto-approves
+any non-dangerous command in the sandbox. Both are suppressed by `default deny`, so
+denial means denial; under `prompt` they still apply and run without asking.
 
 ### 5.4 Loop & budget directives — `loop` and `budget`
 
