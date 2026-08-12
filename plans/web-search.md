@@ -9,8 +9,8 @@ touches:
   files:
     - ConversationManager.cs
     - Facade/NbRuntime.cs
+    - Shell/SearchWebTool.cs
     - Shell/FetchUrlTool.cs
-    - MCP/FakeToolManager.cs
   features: [tool-surface, transcript, diagnostics]
 provenance:
   author: claude
@@ -84,7 +84,7 @@ A diagnostic instrument that returns different results on every run is a poor in
 search makes a program non-reproducible: same program, same seed, different transcript,
 because the internet moved. That defeats the comparison workflows nb exists for.
 
-So `search_web` ships with **no live backend wired by default**. Declaring the tool is what
+So `search_web` ships **declared-only by default**, with no live backend wired. Declaring the tool is what
 captures intent; executing it faithfully is a separate, opt-in concern.
 
 Two execution modes, and no third:
@@ -235,5 +235,17 @@ provider), not a reason to redesign this.
   not as a failed search.
 - Does `search_web` need its own `--approve` pattern shape, or does the existing string
   matching in `ApprovalPatterns` cover a query argument well enough?
-- Is fake-by-default surprising enough to warrant a startup warning when the tool is enabled
+- Is declared-only-by-default surprising enough to warrant a warning when the tool is enabled
   with no backend? Probably yes at first use, not every call.
+- **Is the declared-only result an error or a normal result?** It must be a **normal result**.
+  `ExitReasons.ToolErrorLimit` aborts a turn once tool errors accumulate, so an `is_error`
+  response would abort exactly the runs where the model tries hardest to search — destroying
+  the measurement in the case we most care about, and reporting it as `tool_error_limit`
+  rather than as search intent. The string is informational; the call succeeded, there was
+  just nothing behind it.
+- Does declared-only prompt for approval? Nothing leaves the machine, so prompting is
+  arguably wrong — but skipping it makes declared-only and live runs differ by an extra
+  variable. Leaning toward prompting in both, for comparability.
+- The tool **description text needs drafting and review before implementation**, not during.
+  Per the evidence above it is the main determinant of whether the instrument reads anything
+  at all, which makes it the highest-leverage artifact here and a poor thing to improvise.
