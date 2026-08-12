@@ -1,7 +1,8 @@
 # Feature: run the `bash` tool inside a running container
 
-Status: Requested (2026-08-11) — wanted by a local harness that drives nb against
+Status: Planned (2026-08-11) — wanted by a local harness that drives nb against
 a containerized fixture, which currently works around it with PATH shims.
+Design: `plans/container-bash-exec.md`.
 
 ## What is wanted
 
