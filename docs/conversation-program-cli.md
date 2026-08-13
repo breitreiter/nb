@@ -82,13 +82,22 @@ clean, parseable stdout.
 | `0` | `ok` — a final answer was produced. |
 | `1` | Startup/config error (bad config, unparseable/invalid program, unassemblable engine, missing program/seed file) — emitted before any transcript. |
 | `2` | `provider_error` — the provider/model failed mid-turn. |
-| `3` | Aborted on a budget/limit — tool-call cap exhausted (`max_tool_calls`), a tool failed repeatedly (`tool_error_limit`), or a token/wall-clock budget was spent (`token_budget` / `time_budget`). |
+| `3` | Aborted on a budget/limit — tool-call cap exhausted (`max_tool_calls`), a tool failed repeatedly (`tool_error_limit`), a token/wall-clock budget was spent (`token_budget` / `time_budget`), or the provider throttled us past the retry budget (`rate_limited`). |
 | `4` | `approval_denied` — a tool needed approval and policy denied it. |
 
 The fine-grained reason also rides on the transcript's `result` trailer
 (`exit_reason`). Runs are headless (no TTY on the program path), so an unmatched tool
 call is **denied** rather than prompted — grant what a run needs with `approval`
 directives or config allow-lists.
+
+**Throttling.** A provider rate-limit rejection is retried with exponential backoff
+and jitter before it becomes an outcome, so a single 429 doesn't discard an agentic
+run's accumulated work. Streaming calls are only retried before the first update
+arrives — throttling happens at request admission, so this costs nothing in practice.
+Tune per `ChatProviders` entry with `MaxRetries` (default 5; `0` disables retry) and
+`RetryMaxDelaySeconds` (default 60). When the retries run out the run ends as
+`rate_limited` rather than `provider_error`: the distinction is the point — the same
+program re-run later may well succeed.
 
 ---
 

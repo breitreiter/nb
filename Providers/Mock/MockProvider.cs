@@ -32,6 +32,7 @@ public class MockChatClient : IChatClient
 
     private readonly string _defaultResponse;
     private readonly string? _model;
+    private int _rateLimitHits;
 
     public MockChatClient(string defaultResponse = "OK", string? model = null)
     {
@@ -57,6 +58,23 @@ public class MockChatClient : IChatClient
         // exit-code contract's provider_error path (exit 2) is testable.
         if (lastUserMessage.StartsWith("MOCK:throw", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("mock provider failure");
+
+        // MOCK:ratelimit simulates a throttling rejection, shaped like the gateway
+        // rejections that have no usable HTTP status — only prose. Bare, it always
+        // throws (retries get exhausted); MOCK:ratelimit=N throws N times and then
+        // answers, so a successful retry is observable end-to-end.
+        const string ratePrefix = "MOCK:ratelimit";
+        if (lastUserMessage.StartsWith(ratePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var budget = lastUserMessage.Length > ratePrefix.Length && lastUserMessage[ratePrefix.Length] == '='
+                && int.TryParse(lastUserMessage[(ratePrefix.Length + 1)..].Split(' ')[0], out var n) ? n : int.MaxValue;
+
+            if (Interlocked.Increment(ref _rateLimitHits) <= budget)
+                throw new InvalidOperationException(
+                    "Wholesale rate limit exceeded for this gateway. Please reduce request rate or use BYOK.");
+
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, "recovered"));
+        }
 
         // MOCK:model echoes this client's configured model, so a mid-stream model
         // swap (which rebuilds the client) is observable end-to-end.

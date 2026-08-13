@@ -136,7 +136,9 @@ public class ProviderManager
 
         try
         {
-            return provider.CreateClient(providerConfig);
+            // Every caller reaches a client through here (facade, REPL, mid-run
+            // provider swaps), so this is the one place retry has to be applied.
+            return RetryingChatClient.Wrap(provider.CreateClient(providerConfig), config, providerConfig);
         }
         catch (Exception ex)
         {

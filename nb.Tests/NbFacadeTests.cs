@@ -56,6 +56,54 @@ public class NbFacadeTests
         Assert.Equal(2, result.ExitCode);
     }
 
+    // A transient throttle is absorbed: the run answers normally instead of dying
+    // and throwing away every tool call it had already made.
+    [Fact]
+    public async Task RateLimit_IsRetriedAndTheRunSucceeds()
+    {
+        var config = MockConfig();
+        var result = await Nb.Program().Run("MOCK:ratelimit=2").RunAsync(config, Options());
+
+        Assert.Equal("ok", result.ExitReason);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("recovered", result.Answer);
+    }
+
+    // A sustained throttle still ends the run, but as its own retryable outcome —
+    // exit 3, distinct from provider_error, so a harness knows to back off and re-run.
+    [Fact]
+    public async Task RateLimit_WhenRetriesAreExhausted_IsItsOwnExitReason()
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ActiveProvider"] = "Mock",
+            ["ChatProviders:0:Name"] = "Mock",
+            ["ChatProviders:0:MaxRetries"] = "2",
+            ["ChatProviders:0:RetryMaxDelaySeconds"] = "1",
+        }).Build();
+
+        var result = await Nb.Program().Run("MOCK:ratelimit").RunAsync(config, Options());
+
+        Assert.Equal("rate_limited", result.ExitReason);
+        Assert.Equal(3, result.ExitCode);
+    }
+
+    // MaxRetries: 0 opts out — the first throttle ends the run immediately.
+    [Fact]
+    public async Task RateLimit_WithRetriesDisabled_FailsImmediately()
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ActiveProvider"] = "Mock",
+            ["ChatProviders:0:Name"] = "Mock",
+            ["ChatProviders:0:MaxRetries"] = "0",
+        }).Build();
+
+        var result = await Nb.Program().Run("MOCK:ratelimit=1").RunAsync(config, Options());
+
+        Assert.Equal("rate_limited", result.ExitReason);
+    }
+
     [Fact]
     public async Task UnbuildableClient_ThrowsNbStartupException()
     {

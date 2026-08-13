@@ -1047,6 +1047,15 @@ public class ConversationManager
         }
         catch (Exception ex)
         {
+            // A throttling rejection that survived RetryingChatClient's backoff gets
+            // its own exit_reason: the run is re-runnable, unlike a real model error.
+            if (RateLimitClassifier.IsRateLimit(ex, out _))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[{UIColors.SpectreError}]Rate limited; retries exhausted: {Markup.Escape(ex.Message)}[/]");
+                return Transcript.ExitReasons.RateLimited;
+            }
+
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
             return Transcript.ExitReasons.ProviderError;
         }
