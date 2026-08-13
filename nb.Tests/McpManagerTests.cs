@@ -155,4 +155,105 @@ public class McpLayerMergeTests : IDisposable
         Assert.Empty(merged.McpServers);
         Assert.Empty(merged.Servers);
     }
+
+    // bugs/Missing_Mcp_Manifest_Silently_Ignored.md — an explicit --mcp manifest is
+    // strict where the layered lookup is lenient: the caller named that one file, so
+    // a bad path must not degrade into "no servers configured".
+
+    [Fact]
+    public void ExplicitManifest_Missing_Throws()
+    {
+        var absent = Path.Combine(_tmp, "absent.json");
+        var ex = Assert.Throws<FileNotFoundException>(() => McpManager.ReadExplicitManifest(absent));
+        Assert.Contains(absent, ex.Message);
+    }
+
+    [Fact]
+    public void ExplicitManifest_MissingDirectory_Throws()
+    {
+        Assert.Throws<FileNotFoundException>(
+            () => McpManager.ReadExplicitManifest("/nonexistent/dir/mcp.json"));
+    }
+
+    [Fact]
+    public void ExplicitManifest_Directory_Throws()
+    {
+        Assert.Throws<FileNotFoundException>(() => McpManager.ReadExplicitManifest(_tmp));
+    }
+
+    [Fact]
+    public void ExplicitManifest_Malformed_Throws()
+    {
+        var bad = Write("bad.json", """{"mcpServers":{ oops""");
+        var ex = Assert.Throws<InvalidOperationException>(() => McpManager.ReadExplicitManifest(bad));
+        Assert.Contains(bad, ex.Message);
+    }
+
+    [Fact]
+    public void ExplicitManifest_Valid_Loads()
+    {
+        var ok = Write("ok.json", """{"mcpServers":{"a":{"command":"a"}}}""");
+        Assert.Equal("a", McpManager.ReadExplicitManifest(ok).McpServers["a"].Command);
+    }
+
+    [Fact]
+    public void LoadConfig_ExplicitMissingManifest_Throws()
+    {
+        using var mcp = new McpManager();
+        Assert.Throws<FileNotFoundException>(() => mcp.LoadConfig(Path.Combine(_tmp, "absent.json")));
+    }
+}
+
+// bugs/Missing_Mcp_Manifest_Silently_Ignored.md gap 2 — a server named by
+// `mcp +name` that is absent from the manifest is never attempted, so it never
+// reaches FailedServers. The gate has to check the config, not just the failures.
+public class McpAssertServersAvailableTests : IDisposable
+{
+    private readonly string _tmp;
+    private readonly McpManager _mcp = new();
+
+    public McpAssertServersAvailableTests()
+    {
+        _tmp = Path.Combine(Path.GetTempPath(), "nb-mcp-assert-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tmp);
+        var manifest = Path.Combine(_tmp, "mcp.json");
+        File.WriteAllText(manifest, """{"mcpServers":{"configured":{"command":"true"}}}""");
+        _mcp.LoadConfig(manifest);
+    }
+
+    public void Dispose()
+    {
+        _mcp.Dispose();
+        try { Directory.Delete(_tmp, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public void NamedButNotConfigured_Throws()
+    {
+        var ex = Assert.Throws<McpServerUnavailableException>(
+            () => _mcp.AssertServersAvailable(new[] { "no-such-server" }));
+        Assert.Contains("not configured", ex.Message);
+        Assert.Contains("no-such-server", ex.Message);
+    }
+
+    [Fact]
+    public void NamedAndConfigured_DoesNotThrow()
+    {
+        _mcp.AssertServersAvailable(new[] { "configured" });
+    }
+
+    [Fact]
+    public void NullSurface_AssertsNothing()
+    {
+        _mcp.AssertServersAvailable(null);
+    }
+
+    // Strict-empty is the documented default: a program that names no servers runs
+    // fine with no servers configured (docs/conversation-program-cli.md:397).
+    [Fact]
+    public void EmptySurface_WithEmptyConfig_DoesNotThrow()
+    {
+        using var empty = new McpManager();
+        empty.AssertServersAvailable(Array.Empty<string>());
+    }
 }

@@ -1,5 +1,52 @@
 # `approval search` is documented but the program parser rejects it
 
+Status: Fixed (2026-08-12).
+
+## Fix
+
+`search` added to the accepted keys in `ValidateProgram` (`Program.cs`), plus a
+value check (`allow | prompt`) matching how `default` and `sandbox` are already
+validated — an unknown value would otherwise pass `--validate` and then warn at
+run time, which is the wrong way round for a flag whose whole point is to be
+checked before a headless run.
+
+Two stale key lists in `ProgramParser` (the `ParseApproval` comment and its
+missing-value error message) also omitted `search`; both updated.
+
+The adjacent §5.2 item was real: `search_web` was missing from the native tool
+list in the docs. Added — the list now matches
+`ConversationManager.NativeToolNames` exactly, which is where it should have been
+checked against in the first place. Nothing enforces that agreement; a doc/code
+sync test would be the real fix if it drifts again.
+
+## One correction to the report
+
+The report says *"the config route works and the program route does not"*. The
+program route does work — the directive was fully wired in the evaluator
+(`ProgramEvaluator.cs:139`, `search` → `SetSearchAllowed`), and a program
+carrying `approval search allow` runs correctly today. The parser accepted it too
+(key validity is semantic there, by design).
+
+`--validate` was the only thing rejecting it. That is still the bug — §5.3 points
+harness authors at `--validate`, so a correct program failed the check it was
+told to run — but the blast radius was narrower than "the feature is
+unimplemented": nobody's run was silently mis-approved, they just could not
+validate. Verified before and after:
+
+```console
+$ ./nb --validate trial.nb    # before: error: invalid approval key 'search'. exit=1
+$ ./nb --validate trial.nb    # after:  valid: 3 directive(s). exit=0
+```
+
+Regression test in `nb.Tests/ProgramParserTests.cs` (`Approval_Search_Parses`)
+pins the parser half. `ValidateProgram` is private to the CLI Exe and reads
+static flag state, so the validator half is verified manually — as with
+`bugs/Bad_Program_Path_Crashes_With_Stack_Trace.md`. Two CLI-shell bugs in a row
+have now been untestable for the same reason; that is the argument for the
+integration harness, not for opening these up one at a time.
+
+---
+
 Status: Open (2026-08-12) — found wiring `search_web` into a headless harness,
 against `61b5a65`.
 

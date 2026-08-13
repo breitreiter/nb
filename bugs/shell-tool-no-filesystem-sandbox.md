@@ -2,6 +2,21 @@
 
 Status: Reported (2026-07-06) — unpatched. Verified against current source.
 
+> **Update 2026-08-12 — Hole #2's repro works now, and did not before.**
+> Until today the unsandboxed bash path escaped `$` and backticks
+> (`BashTool.EscapeBash`), so `echo $(cat /etc/passwd)` was a bash *syntax
+> error* and backticks arrived literal — command substitution could not execute
+> unsandboxed, and Hole #2's repro would have failed if anyone had run it. That
+> was a side effect of wrapper quoting, not a control, and it came at the cost of
+> corrupting every `$` inside single quotes
+> (`bugs/Bash_Escapes_Dollar_Inside_Single_Quotes.md`).
+>
+> That escaping is gone as of that fix — bash now receives the command verbatim.
+> **Hole #2 is live exactly as described below**, and its severity assessment
+> stands unchanged. Gating `$(...)` in `CommandClassifier` was deliberately not
+> done as part of that fix: it belongs to this report, and a denylist still
+> cannot bound reads, which is this report's core argument.
+
 One-line summary: nb's `bash` tool runs the model's command string through
 `bash -c` with **no OS-level isolation**. The only gating is a C# string/path
 heuristic that is not a security boundary. A model driving the tool can read any

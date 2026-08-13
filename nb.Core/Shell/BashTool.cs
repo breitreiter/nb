@@ -232,18 +232,16 @@ public class BashTool
         }
 
         // Unsandboxed: bash everywhere (Git Bash on Windows, native bash/zsh/sh on Unix).
+        // ArgumentList, same as the bwrap path above — the command reaches bash as one
+        // argv entry, byte-for-byte. The old `-c "{escaped}"` form had to escape $ and
+        // backticks for its own wrapper quoting, which corrupted them everywhere bash
+        // would not have interpolated anyway (inside single quotes, most of all), so
+        // `awk '{print $1}'` and `grep 'foo$'` did the wrong thing. There is no correct
+        // version of that escape: deciding what to expand requires parsing the shell
+        // grammar, which is bash's job.
         psi.FileName = _env.ShellPath;
-        psi.Arguments = $"-c \"{EscapeBash(command)}\"";
-    }
-
-    private static string EscapeBash(string command)
-    {
-        // Escape double quotes and backslashes for bash -c "..."
-        return command
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("$", "\\$")
-            .Replace("`", "\\`");
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add(command);
     }
 
     private static bool IsValidUtf8(string text)

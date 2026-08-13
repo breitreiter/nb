@@ -162,15 +162,16 @@ public static class ProgramParser
         return template with { Reset = reset, Add = add, Remove = remove };
     }
 
-    // Parse "approval <key> <value>": the first token is the key (bash|mcp|default|sandbox),
-    // the rest is the value (a bash pattern may contain spaces). Key validity is a
-    // semantic check (--validate / evaluator), not syntactic.
+    // Parse "approval <key> <value>": the first token is the key
+    // (bash|mcp|search|default|sandbox), the rest is the value (a bash pattern may
+    // contain spaces). Key validity is a semantic check (--validate / evaluator),
+    // not syntactic.
     private static ApprovalEvent ParseApproval(string content, int lineNo)
     {
         var trimmed = content.Trim();
         var sp = trimmed.IndexOf(' ');
         if (sp < 0)
-            throw new ProgramParseException($"line {lineNo}: 'approval' needs '<key> <value>' (bash | mcp | default | sandbox) — got '{trimmed}'.");
+            throw new ProgramParseException($"line {lineNo}: 'approval' needs '<key> <value>' (bash | mcp | search | default | sandbox) — got '{trimmed}'.");
         var value = trimmed[(sp + 1)..].Trim();
         if (value.Length == 0)
             throw new ProgramParseException($"line {lineNo}: 'approval {trimmed[..sp]}' needs a value.");

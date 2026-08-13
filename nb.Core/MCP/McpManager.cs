@@ -33,39 +33,35 @@ public class McpManager : IDisposable
     /// (install -> user -> project, later winning by server name); --mcp passes an
     /// explicit path for a hermetic per-invocation manifest.
     /// </summary>
+    /// <remarks>
+    /// An explicit manifest is strict: the caller named that file, so missing or
+    /// malformed throws (<see cref="FileNotFoundException"/> /
+    /// <see cref="InvalidOperationException"/>) rather than degrading to "no
+    /// servers" — a hermetic run must not quietly become a toolless one. The
+    /// layered lookup stays lenient, where absent layers are the normal case.
+    /// </remarks>
     public void LoadConfig(string? manifestPath = null)
     {
-        try { _config = LoadMcpConfiguration(manifestPath); }
+        if (!string.IsNullOrEmpty(manifestPath))
+        {
+            _config = ReadExplicitManifest(manifestPath);
+            return;
+        }
+
+        try { _config = LoadLayeredConfiguration(); }
         catch { _config = new McpConfig(); }
     }
 
-    /// <summary>
-    /// Connects any of the named servers that are not yet connected.
-    /// Safe to call multiple times — already-connected servers are skipped.
-    /// </summary>
-    public async Task EnsureServersConnectedAsync(IEnumerable<string> serverNames)
-    {
-        var servers = _config.McpServers.Count > 0 ? _config.McpServers : _config.Servers;
-        foreach (var name in serverNames)
-        {
-            if (_connectedServerNames.Contains(name)) continue;
-            if (!servers.TryGetValue(name, out var serverConfig))
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]MCP: '{name}' not found in mcp.json[/]");
-                continue;
-            }
-            try { await ConnectServerAsync(name, serverConfig); }
-            catch (Exception ex) { AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP error: {name} — {Markup.Escape(ex.Message)}[/]"); }
-        }
-    }
+    // The configured servers, from whichever key the manifest used.
+    private IReadOnlyDictionary<string, McpServerConfig> ConfiguredServers =>
+        _config.McpServers.Count > 0 ? _config.McpServers : _config.Servers;
 
     /// <summary>
     /// Connects all configured servers. Used by --dump-tools.
     /// </summary>
     public async Task ConnectAllAsync()
     {
-        var servers = _config.McpServers.Count > 0 ? _config.McpServers : _config.Servers;
-        foreach (var (name, serverConfig) in servers)
+        foreach (var (name, serverConfig) in ConfiguredServers)
         {
             if (_connectedServerNames.Contains(name)) continue;
             // Record the failure rather than printing it: a broken server is only a
@@ -77,20 +73,30 @@ public class McpManager : IDisposable
     }
 
     /// <summary>
-    /// Throw if any explicitly named server (<c>mcp +name</c>) failed to connect. A
-    /// program that selects a server it needs must not silently run without those
-    /// tools — that is the "I'm trying to use this MCP server and it won't start"
-    /// case, and it aborts the run, like a requested-but-unavailable sandbox. A
-    /// null list (the bare-path surface) selects all connected servers and asserts
-    /// nothing; unnamed failures stay warnings (see <see cref="FailedServers"/>).
+    /// Throw if any explicitly named server (<c>mcp +name</c>) is unavailable —
+    /// either not configured at all, or configured and failed to connect. A program
+    /// that selects a server it needs must not silently run without those tools —
+    /// that is the "I'm trying to use this MCP server and it won't start" case, and
+    /// it aborts the run, like a requested-but-unavailable sandbox. A null list (the
+    /// bare-path surface) selects all connected servers and asserts nothing; unnamed
+    /// failures stay warnings (see <see cref="FailedServers"/>).
     /// </summary>
     public void AssertServersAvailable(IEnumerable<string>? serverNames)
     {
         if (serverNames is null) return;
         foreach (var name in serverNames)
+        {
             if (_failedServers.TryGetValue(name, out var error))
                 throw new McpServerUnavailableException(
                     $"MCP server '{name}' was requested (mcp +{name}) but failed to start: {error}");
+
+            // Absent from the manifest is the same defect as failed-to-start — the
+            // tools never arrive — but it is never attempted, so FailedServers alone
+            // would let it through. Distinguish the two: the fixes differ.
+            if (!ConfiguredServers.ContainsKey(name))
+                throw new McpServerUnavailableException(
+                    $"MCP server '{name}' was requested (mcp +{name}) but is not configured in mcp.json");
+        }
     }
 
     private async Task ConnectServerAsync(string serverName, McpServerConfig serverConfig)
@@ -334,15 +340,12 @@ public class McpManager : IDisposable
         }
     }
 
-    // A manifest path (--mcp) is a hermetic single file. Otherwise mcp.json layers
-    // like config.json: install (next to the binary) -> user (~/.config/nb) ->
-    // nearest project (.nb/mcp.json), later winning by server name — so a project
-    // can add or override servers without editing the install manifest.
-    private static McpConfig LoadMcpConfiguration(string? manifestPath)
+    // mcp.json layers like config.json: install (next to the binary) -> user
+    // (~/.config/nb) -> nearest project (.nb/mcp.json), later winning by server name
+    // — so a project can add or override servers without editing the install
+    // manifest. The --mcp path is hermetic instead: see ReadExplicitManifest.
+    private static McpConfig LoadLayeredConfiguration()
     {
-        if (!string.IsNullOrEmpty(manifestPath))
-            return ReadMcpFile(manifestPath) ?? new McpConfig();
-
         var executableDirectory = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location)
             ?? Directory.GetCurrentDirectory();
         return MergeLayers(new[]
@@ -367,6 +370,26 @@ public class McpManager : IDisposable
             foreach (var (name, server) in layer.Servers) merged.Servers[name] = server;
         }
         return merged;
+    }
+
+    // --mcp names one file and means it: every failure to read it is an error, not
+    // an empty server set. Internal for testing.
+    internal static McpConfig ReadExplicitManifest(string path)
+    {
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"MCP manifest not found: {path}");
+        try
+        {
+            return ReadMcpFile(path) ?? new McpConfig();
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"MCP manifest is not valid JSON ({path}): {ex.Message}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException($"MCP manifest could not be read ({path}): {ex.Message}");
+        }
     }
 
     private static McpConfig? ReadMcpFile(string path)

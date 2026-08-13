@@ -160,7 +160,7 @@ apply to the cleared set.
 
 - **`tools`** — native tools. Baseline **all-on**. Names: `bash`, `read_file`,
   `write_file`, `edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`,
-  `fetch_url`, `todo`. `tools -bash` drops bash; `tools none` exposes none; `tools none
+  `fetch_url`, `search_web`, `todo`. `tools -bash` drops bash; `tools none` exposes none; `tools none
   +read_file` allows just that one. `todo` is a steering aid (a task-tracking tool
   plus a pending-todos nudge for models prone to abandoning work); `tools -todo`
   removes it, which also silences the nudge (no todos can be created without it).
@@ -409,5 +409,14 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
 - **`mcp +server` naming a server that failed to start** → hard-fail, exit 1 (the
   program selected tools that will never arrive). A configured server that fails but
   is never named is a non-fatal warning to stderr and the run continues.
-- **Unsandboxed bash quoting:** the non-sandboxed bash tool escapes `$` and backticks,
-  so `$(...)` / `$VAR` don't run there; the bwrap sandbox passes the command raw.
+- **`mcp +server` naming a server that isn't in the manifest at all** → hard-fail,
+  exit 1, same reason. The message says "is not configured in mcp.json" to separate
+  it from the failed-to-start case.
+- **`--mcp` pointing at a missing or malformed manifest** → hard-fail, exit 1. An
+  explicit manifest is strict, matching `--config`; the layered `mcp.json` lookup
+  stays lenient, where an absent layer is normal.
+- **Bash quoting:** both the sandboxed and unsandboxed bash paths pass the command to
+  bash verbatim, so bash's own quoting rules apply — `$VAR` and `$(...)` expand in
+  double quotes and not in single quotes, exactly as in a terminal. (Before 2026-08-12
+  the unsandboxed path escaped `$` and backticks, which stopped expansion but also
+  corrupted them inside single quotes, breaking `awk '{print $1}'` and `grep 'foo$'`.)

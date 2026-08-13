@@ -1,5 +1,60 @@
 # `bash` tool escapes `$` unconditionally, breaking every single-quoted script
 
+Status: Fixed (2026-08-12) — `ArgumentList`, as the report proposed.
+
+## Fix
+
+`ConfigureCommand` (`nb.Core/Shell/BashTool.cs`) now builds the unsandboxed
+invocation the same way the bwrap path already did:
+
+```csharp
+psi.FileName = _env.ShellPath;
+psi.ArgumentList.Add("-c");
+psi.ArgumentList.Add(command);
+```
+
+`EscapeBash` is deleted rather than corrected, for the reason the report gives:
+deciding what to escape means parsing the shell grammar.
+
+Ten tests in `nb.Tests/BashQuotingTests.cs`; nine confirmed failing against the
+unfixed tool. The tenth (`SingleQuotedVariable_DoesNotExpand`) passed before by
+accident — nothing expanded then — and is kept as the other half of the
+contract.
+
+## Two corrections from measuring it
+
+The report's blast-radius table was right about scope and wrong about which case
+is the quiet one. Probed against the unfixed tool:
+
+| command | actual pre-fix behaviour |
+|---|---|
+| `echo abc def \| awk '{print $2}'` | **errors** (`awk: unexpected character '\'`) — not a wrong field |
+| `printf 'foo\nfoobar\n' \| grep 'foo$'` | **exit 1, no output** — the genuinely silent one |
+
+So `awk` announces itself; anchored `grep`/`sed` are the pattern that returns a
+clean, plausible, wrong answer. Both are pinned by tests now.
+
+## Security interaction — read this alongside the sandbox bug
+
+Pre-fix, `$(...)` was a bash **syntax error** and backticks came through literal:
+command substitution could not execute unsandboxed at all. That was never a
+designed control — it fell out of the same escaping that caused this bug — but
+it did mean `bugs/shell-tool-no-filesystem-sandbox.md` **Hole #2 was not
+reachable** on the unsandboxed path.
+
+This fix makes it reachable: `echo $(cat /etc/passwd)` now runs, and the `echo`
+safe-prefix still auto-approves it with no path check. That hole is real,
+unpatched, and tracked in its own report — noted there too. It was hidden behind
+a low-severity quoting accident, not closed by one; the accident is gone and the
+hole is now visible, which is the correct state for it to be in.
+
+Taken deliberately (2026-08-12) rather than papered over: gating substitution in
+`CommandClassifier` was considered and left to the sandbox bug, since a denylist
+cannot bound reads and half-closing it there would make that report harder to
+act on.
+
+---
+
 Status: Open (2026-08-12) — found in a headless harness run against a
 containerized Ruby fixture, at `61b5a65`.
 **Severity: high.** Any command that passes a `$` through to another

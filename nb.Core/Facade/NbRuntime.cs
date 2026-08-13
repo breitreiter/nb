@@ -89,7 +89,11 @@ internal sealed class NbRuntime : IDisposable
             throw new NbStartupException($"Failed to initialize chat client for provider '{providerName}'. Check the configuration.");
 
         var mcp = new McpManager();
-        mcp.LoadConfig(options.McpManifestPath);
+        // An explicit --mcp manifest that can't be read is a startup failure, not an
+        // empty tool surface: the run was asked to be hermetic against that file.
+        try { mcp.LoadConfig(options.McpManifestPath); }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException)
+        { throw new NbStartupException(ex.Message); }
 
         var fakeTools = new FakeToolManager();
         await fakeTools.LoadFakeToolsAsync();

@@ -168,7 +168,12 @@ public class Program
         // --dump-tools: connect to MCP servers, write manifest, exit.
         if (_dumpTools)
         {
-            _mcpManager.LoadConfig(_mcpManifest);
+            try { _mcpManager.LoadConfig(_mcpManifest); }
+            catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException)
+            {
+                Console.Error.WriteLine($"Error: {ex.Message}");
+                Environment.Exit(1);
+            }
             await _mcpManager.ConnectAllAsync();
             foreach (var (name, error) in _mcpManager.FailedServers)
                 Console.Error.WriteLine($"MCP server '{name}' failed to start: {error}");
@@ -389,6 +394,14 @@ public class Program
 
         if (_programFile != null)
         {
+            // Check first rather than letting File.ReadAllTextAsync decide: it raises
+            // FileNotFoundException only when the directory exists, so a missing
+            // directory (DirectoryNotFoundException) or a directory passed as the
+            // program (UnauthorizedAccessException) would escape the caller's filter
+            // and crash. Same shape as --seed above and --config.
+            if (_programFile != "-" && !File.Exists(_programFile))
+                throw new FileNotFoundException($"program file not found: {_programFile}");
+
             var source = _programFile == "-"
                 ? await Console.In.ReadToEndAsync()
                 : await File.ReadAllTextAsync(_programFile);
@@ -414,11 +427,14 @@ public class Program
                 case ProviderEvent p when providers.Count > 0 && !providers.Contains(p.Name):
                     errors.Add($"unknown provider '{p.Name}'. Configured: {string.Join(", ", providers)}.");
                     break;
-                case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "default" or "sandbox"):
-                    errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, default, sandbox.");
+                case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "search" or "default" or "sandbox"):
+                    errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, search, default, sandbox.");
                     break;
                 case ApprovalEvent { Key: "default" } a when a.Value is not ("prompt" or "deny"):
                     errors.Add($"invalid approval default '{a.Value}'. Valid: prompt, deny.");
+                    break;
+                case ApprovalEvent { Key: "search" } a when a.Value is not ("allow" or "prompt"):
+                    errors.Add($"invalid approval search '{a.Value}'. Valid: allow, prompt.");
                     break;
                 case ApprovalEvent { Key: "sandbox" } a when !BwrapSandbox.TryParse(a.Value, out _, out _):
                     errors.Add($"invalid approval sandbox '{a.Value}'. Valid: none, bwrap, bwrap-net.");

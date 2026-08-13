@@ -90,6 +90,17 @@ public class ProgramParserTests
         Assert.Equal("deny", e.Value);
     }
 
+    // bugs/Approval_Search_Directive_Not_Implemented.md — the key was live in the
+    // evaluator and rejected by --validate. The parser always accepted it (key
+    // validity is semantic, not syntactic); pinned here so it stays that way.
+    [Fact]
+    public void Approval_Search_Parses()
+    {
+        var e = Assert.IsType<ApprovalEvent>(ProgramParser.Parse("approval search allow")[0]);
+        Assert.Equal("search", e.Key);
+        Assert.Equal("allow", e.Value);
+    }
+
     [Fact]
     public void Approval_MissingValue_Throws()
     {
