@@ -62,7 +62,7 @@ public class RateLimitClassifierTests
 
     // An SDK exception exposing an int Status (System.ClientModel's shape) is read
     // reflectively, since nb.Core can't reference the type.
-    private sealed class FakeClientResultException(int status) : Exception("service error")
+    private sealed class FakeClientResultException(int status, string message = "service error") : Exception(message)
     {
         public int Status { get; } = status;
     }
@@ -72,6 +72,27 @@ public class RateLimitClassifierTests
     {
         Assert.True(IsRateLimit(new FakeClientResultException(429), out _));
         Assert.False(IsRateLimit(new FakeClientResultException(400), out _));
+    }
+
+    // Cloudflare's gateway signals wholesale capacity exhaustion as 402, not 429.
+    // 402 is deliberately NOT a throttle status on its own — it is Payment Required,
+    // and retrying a genuinely unfunded account just burns the backoff budget before
+    // failing anyway. It retries when the body corroborates it, and not otherwise.
+    [Fact]
+    public void Http402_WithThrottleProse_IsRateLimit()
+    {
+        var ex = new FakeClientResultException(402,
+            "HTTP 402 (payment_required): {\"state\":\"Failed\",\"error\":\"Wholesale rate limit "
+            + "exceeded for this gateway. Please reduce request rate or use BYOK.\"}");
+        Assert.True(IsRateLimit(ex, out _));
+    }
+
+    [Fact]
+    public void Http402_WithoutThrottleProse_IsNotRateLimit()
+    {
+        var ex = new FakeClientResultException(402,
+            "HTTP 402 (payment_required): {\"error\":\"Insufficient credit. Add a payment method.\"}");
+        Assert.False(IsRateLimit(ex, out _));
     }
 
     [Theory]

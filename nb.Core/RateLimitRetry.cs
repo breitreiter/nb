@@ -61,6 +61,11 @@ internal static class RateLimitClassifier
         return false;
     }
 
+    // 402 is deliberately absent. Cloudflare's gateway signals wholesale capacity
+    // exhaustion with it ("Wholesale rate limit exceeded... reduce request rate"),
+    // which must retry — but 402 is Payment Required, and an unfunded account would
+    // burn the whole backoff budget before failing anyway. So a 402 retries on the
+    // strength of its body, via the message layer, and not on the status alone.
     private static bool IsThrottleStatus(int? status) => status is 429 or 503 or 529;
 
     private static bool MatchesSignal(string message) =>
