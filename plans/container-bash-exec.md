@@ -2,9 +2,9 @@
 kind: plan
 title: Run the bash tool inside a container
 created: 2026-08-11
-updated: 2026-08-11
-status: current
-state: proposed
+updated: 2026-08-12
+status: closed
+state: rejected
 touches:
   files:
     - Shell/BashTool.cs
@@ -20,6 +20,13 @@ provenance:
 ---
 
 # Run the bash tool inside a container
+
+> **Closed, not built (2026-08-12).** The harness runs nb *inside* the eval
+> container instead, so `bash` tool calls already execute in the right place and
+> there is nothing for nb to route. The zero-network-container-vs-nb-needs-HTTP
+> tension below is what forced nb outside the container; putting nb inside
+> dissolves it. Kept as a record of the rejected approach — see
+> `bugs/Feature_Run_Bash_Tool_Inside_A_Container.md`.
 
 ## Why this plan exists
 

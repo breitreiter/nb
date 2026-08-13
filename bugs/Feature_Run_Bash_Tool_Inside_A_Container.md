@@ -1,5 +1,28 @@
 # Feature: run the `bash` tool inside a running container
 
+Status: **Closed, will not fix** (2026-08-12) — the requirement dissolved rather
+than being met. `plans/container-bash-exec.md` is closed with it.
+
+## Why closed
+
+The design tension driving this was: the eval container should have zero
+network, but nb needs the network to reach the model over HTTP — so nb had to
+stay on the host and reach *into* the container, which is what this feature was
+for.
+
+The harness settled on **running nb inside the eval container** instead. Once nb
+is in the container, `bash` tool calls already execute in the right place and
+there is nothing to route: no `approval sandbox container`, no
+`ContainerExec.cs`, no exec-transport axis in the parser. The container's network
+policy becomes a property of how the container is run, not something nb has to
+model.
+
+Reopen only if a case appears where nb genuinely cannot live alongside the thing
+it drives. The original plan is left in place as a record of the rejected
+approach.
+
+---
+
 Status: Planned (2026-08-11) — wanted by a local harness that drives nb against
 a containerized fixture, which currently works around it with PATH shims.
 Design: `plans/container-bash-exec.md`.

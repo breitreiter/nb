@@ -1,5 +1,23 @@
 # GPT-5x ends turn early under streaming
 
+Status: **Closed, will not fix** (2026-08-12) — the use case retired before the
+bug was found.
+
+## Why closed
+
+This was only ever observed driving nb as a coding agent against GPT-5x, which
+is no longer how nb is used. Not reproduced since 2026-07-28, and nobody is
+bisecting it.
+
+Closing it on *use case retired*, not on *believed fixed* — the two suspects
+below (`aba44f8`, the streaming rewrite; `d06ab84`, the M.E.AI 10.5 upgrade) were
+never eliminated, and the streaming path they implicate is still live for every
+provider. If mid-task abandonment shows up again on any model, this report is
+still the right starting point: the bisect plan and the diagnostics in `aafb050`
+remain valid.
+
+---
+
 Status: On hold (2026-07-28) — real but unreproduced since; nobody is bisecting
 it. Diagnostics landed in `aafb050`; the bisect plan below is still the right
 starting point if it resurfaces. Workaround while investigating was
