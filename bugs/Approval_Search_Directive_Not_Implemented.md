@@ -102,6 +102,30 @@ Set it in the config file instead:
 Add `search` to the accepted keys in `Program.cs:418` and map it to the same
 `_searchAllowed` path the config route uses.
 
+## The same gap, one tool over: `fetch_url` has no approval path at all
+
+Found 2026-08-13, wiring the same harness. `DecideFetch()` (`ApprovalPolicy.cs`)
+is a one-liner that always returns `NonMatch` — there is no glob, no config key,
+no `--approve` form. The doc comment says *"never auto-approves in v1"*, so this
+is deliberate, but the consequence is the one §5.3 warns about for search:
+
+**`fetch_url` cannot execute in any headless run.** Under `approval default deny`
+it denies; under `prompt` with no TTY it denies. A program may declare the tool,
+the model may call it, and the call can never succeed.
+
+That is defensible as a safety default — fetching arbitrary URLs is a bigger
+capability than searching — but it should be *reachable*, for the same reason
+search is: nb's primary mode is non-interactive. The natural shape is a glob, so
+a harness can allow a host or prefix rather than the whole web:
+
+```
+approval fetch https://docs.example.com/*
+```
+
+which also reads better than search's all-or-nothing `allow`. Worth deciding
+alongside the search key rather than after it, since a caller reasonably expects
+the two network tools to be configured the same way.
+
 ## Adjacent, while you are in there
 
 `docs/conversation-program-cli.md` §5.2 lists the native tool names as
