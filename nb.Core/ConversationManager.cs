@@ -31,8 +31,6 @@ public class ConversationManager
     private FetchUrlTool? _fetchUrlTool;
     private SearchWebTool? _searchWebTool;
     private ApplyPatchTool? _applyPatchTool;
-    private readonly FileReadTracker _fileReadTracker = new();
-    private readonly ApprovalPolicy _approvalPolicy;
     private readonly bool _verbose;
     private readonly bool _trustMode;
     private readonly bool _debugStream;
@@ -126,6 +124,7 @@ public class ConversationManager
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
         _harness = harness;
+        _harness.Configure(approvalPolicy, trustMode, verbose);
         // The dispatch arms below work in concrete tool instances, so mirror them out
         // of the harness rather than reaching through it at every call site.
         _bashTool = harness.Bash;
@@ -138,7 +137,6 @@ public class ConversationManager
         _fetchUrlTool = harness.FetchUrl;
         _searchWebTool = harness.SearchWeb;
         _applyPatchTool = harness.ApplyPatch;
-        _approvalPolicy = approvalPolicy;
         _currentProviderName = providerName;
         _verbose = verbose;
         _trustMode = trustMode;
@@ -190,6 +188,9 @@ public class ConversationManager
     /// Default (<see cref="Transcript.ToolSurface.All"/>): all native tools, all
     /// connected MCP servers. See plans/tool-surface-directives.md.
     /// </summary>
+    /// <summary>The resolved approval policy — the <c>approval</c> directive layers onto it.</summary>
+    public ApprovalPolicy ApprovalPolicy => _harness.ApprovalPolicy;
+
     /// <summary>The harness whose surface runs currently advertise.</summary>
     public NbHarness Harness => _harness;
 
@@ -200,6 +201,7 @@ public class ConversationManager
     /// </summary>
     public void SetHarness(NbHarness harness)
     {
+        harness.Configure(_harness.ApprovalPolicy, _trustMode, _verbose);
         _harness = harness;
         _bashTool = harness.Bash;
         _readFileTool = harness.ReadFile;
@@ -522,7 +524,7 @@ public class ConversationManager
                                         var result = await resourceTool.InvokeAsync(arguments, cancellationToken).AsTask().WaitAsync(McpToolTimeout, cancellationToken);
                                         var resultString = result?.ToString() ?? string.Empty;
                                         allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
-                                        LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                        _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                     }
                                     catch (TimeoutException)
                                     {
@@ -549,9 +551,9 @@ public class ConversationManager
                                 var args = functionCall.Arguments;
                                 var description = args != null && args.TryGetValue("description", out var d) ? d?.ToString() ?? "" : "";
                                 var command = args != null && args.TryGetValue("command", out var c) ? c?.ToString() ?? "" : "";
-                                var result = await HandleBashToolCall(functionCall.CallId, command, description);
+                                var result = await _harness.HandleBashToolCall(functionCall.CallId, command, description);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is read_file (auto in cwd sandbox, prompt outside)
                             else if (functionCall.Name == "read_file" && _readFileTool != null)
@@ -566,11 +568,11 @@ public class ConversationManager
 
                                 // Sandbox check: auto-approve reads in cwd/temp, prompt outside
                                 var fullReadPath = _readFileTool.ResolvePath(path);
-                                if (!ApproveReadPath("Read", fullReadPath, _readFileTool.GetCwd()))
+                                if (!_harness.ApproveReadPath("Read", fullReadPath, _readFileTool.GetCwd()))
                                 {
                                     var rejMsg = "Error: User rejected read_file. Path is outside working directory.";
                                     allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejMsg));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
+                                    _harness.LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
                                     continue;
                                 }
 
@@ -583,29 +585,29 @@ public class ConversationManager
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(readResult.Error ?? "Unknown error")}[/]");
                                     var errorString = $"Error: {readResult.Error}";
                                     allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorString));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, errorString);
+                                    _harness.LogToolCall(functionCall.Name, functionCall.Arguments, errorString);
                                 }
                                 else if (readResult.FileType == "image")
                                 {
-                                    _fileReadTracker.RecordRead(readResult.Path);
+                                    _harness.Files.RecordRead(readResult.Path);
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → image ({readResult.ImageSizeBytes:N0} bytes)[/]");
                                     var imageBytes = Convert.FromBase64String(readResult.ImageBase64!);
                                     var imageContent = new DataContent(imageBytes, readResult.MimeType!);
                                     var textNote = new TextContent($"[Image loaded: {Path.GetFileName(path)} ({readResult.ImageSizeBytes:N0} bytes)]");
                                     // Return tool result with both text description and image data
                                     allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, new List<AIContent> { textNote, imageContent }));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, $"[image: {readResult.MimeType}]");
+                                    _harness.LogToolCall(functionCall.Name, functionCall.Arguments, $"[image: {readResult.MimeType}]");
                                 }
                                 else
                                 {
-                                    _fileReadTracker.RecordRead(readResult.Path);
+                                    _harness.Files.RecordRead(readResult.Path);
                                     var label = readResult.FileType == "pdf"
                                         ? $"{readResult.TotalLines} pages"
                                         : $"{readResult.LinesReturned} lines ({readResult.TotalLines} total)";
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {label}[/]");
                                     var resultString = readResult.Content ?? "";
                                     allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                                    _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                                 }
                             }
                             // Check if this is edit_file (custom approval UX)
@@ -616,9 +618,9 @@ public class ConversationManager
                                 var newString = functionCall.Arguments?["new_string"]?.ToString() ?? "";
                                 var replaceAll = functionCall.Arguments?.ContainsKey("replace_all") == true
                                     && functionCall.Arguments["replace_all"]?.ToString()?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
-                                var result = HandleEditFileToolCall(functionCall.CallId, path, oldString, newString, replaceAll);
+                                var result = _harness.HandleEditFileToolCall(functionCall.CallId, path, oldString, newString, replaceAll);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is find_files (auto in cwd sandbox, prompt outside)
                             else if (functionCall.Name == "find_files" && _findFilesTool != null)
@@ -630,11 +632,11 @@ public class ConversationManager
                                     : null;
 
                                 var fullFindPath = _findFilesTool.ResolvePath(findPath);
-                                if (!ApproveReadPath("Find", fullFindPath, _findFilesTool.GetCwd()))
+                                if (!_harness.ApproveReadPath("Find", fullFindPath, _findFilesTool.GetCwd()))
                                 {
                                     var rejMsg = "Error: User rejected find_files. Path is outside working directory.";
                                     allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejMsg));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
+                                    _harness.LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
                                     continue;
                                 }
 
@@ -656,7 +658,7 @@ public class ConversationManager
                                 allToolResults.Add(findResult.Success
                                     ? ToolOutcome.Ok(functionCall.CallId, resultString)
                                     : ToolOutcome.Fail(functionCall.CallId, resultString));
-                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                             }
                             // Check if this is grep (auto in cwd sandbox, prompt outside)
                             else if (functionCall.Name == "grep" && _grepTool != null)
@@ -672,11 +674,11 @@ public class ConversationManager
                                     : null;
 
                                 var fullGrepPath = _grepTool.ResolvePath(grepPath);
-                                if (!ApproveReadPath("Grep", fullGrepPath, _grepTool.GetCwd()))
+                                if (!_harness.ApproveReadPath("Grep", fullGrepPath, _grepTool.GetCwd()))
                                 {
                                     var rejMsg = "Error: User rejected grep. Path is outside working directory.";
                                     allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejMsg));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
+                                    _harness.LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
                                     continue;
                                 }
 
@@ -700,7 +702,7 @@ public class ConversationManager
                                 allToolResults.Add(grepResult.Success
                                     ? ToolOutcome.Ok(functionCall.CallId, resultString)
                                     : ToolOutcome.Fail(functionCall.CallId, resultString));
-                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                             }
                             // Check if this is list_dir (auto in cwd sandbox, prompt outside)
                             else if (functionCall.Name == "list_dir" && _listDirTool != null)
@@ -708,11 +710,11 @@ public class ConversationManager
                                 var listPath = functionCall.Arguments?.ContainsKey("path") == true ? functionCall.Arguments["path"]?.ToString() : null;
 
                                 var fullListPath = _listDirTool.ResolvePath(listPath);
-                                if (!ApproveReadPath("List", fullListPath, _listDirTool.GetCwd()))
+                                if (!_harness.ApproveReadPath("List", fullListPath, _listDirTool.GetCwd()))
                                 {
                                     var rejMsg = "Error: User rejected list_dir. Path is outside working directory.";
                                     allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejMsg));
-                                    LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
+                                    _harness.LogToolCall(functionCall.Name, functionCall.Arguments, rejMsg);
                                     continue;
                                 }
 
@@ -735,7 +737,7 @@ public class ConversationManager
                                 allToolResults.Add(listResult.Success
                                     ? ToolOutcome.Ok(functionCall.CallId, resultString)
                                     : ToolOutcome.Fail(functionCall.CallId, resultString));
-                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
                             }
                             // search_web: custom approval UX, like fetch_url. The call is
                             // recorded whether or not a backend is configured — capturing that
@@ -743,34 +745,34 @@ public class ConversationManager
                             else if (functionCall.Name == "search_web" && _searchWebTool != null)
                             {
                                 var query = functionCall.Arguments?["query"]?.ToString() ?? "";
-                                var result = await HandleSearchWebToolCall(functionCall.CallId, query);
+                                var result = await _harness.HandleSearchWebToolCall(functionCall.CallId, query);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is fetch_url (custom approval UX — always prompts)
                             else if (functionCall.Name == "fetch_url" && _fetchUrlTool != null)
                             {
                                 var url = functionCall.Arguments?["url"]?.ToString() ?? "";
-                                var result = await HandleFetchUrlToolCall(functionCall.CallId, url);
+                                var result = await _harness.HandleFetchUrlToolCall(functionCall.CallId, url);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is write_file (custom approval UX)
                             else if (functionCall.Name == "write_file" && _writeFileTool != null)
                             {
                                 var path = functionCall.Arguments?["path"]?.ToString() ?? "";
                                 var content = functionCall.Arguments?["content"]?.ToString() ?? "";
-                                var result = await HandleWriteFileToolCall(functionCall.CallId, path, content);
+                                var result = await _harness.HandleWriteFileToolCall(functionCall.CallId, path, content);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // Check if this is apply_patch (custom approval UX for multi-file patches)
                             else if (functionCall.Name == "apply_patch" && _applyPatchTool != null)
                             {
                                 var input = functionCall.Arguments?["input"]?.ToString() ?? "";
-                                var result = HandleApplyPatchToolCall(functionCall.CallId, input);
+                                var result = _harness.HandleApplyPatchToolCall(functionCall.CallId, input);
                                 allToolResults.Add(result);
-                                LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
                             }
                             // todo_write / todo_read — always auto-approve, no approval prompt
                             else if (functionCall.Name == "todo_write")
@@ -779,14 +781,14 @@ public class ConversationManager
                                 var resultString = _harness.Todo.Write(changes);
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_write ({changes.Count} change(s))[/]");
                                 allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
-                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                             }
                             else if (functionCall.Name == "todo_read")
                             {
                                 var resultString = _harness.Todo.Read();
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_read[/]");
                                 allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
-                                LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                             }
                             // Check if this is a fake tool (always auto-approve)
                             else if (_fakeToolManager.GetFakeTool(functionCall.Name) is {} fakeTool)
@@ -809,7 +811,7 @@ public class ConversationManager
                                 }
 
                                 allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, expandedResponse));
-                                LogToolCall(functionCall.Name, functionCall.Arguments, expandedResponse);
+                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, expandedResponse);
                             }
                             else
                             {
@@ -818,13 +820,13 @@ public class ConversationManager
                                 if (mcpTool != null)
                                 {
                                     // Check the approval policy (alwaysAllow / Approval.McpTools) for this tool
-                                    var mcpDecision = _approvalPolicy.DecideMcp(functionCall.Name);
+                                    var mcpDecision = _harness.ApprovalPolicy.DecideMcp(functionCall.Name);
                                     bool approved = mcpDecision == ApprovalDecision.Allow;
 
-                                    if (!approved && (NonInteractive || mcpDecision == ApprovalDecision.Deny))
+                                    if (!approved && (NbHarness.NonInteractive || mcpDecision == ApprovalDecision.Deny))
                                     {
                                         // No terminal to prompt at, or the policy default is deny: refuse without a prompt.
-                                        Console.Error.WriteLine($"[nb] denied: MCP tool '{functionCall.Name}' needs approval, but it is not allow-listed and {(NonInteractive ? "stdin is not a TTY" : "the approval policy default is deny")}.");
+                                        Console.Error.WriteLine($"[nb] denied: MCP tool '{functionCall.Name}' needs approval, but it is not allow-listed and {(NbHarness.NonInteractive ? "stdin is not a TTY" : "the approval policy default is deny")}.");
                                     }
                                     else if (!approved)
                                     {
@@ -858,7 +860,7 @@ public class ConversationManager
 
                                     if (!approved)
                                     {
-                                        var reason = NonInteractive
+                                        var reason = NbHarness.NonInteractive
                                             ? "non-interactive session; approval policy denied"
                                             : AnsiConsole.Prompt(
                                                 new TextPrompt<string>("Reason for rejection [dim](optional)[/]:")
@@ -873,7 +875,7 @@ public class ConversationManager
                                         allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejectionMessage));
 
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool call rejected, notifying model[/]");
-                                        LogToolCall(functionCall.Name, functionCall.Arguments, rejectionMessage);
+                                        _harness.LogToolCall(functionCall.Name, functionCall.Arguments, rejectionMessage);
                                         _toolCallCount++;
                                         continue; // Skip to next tool call
                                     }
@@ -894,7 +896,7 @@ public class ConversationManager
                                         var result = await mcpTool.InvokeAsync(arguments, cancellationToken).AsTask().WaitAsync(McpToolTimeout, cancellationToken);
                                         var resultString = result?.ToString() ?? string.Empty;
                                         allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
-                                        LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                        _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                                     }
                                     catch (TimeoutException)
                                     {
@@ -921,7 +923,7 @@ public class ConversationManager
                             var errorMsg = $"Error: {ex.Message}";
                             allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, errorMsg));
                             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool error ({Markup.Escape(wireCall.Name)}): {Markup.Escape(ex.Message)}[/]");
-                            LogToolCall(wireCall.Name, wireCall.Arguments, errorMsg);
+                            _harness.LogToolCall(wireCall.Name, wireCall.Arguments, errorMsg);
                         }
                     }
                 }
@@ -1244,767 +1246,6 @@ public class ConversationManager
     // before these prompts, so the Phase 0 policy here is a flat deny — reported
     // to the model as a structured tool error it can route around, never a hang
     // or a thrown ReadKey. (A richer per-tool policy arrives with Phase 5.)
-    private static bool NonInteractive => Console.IsInputRedirected;
-
-    // A dispatched tool call's outcome: the content returned to the model plus whether
-    // it represents a failure. IsError is decided where the result is built — a tool's
-    // Success flag, a denial, a timeout, a caught exception — so error accounting
-    // (ToolErrorTracker) never has to sniff the result text for an "Error:" prefix.
-    private readonly record struct ToolOutcome(FunctionResultContent Content, bool IsError)
-    {
-        public static ToolOutcome Ok(string callId, object? result) => new(new FunctionResultContent(callId, result), false);
-        public static ToolOutcome Fail(string callId, string message) => new(new FunctionResultContent(callId, message), true);
-    }
-
-    private static ToolOutcome DenyNonInteractive(string callId, string what)
-    {
-        Console.Error.WriteLine($"[nb] denied: {what} needs approval, but stdin is not a TTY and nothing pre-approved it.");
-        return ToolOutcome.Fail(callId,
-            $"Error: {what} requires approval, but this is a non-interactive session (stdin is not a TTY) " +
-            "and no pre-approval (--approve/--trust) matched. Permission denied — do not retry; try a different approach.");
-    }
-
-    // The approval policy's default is deny: this call matched no allow-rule, so it
-    // is refused without a prompt (even interactively). Distinct from the non-TTY
-    // deny — it's a deliberate lockdown, not a missing terminal.
-    private static ToolOutcome DenyByPolicy(string callId, string what)
-    {
-        Console.Error.WriteLine($"[nb] denied: {what} — approval policy default is deny and nothing allow-listed it.");
-        return ToolOutcome.Fail(callId,
-            $"Error: {what} was denied by the approval policy (default: deny) and no allow-rule matched. " +
-            "Permission denied — do not retry; try a different approach.");
-    }
-
-    /// <summary>The resolved approval policy — the <c>approval</c> directive layers onto it (Phase 5.2b).</summary>
-    public ApprovalPolicy ApprovalPolicy => _approvalPolicy;
-
-    private async Task<ToolOutcome> HandleBashToolCall(string callId, string command, string description)
-    {
-        try
-        {
-            // Classify the command for display
-            var classified = CommandClassifier.Classify(command);
-
-            // The approval policy owns the auto-approve precedence (--approve → safe
-            // allowlist → trust+sandbox). Allow carries a reason for the log line.
-            var cwd = _bashTool?.GetCwd() ?? "";
-            var (decision, approveReason) = _approvalPolicy.DecideBash(command, classified, cwd, _bashTool != null);
-            if (decision == ApprovalDecision.Allow)
-            {
-                var display = Markup.Escape(classified.DisplayText);
-                var line = approveReason switch
-                {
-                    "pre-approved" => $"• bash (pre-approved): {display}",
-                    "trust" => $"• auto: bash {display}",
-                    _ => $"• bash: {display}",
-                };
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{line}[/]");
-                return await ExecuteBashCommand(callId, command);
-            }
-
-            // Policy default is deny: refuse without prompting (even interactively).
-            if (decision == ApprovalDecision.Deny)
-                return DenyByPolicy(callId, $"bash ({classified.Category})");
-
-            // Show model's description of intent (if provided)
-            if (!string.IsNullOrWhiteSpace(description))
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]{Markup.Escape(description)}[/]");
-            }
-
-            // Show approval prompt with command classification
-            var categoryColor = classified.IsDangerous ? UIColors.SpectreError : UIColors.SpectreWarning;
-            var warningIndicator = classified.IsDangerous ? " ⚠️" : "";
-
-            // For dangerous commands, show the full command so the user can see what they're approving
-            var displayCommand = classified.IsDangerous ? command : classified.DisplayText;
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{classified.Category}:[/] {Markup.Escape(displayCommand)}");
-
-            if (classified.IsDangerous && classified.DangerReason != null)
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: {classified.DangerReason}[/]");
-            }
-
-            if (NonInteractive)
-                return DenyNonInteractive(callId, $"bash ({classified.Category})");
-
-            // Default based on danger level
-            var defaultYes = !classified.IsDangerous;
-            var options = classified.IsDangerous ? "[[y/N/?]]" : "[[Y/n/?]]";
-
-            // Flush any pending input
-            while (Console.KeyAvailable)
-            {
-                Console.ReadKey(intercept: true);
-            }
-
-            while (true)
-            {
-                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? {options}[/] ");
-                var key = Console.ReadKey().KeyChar;
-                Console.WriteLine();
-
-                if (key == 'n' || key == 'N' || (!defaultYes && (key == '\r' || key == '\n')))
-                {
-                    // Rejected
-                    var reason = AnsiConsole.Prompt(
-                        new TextPrompt<string>($"[{UIColors.SpectreMuted}]Reason (optional):[/]")
-                            .DefaultValue("User declined")
-                            .AllowEmpty()
-                    );
-
-                    var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
-                        ? "Error: User rejected this command. Permission denied."
-                        : $"Error: User rejected this command. Reason: {reason}";
-
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Command rejected[/]");
-                    return ToolOutcome.Fail(callId, rejectionMessage);
-                }
-                else if (key == '?')
-                {
-                    // Show full command
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Full command:[/]");
-                    AnsiConsole.WriteLine(command);
-                    continue;
-                }
-                else if (key == 'y' || key == 'Y' || (defaultYes && (key == '\r' || key == '\n')))
-                {
-                    // Approved
-                    return await ExecuteBashCommand(callId, command);
-                }
-                // For any other key, loop and ask again
-            }
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Approval error: {Markup.Escape(ex.Message)}[/]");
-            return ToolOutcome.Fail(callId, $"Error during command approval: {ex.Message}");
-        }
-    }
-
-    private async Task<ToolOutcome> ExecuteBashCommand(string callId, string command)
-    {
-        if (_bashTool == null)
-        {
-            return ToolOutcome.Fail(callId, "Error: Bash tool not initialized");
-        }
-
-        try
-        {
-            var result = await _bashTool.ExecuteAsync(command);
-
-            // Format result for the model
-            var output = new System.Text.StringBuilder();
-
-            if (!string.IsNullOrEmpty(result.Stdout))
-            {
-                output.AppendLine(result.Stdout);
-            }
-
-            if (!string.IsNullOrEmpty(result.Stderr))
-            {
-                output.AppendLine($"[stderr]\n{result.Stderr}");
-            }
-
-            output.AppendLine($"\n[exit code: {result.ExitCode}]");
-
-            if (result.Truncated)
-            {
-                output.AppendLine("[output was truncated]");
-            }
-
-            if (result.TimedOut)
-            {
-                output.AppendLine("[command timed out]");
-            }
-
-            var outputStr = output.ToString().Trim();
-
-            // Show brief status to user
-            var statusColor = result.ExitCode == 0 ? UIColors.SpectreSuccess : UIColors.SpectreWarning;
-            var statusIcon = result.ExitCode == 0 ? "✓" : "✗";
-            AnsiConsole.MarkupLine($"[{statusColor}]{statusIcon}[/] [{UIColors.SpectreMuted}]exit {result.ExitCode}[/]");
-
-            // A non-zero exit is not flagged as a tool error — it's a normal shell
-            // outcome the model should read, matching the prior "Error:"-prefix rule.
-            return ToolOutcome.Ok(callId, outputStr);
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
-            return ToolOutcome.Fail(callId, $"Error executing command: {ex.Message}");
-        }
-    }
-
-    private Task<ToolOutcome> HandleWriteFileToolCall(string callId, string path, string content)
-    {
-        try
-        {
-            // Resolve path for display
-            var fullPath = _writeFileTool?.ResolvePath(path) ?? path;
-
-            // Guard: if file exists, it must have been read first
-            if (File.Exists(fullPath))
-            {
-                if (!_fileReadTracker.HasBeenRead(fullPath))
-                    return Task.FromResult(ToolOutcome.Fail(callId, "Error: You must read_file before overwriting an existing file."));
-
-                if (_fileReadTracker.HasBeenModifiedSinceRead(fullPath))
-                    return Task.FromResult(ToolOutcome.Fail(callId, "Error: File has been modified since you last read it. Read it again before writing."));
-            }
-
-            var lineCount = content.Split('\n').Length;
-            var byteCount = System.Text.Encoding.UTF8.GetByteCount(content);
-
-            // Auto-approve writes within cwd sandbox
-            if (_bashTool != null)
-            {
-                var (trusted, symlinkEscape) = TrustSandbox.CheckPath(fullPath, _bashTool.GetCwd());
-                if (symlinkEscape)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Symlink escape:[/] [{UIColors.SpectreMuted}]{Markup.Escape(fullPath)} resolves outside working directory[/]");
-                    // Fall through to manual approval
-                }
-                else if (trusted)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• write {Markup.Escape(fullPath)} ({lineCount} lines)[/]");
-
-                    if (_writeFileTool == null)
-                        return Task.FromResult(ToolOutcome.Fail(callId, "Error: Write file tool not initialized"));
-
-                    var writeResult = _writeFileTool.WriteFile(path, content);
-                    if (writeResult.Success)
-                    {
-                        _fileReadTracker.RecordWrite(writeResult.Path);
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {writeResult.BytesWritten} bytes[/]");
-                        return Task.FromResult(ToolOutcome.Ok(callId, $"Successfully wrote {writeResult.BytesWritten} bytes to {writeResult.Path}"));
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(writeResult.Error ?? "Unknown error")}[/]");
-                        return Task.FromResult(ToolOutcome.Fail(callId, $"Error writing file: {writeResult.Error}"));
-                    }
-                }
-            }
-
-            if (_approvalPolicy.Default == ApprovalDefault.Deny)
-                return Task.FromResult(DenyByPolicy(callId, "write_file (path outside working directory)"));
-            if (NonInteractive)
-                return Task.FromResult(DenyNonInteractive(callId, "write_file"));
-
-            // Show approval prompt
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Write:[/] {Markup.Escape(fullPath)}");
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {lineCount} lines, {byteCount} bytes[/]");
-
-            // Flush any pending input
-            while (Console.KeyAvailable)
-            {
-                Console.ReadKey(intercept: true);
-            }
-
-            while (true)
-            {
-                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N/?]][/] ");
-                var key = Console.ReadKey().KeyChar;
-                Console.WriteLine();
-
-                if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
-                {
-                    // Rejected (default is No for writes)
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write rejected[/]");
-                    return Task.FromResult(ToolOutcome.Fail(callId, "Error: User rejected file write. Permission denied."));
-                }
-                else if (key == '?')
-                {
-                    // Show content preview
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Content preview:[/]");
-                    var preview = content.Length > 500 ? content[..500] + "\n... (truncated)" : content;
-                    AnsiConsole.WriteLine(preview);
-                    continue;
-                }
-                else if (key == 'y' || key == 'Y')
-                {
-                    // Approved - execute write
-                    if (_writeFileTool == null)
-                    {
-                        return Task.FromResult(ToolOutcome.Fail(callId, "Error: Write file tool not initialized"));
-                    }
-
-                    var result = _writeFileTool.WriteFile(path, content);
-
-                    if (result.Success)
-                    {
-                        _fileReadTracker.RecordWrite(result.Path);
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {result.BytesWritten} bytes[/]");
-                        return Task.FromResult(ToolOutcome.Ok(callId, $"Successfully wrote {result.BytesWritten} bytes to {result.Path}"));
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
-                        return Task.FromResult(ToolOutcome.Fail(callId, $"Error writing file: {result.Error}"));
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write error: {Markup.Escape(ex.Message)}[/]");
-            return Task.FromResult(ToolOutcome.Fail(callId, $"Error during file write: {ex.Message}"));
-        }
-    }
-
-    private async Task<ToolOutcome> HandleSearchWebToolCall(string callId, string query)
-    {
-        try
-        {
-            var decision = _approvalPolicy.DecideSearch();
-            if (decision == ApprovalDecision.Deny)
-                return DenyByPolicy(callId, "search_web");
-
-            if (decision != ApprovalDecision.Allow)
-            {
-                if (NonInteractive)
-                    return DenyNonInteractive(callId, "search_web");
-
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Search:[/] {Markup.Escape(query)}");
-                AnsiConsole.MarkupLine(_searchWebTool!.HasBackend
-                    ? $"[{UIColors.SpectreWarning}]  Warning: outbound network request[/]"
-                    : $"[{UIColors.SpectreMuted}]  No search backend configured — no query will be sent[/]");
-
-                while (Console.KeyAvailable)
-                {
-                    Console.ReadKey(intercept: true);
-                }
-
-                while (true)
-                {
-                    AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N]][/] ");
-                    var key = Console.ReadKey().KeyChar;
-                    Console.WriteLine();
-
-                    if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
-                    {
-                        var reason = AnsiConsole.Prompt(
-                            new Spectre.Console.TextPrompt<string>($"[{UIColors.SpectreMuted}]Reason (optional):[/]")
-                                .DefaultValue("User declined")
-                                .AllowEmpty());
-                        var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
-                            ? "Error: User rejected search_web. Permission denied."
-                            : $"Error: User rejected search_web. Reason: {reason}";
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Search rejected[/]");
-                        return ToolOutcome.Fail(callId, rejectionMessage);
-                    }
-                    else if (key == 'y' || key == 'Y')
-                    {
-                        break;
-                    }
-                    // Any other key: loop and ask again
-                }
-            }
-
-            var result = await _searchWebTool!.SearchAsync(query);
-
-            // A missing backend is Success — it is a configuration state, not a failure.
-            // Returning it as an error would feed ExitReasons.ToolErrorLimit and abort
-            // precisely the runs where the model keeps trying to search.
-            if (result.Success)
-            {
-                if (!NonInteractive)
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]OK[/] [{UIColors.SpectreMuted}]{(_searchWebTool.HasBackend ? "search complete" : "no backend")}[/]");
-                return ToolOutcome.Ok(callId, result.Output ?? SearchWebTool.DeclaredOnlyNote);
-            }
-
-            return ToolOutcome.Fail(callId, $"Error: {result.Error}");
-        }
-        catch (Exception ex)
-        {
-            return ToolOutcome.Fail(callId, $"Error during search: {ex.Message}");
-        }
-    }
-
-    private async Task<ToolOutcome> HandleFetchUrlToolCall(string callId, string url)
-    {
-        try
-        {
-            if (_approvalPolicy.Default == ApprovalDefault.Deny)
-                return DenyByPolicy(callId, "fetch_url");
-            if (NonInteractive)
-                return DenyNonInteractive(callId, "fetch_url");
-
-            // Show approval prompt — network fetches always require explicit approval
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Fetch:[/] {Markup.Escape(url)}");
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: outbound network request[/]");
-
-            // Flush any pending input
-            while (Console.KeyAvailable)
-            {
-                Console.ReadKey(intercept: true);
-            }
-
-            while (true)
-            {
-                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N]][/] ");
-                var key = Console.ReadKey().KeyChar;
-                Console.WriteLine();
-
-                if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
-                {
-                    var reason = AnsiConsole.Prompt(
-                        new Spectre.Console.TextPrompt<string>($"[{UIColors.SpectreMuted}]Reason (optional):[/]")
-                            .DefaultValue("User declined")
-                            .AllowEmpty());
-                    var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
-                        ? "Error: User rejected fetch_url. Permission denied."
-                        : $"Error: User rejected fetch_url. Reason: {reason}";
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Fetch rejected[/]");
-                    return ToolOutcome.Fail(callId, rejectionMessage);
-                }
-                else if (key == 'y' || key == 'Y')
-                {
-                    break;
-                }
-                // Any other key: loop and ask again
-            }
-
-            var result = await _fetchUrlTool!.FetchAsync(url);
-            if (result.Success)
-            {
-                var chars = result.Content?.Length ?? 0;
-                var truncNote = result.Truncated ? " (truncated)" : "";
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{chars:N0} chars{truncNote}[/]");
-                return ToolOutcome.Ok(callId, result.Content ?? "");
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
-                return ToolOutcome.Fail(callId, $"Error: {result.Error}");
-            }
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Fetch error: {Markup.Escape(ex.Message)}[/]");
-            return ToolOutcome.Fail(callId, $"Error during fetch: {ex.Message}");
-        }
-    }
-
-    private ToolOutcome HandleEditFileToolCall(string callId, string path, string oldString, string newString, bool replaceAll)
-    {
-        try
-        {
-            var fullPath = _editFileTool?.ResolvePath(path) ?? path;
-
-            // Guard: file must have been read first
-            if (!_fileReadTracker.HasBeenRead(fullPath))
-                return ToolOutcome.Fail(callId, "Error: You must read_file before editing. Read the file first to see its current content.");
-
-            if (_fileReadTracker.HasBeenModifiedSinceRead(fullPath))
-                return ToolOutcome.Fail(callId, "Error: File has been modified since you last read it. Read it again before editing.");
-
-            // Auto-approve edits within cwd sandbox
-            if (_bashTool != null)
-            {
-                var (trusted, symlinkEscape) = TrustSandbox.CheckPath(fullPath, _bashTool.GetCwd());
-                if (symlinkEscape)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Symlink escape:[/] [{UIColors.SpectreMuted}]{Markup.Escape(fullPath)} resolves outside working directory[/]");
-                    // Fall through to manual approval
-                }
-                else if (trusted)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• edit {Markup.Escape(fullPath)}[/]");
-
-                    if (_editFileTool == null)
-                        return ToolOutcome.Fail(callId, "Error: Edit file tool not initialized");
-
-                    var editResult = _editFileTool.EditFile(path, oldString, newString, replaceAll);
-                    if (editResult.Success)
-                    {
-                        _fileReadTracker.RecordWrite(editResult.Path);
-                        var msg = editResult.Replacements == 1
-                            ? $"Successfully edited {editResult.Path} (1 replacement)"
-                            : $"Successfully edited {editResult.Path} ({editResult.Replacements} replacements)";
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
-                        return ToolOutcome.Ok(callId, msg);
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(editResult.Error ?? "Unknown error")}[/]");
-                        return ToolOutcome.Fail(callId, $"Error: {editResult.Error}");
-                    }
-                }
-            }
-
-            if (_approvalPolicy.Default == ApprovalDefault.Deny)
-                return DenyByPolicy(callId, "edit_file (path outside working directory)");
-            if (NonInteractive)
-                return DenyNonInteractive(callId, "edit_file");
-
-            // Show approval prompt with diff preview
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Edit:[/] {Markup.Escape(fullPath)}");
-
-            var oldPreview = oldString.Length > 200 ? oldString[..200] + "..." : oldString;
-            var newPreview = newString.Length > 200 ? newString[..200] + "..." : newString;
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  - {Markup.Escape(oldPreview)}[/]");
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]  + {Markup.Escape(newPreview)}[/]");
-            if (replaceAll)
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  (replace all occurrences)[/]");
-
-            // Flush any pending input
-            while (Console.KeyAvailable)
-            {
-                Console.ReadKey(intercept: true);
-            }
-
-            while (true)
-            {
-                AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N]][/] ");
-                var key = Console.ReadKey().KeyChar;
-                Console.WriteLine();
-
-                if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Edit rejected[/]");
-                    return ToolOutcome.Fail(callId, "Error: User rejected file edit. Permission denied.");
-                }
-                else if (key == 'y' || key == 'Y')
-                {
-                    if (_editFileTool == null)
-                        return ToolOutcome.Fail(callId, "Error: Edit file tool not initialized");
-
-                    var result = _editFileTool.EditFile(path, oldString, newString, replaceAll);
-
-                    if (result.Success)
-                    {
-                        _fileReadTracker.RecordWrite(result.Path);
-                        var msg = result.Replacements == 1
-                            ? $"Successfully edited {result.Path} (1 replacement)"
-                            : $"Successfully edited {result.Path} ({result.Replacements} replacements)";
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
-                        return ToolOutcome.Ok(callId, msg);
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]✗ {Markup.Escape(result.Error ?? "Unknown error")}[/]");
-                        return ToolOutcome.Fail(callId, $"Error: {result.Error}");
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Edit error: {Markup.Escape(ex.Message)}[/]");
-            return ToolOutcome.Fail(callId, $"Error during file edit: {ex.Message}");
-        }
-    }
-
-    private ToolOutcome HandleApplyPatchToolCall(string callId, string input)
-    {
-        if (_applyPatchTool == null)
-            return ToolOutcome.Fail(callId, "Error: apply_patch tool not initialized");
-
-        List<FileOp> ops;
-        try
-        {
-            ops = PatchParser.Parse(input);
-        }
-        catch (PatchParseException ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch parse error: {Markup.Escape(ex.Message)}[/]");
-            return ToolOutcome.Fail(callId, $"Error parsing patch: {ex.Message}");
-        }
-
-        var cwd = _applyPatchTool.GetCwd();
-
-        PatchPreview preview;
-        try
-        {
-            preview = PatchApplier.BuildPreview(ops, cwd, _fileReadTracker);
-        }
-        catch (PatchApplyException ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch error: {Markup.Escape(ex.Message)}[/]");
-            return ToolOutcome.Fail(callId, $"Error: {ex.Message}");
-        }
-
-        // Check sandbox for every affected absolute path — both source (for updates/deletes) and destination (for moves/adds).
-        var allTrusted = true;
-        var anyEscape = false;
-        for (int i = 0; i < ops.Count; i++)
-        {
-            var touched = new List<string> { preview.Files[i].FinalPath };
-            if (ops[i] is UpdateFile upd && upd.MoveTo != null)
-            {
-                var sourceFull = Path.IsPathRooted(ops[i].Path)
-                    ? Path.GetFullPath(ops[i].Path)
-                    : Path.GetFullPath(Path.Combine(cwd, ops[i].Path));
-                touched.Add(sourceFull);
-            }
-            foreach (var p in touched)
-            {
-                var (trusted, escape) = TrustSandbox.CheckPath(p, cwd);
-                if (escape) anyEscape = true;
-                if (!trusted) allTrusted = false;
-            }
-        }
-
-        RenderPatchSummary(preview);
-
-        if (anyEscape)
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ One or more paths resolve outside working directory via symlink — manual approval required[/]");
-
-        if (allTrusted && !anyEscape)
-        {
-            try
-            {
-                PatchApplier.Apply(preview, ops, cwd, _fileReadTracker);
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch failed: {Markup.Escape(ex.Message)}[/]");
-                return ToolOutcome.Fail(callId, $"Error applying patch: {ex.Message}");
-            }
-            var summary = BuildApplySummary(preview);
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(summary)}[/]");
-            return ToolOutcome.Ok(callId, summary);
-        }
-
-        if (_approvalPolicy.Default == ApprovalDefault.Deny)
-            return DenyByPolicy(callId, "apply_patch (path outside working directory)");
-        if (NonInteractive)
-            return DenyNonInteractive(callId, "apply_patch (path outside working directory)");
-
-        // Flush any pending input
-        while (Console.KeyAvailable) Console.ReadKey(intercept: true);
-
-        while (true)
-        {
-            AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N]][/] ");
-            var key = Console.ReadKey().KeyChar;
-            Console.WriteLine();
-
-            if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Patch rejected[/]");
-                return ToolOutcome.Fail(callId, "Error: User rejected apply_patch. Permission denied.");
-            }
-            else if (key == 'y' || key == 'Y')
-            {
-                try
-                {
-                    PatchApplier.Apply(preview, ops, cwd, _fileReadTracker);
-                }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch failed: {Markup.Escape(ex.Message)}[/]");
-                    return ToolOutcome.Fail(callId, $"Error applying patch: {ex.Message}");
-                }
-                var summary = BuildApplySummary(preview);
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(summary)}[/]");
-                return ToolOutcome.Ok(callId, summary);
-            }
-        }
-    }
-
-    private static void RenderPatchSummary(PatchPreview preview)
-    {
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Patch:[/] {preview.Files.Count} file(s)");
-        foreach (var fp in preview.Files)
-        {
-            var (glyph, label) = fp.Kind switch
-            {
-                FileOpKind.Add => ("+", "add"),
-                FileOpKind.Delete => ("-", "delete"),
-                FileOpKind.Update => ("~", "update"),
-                FileOpKind.UpdateAndMove => ("↺", "rename+update"),
-                _ => ("?", "?"),
-            };
-            var stats = fp.Kind switch
-            {
-                FileOpKind.Add => $"{fp.NewLineCount} lines",
-                FileOpKind.Delete => $"{fp.OldLineCount} lines",
-                _ => $"-{fp.OldLineCount}/+{fp.NewLineCount}",
-            };
-            var path = fp.Kind == FileOpKind.UpdateAndMove
-                ? $"{fp.OriginalPath} → {fp.FinalPath}"
-                : fp.FinalPath;
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {glyph} {label,-13} {Markup.Escape(path)} ({stats})[/]");
-        }
-    }
-
-    private static string BuildApplySummary(PatchPreview preview)
-    {
-        var added = preview.Files.Count(f => f.Kind == FileOpKind.Add);
-        var updated = preview.Files.Count(f => f.Kind == FileOpKind.Update || f.Kind == FileOpKind.UpdateAndMove);
-        var deleted = preview.Files.Count(f => f.Kind == FileOpKind.Delete);
-        return $"Applied patch: {added} added, {updated} updated, {deleted} deleted";
-    }
-
-    private static readonly JsonSerializerOptions _verboseJsonOptions = new()
-    {
-        WriteIndented = false,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-    };
-
-    private void LogToolCall(string toolName, IDictionary<string, object?>? arguments, string result)
-    {
-        if (!_verbose) return;
-
-        var argsJson = arguments != null
-            ? JsonSerializer.Serialize(arguments, _verboseJsonOptions)
-            : "{}";
-
-        // Unescape Unicode sequences for readability (e.g., \u0022 -> ")
-        var displayResult = System.Text.RegularExpressions.Regex.Unescape(result);
-
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreInfo}]┌─ Tool: {Markup.Escape(toolName)}[/]");
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]│ Input: {Markup.Escape(argsJson)}[/]");
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]└ Output: {Markup.Escape(displayResult)}[/]");
-    }
-
-    /// <summary>
-    /// Checks if a path is within the trust sandbox (cwd/temp). If outside, prompts the user.
-    /// Returns true if the access is approved, false if rejected.
-    /// </summary>
-    private bool ApproveReadPath(string toolLabel, string fullPath, string cwd)
-    {
-        var (trusted, symlinkEscape) = TrustSandbox.CheckPath(fullPath, cwd);
-        var decision = _approvalPolicy.DecidePath(trusted && !symlinkEscape);
-        if (decision == ApprovalDecision.Allow) return true;
-
-        if (symlinkEscape)
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Symlink escape:[/] [{UIColors.SpectreMuted}]{Markup.Escape(fullPath)} resolves outside working directory[/]");
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]{toolLabel}:[/] {Markup.Escape(fullPath)}");
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: path is outside working directory[/]");
-
-        // No terminal to prompt at, or the policy default is deny: refuse the
-        // out-of-sandbox access deterministically.
-        if (decision == ApprovalDecision.Deny || NonInteractive)
-        {
-            Console.Error.WriteLine($"[nb] denied: {toolLabel} on a path outside the working directory ({(NonInteractive ? "non-interactive session" : "approval policy default is deny")}).");
-            return false;
-        }
-
-        while (Console.KeyAvailable) Console.ReadKey(intercept: true);
-
-        while (true)
-        {
-            AnsiConsole.Markup($"[{UIColors.SpectreUserPrompt}]Execute? [[y/N]][/] ");
-            var key = Console.ReadKey().KeyChar;
-            Console.WriteLine();
-            if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{toolLabel} rejected[/]");
-                return false;
-            }
-            if (key == 'y' || key == 'Y') return true;
-        }
-    }
-
-    /// <summary>
-    /// Token counts for one model round-trip: the provider's own numbers when it reported
-    /// them, a derived total when only the parts came back, and a size estimate when
-    /// nothing did. Sets <see cref="UsageIsEstimated"/> (once, with a warning) on the
-    /// estimate path.
     /// </summary>
     private (long Input, long Output, long Total) MeasureOrEstimateUsage(ChatResponse response, IList<AITool>? tools)
     {
