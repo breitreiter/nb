@@ -3,11 +3,10 @@ namespace nb.Harness;
 /// <summary>
 /// The named harnesses a program can select with the <c>harness</c> directive.
 ///
-/// Today there is exactly one: <see cref="Default"/>, nb's own canonical surface.
-/// Costumes that imitate another agent's harness (see plans/harness-emulation.md) get
-/// added here as they land, and each one is a name plus the <see cref="NbHarness"/>
-/// subclass behind it — deliberately a closed, in-tree set rather than a plugin point.
-/// If you need something weird, write a class.
+/// <see cref="Default"/> is nb's own canonical surface; costumes that imitate another
+/// agent's harness (see plans/harness-emulation.md) are each a name plus the
+/// <see cref="NbHarness"/> subclass behind it — deliberately a closed, in-tree set
+/// rather than a plugin point. If you need something weird, write a class.
 ///
 /// An unrecognised name is a hard error rather than a warning, because a run that
 /// silently falls back to nb's surface while the program says <c>codex</c> produces
@@ -18,7 +17,19 @@ public static class HarnessRegistry
     /// <summary>nb's own surface — what a program gets when it names no harness.</summary>
     public const string Default = "nb";
 
-    public static IReadOnlyList<string> KnownNames { get; } = new[] { Default };
+    public static IReadOnlyList<string> KnownNames { get; } = new[] { Default, QwenCodeHarness.HarnessName };
+
+    /// <summary>
+    /// Build the harness a name selects, over the tool instances the runtime wired.
+    /// A costume swaps what is advertised, never what is behind it.
+    /// </summary>
+    public static NbHarness Create(string name, NbHarness baseHarness) =>
+        string.Equals(name, QwenCodeHarness.HarnessName, StringComparison.OrdinalIgnoreCase)
+            ? new QwenCodeHarness(
+                baseHarness.Bash, baseHarness.ReadFile, baseHarness.WriteFile, baseHarness.EditFile,
+                baseHarness.FindFiles, baseHarness.Grep, baseHarness.ListDir, baseHarness.FetchUrl,
+                baseHarness.SearchWeb, baseHarness.ApplyPatch)
+            : baseHarness;
 
     public static bool IsKnown(string name) =>
         KnownNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));

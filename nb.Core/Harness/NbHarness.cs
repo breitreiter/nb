@@ -65,6 +65,34 @@ public class NbHarness
     public TodoManager Todos => _todos;
     public TodoTool Todo => _todoTool;
 
+    /// <summary>The registry name this harness answers to.</summary>
+    public virtual string Name => HarnessRegistry.Default;
+
+    /// <summary>
+    /// What this costume knowingly does not reproduce. Surfaced with the run so a
+    /// surprising behavioural diff against the real harness arrives with a suspect list
+    /// attached — silent approximation is what turns a bounded placebo into an
+    /// unfalsifiable one. nb's own surface omits nothing, being the real thing.
+    /// </summary>
+    public virtual IReadOnlyList<string> Omissions => Array.Empty<string>();
+
+    /// <summary>
+    /// Translate a call as the model made it into nb's canonical vocabulary, so every
+    /// dispatch arm, the approval policy, the trust sandbox and the read-tracker keep
+    /// working in canonical tool identities and never learn that costumes exist.
+    /// Identity for nb's own surface.
+    /// </summary>
+    public virtual (string Name, IDictionary<string, object?>? Arguments) ToCanonical(
+        string wireName, IDictionary<string, object?>? arguments) => (wireName, arguments);
+
+    /// <summary>
+    /// The inverse, for the transcript: a tool round is recorded under the name that
+    /// actually went on the wire, so the transcript is a faithful record of what the
+    /// model was offered and what it called. Unknown names pass through (MCP and fake
+    /// tools are not part of a costume).
+    /// </summary>
+    public virtual string ToWireName(string canonicalName) => canonicalName;
+
     /// <summary>
     /// Assemble the native tools this harness advertises, filtered by the surface a
     /// <c>tools</c> directive folded. Order is meaningful — it is the order the model

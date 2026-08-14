@@ -1,0 +1,336 @@
+=== run_shell_command
+--- description
+Execute a shell command and return the output.
+Commands run in: <CWD>
+Shell: <SHELL>
+
+Parameters:
+- description: Brief explanation (5-10 words) of what this command does and why. Required.
+- command: The shell command to execute.
+- timeout_seconds: Optional timeout (default 120s).
+
+Returns stdout, stderr, and exit code. Large outputs are truncated.
+Commands require user approval before execution.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "command": {
+      "type": "string",
+      "description": "The shell command to execute."
+    },
+    "is_background": {
+      "type": "boolean",
+      "description": "Whether to run the command in the background."
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief explanation of what this command does and why."
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Timeout in milliseconds for foreground commands."
+    },
+    "directory": {
+      "type": "string",
+      "description": "Working directory for command execution."
+    }
+  },
+  "required": [
+    "command",
+    "is_background"
+  ]
+}
+
+=== read_file
+--- description
+Read file contents with line numbers.
+Paths are relative to: <CWD>
+
+Supports text (with offset/limit pagination), PDF (text extraction), and images (.jpg/.jpeg/.png, returned as base64 for vision).
+
+Parameters:
+- path: File path (absolute or relative to working directory)
+- offset: 1-based line number to start from (default: 1, text only)
+- limit: Max lines to return (default: 2000, text only)
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "The path to the file to read."
+    },
+    "offset": {
+      "type": "number",
+      "description": "1-based line number to start from."
+    },
+    "limit": {
+      "type": "number",
+      "description": "Maximum number of lines to return."
+    }
+  },
+  "required": [
+    "file_path"
+  ]
+}
+
+=== write_file
+--- description
+Create a new file or completely rewrite an existing file.
+Paths are relative to: <CWD>
+
+Parameters:
+- path: File path (absolute or relative to working directory)
+- content: The full content to write to the file
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "The path to the file to write."
+    },
+    "content": {
+      "type": "string",
+      "description": "The content to write to the file."
+    }
+  },
+  "required": [
+    "file_path",
+    "content"
+  ]
+}
+
+=== edit
+--- description
+Targeted string replacement in an existing file.
+Paths are relative to: <CWD>
+
+Parameters:
+- path: File path (absolute or relative to working directory)
+- old_string: Exact text to find (must match including whitespace and indentation)
+- new_string: Replacement text
+- replace_all: Replace all occurrences (default: false)
+
+Fails if old_string is not found. Fails if old_string is not unique when replace_all is false — add more surrounding context to make it unique.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "The path to the file to modify."
+    },
+    "old_string": {
+      "type": "string",
+      "description": "The exact text to replace."
+    },
+    "new_string": {
+      "type": "string",
+      "description": "The text to replace it with."
+    },
+    "replace_all": {
+      "type": "boolean",
+      "description": "Replace every occurrence instead of requiring a unique match."
+    }
+  },
+  "required": [
+    "file_path",
+    "old_string",
+    "new_string"
+  ]
+}
+
+=== glob
+--- description
+Find files matching a glob pattern. Returns relative paths sorted alphabetically.
+Searches from: <CWD>
+
+Parameters:
+- pattern: Glob pattern (e.g. "**/*.cs", "src/**/*.ts", "*.json")
+- path: Directory to search in (absolute or relative to working directory). Empty string or omit for working directory.
+- max_results: Maximum number of results to return (default: 200)
+
+Automatically skips: .git, node_modules, bin, obj, .vs, __pycache__, .venv, venv, .idea, dist, build, .next, .nuget
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "pattern": {
+      "type": "string",
+      "description": "The glob pattern to match against."
+    },
+    "path": {
+      "type": "string",
+      "description": "The directory to search within."
+    }
+  },
+  "required": [
+    "pattern"
+  ]
+}
+
+=== grep_search
+--- description
+Search file contents using regex.
+Searches from: <CWD>
+
+Parameters:
+- pattern: Regular expression to search for
+- path: Directory or file to search (absolute or relative to working directory). Empty string for working directory.
+- file_pattern: Glob filter for files to search (e.g. "*.cs", "*.ts"). Empty string for all files.
+- case_insensitive: If true, perform case-insensitive search (default: false)
+- max_results: Maximum number of results to return (default: 100)
+- output_mode: "content" (default) returns matching lines as "file:line: content". "files_with_matches" returns only file paths that contain matches.
+
+Automatically skips binary files and common non-source directories.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "pattern": {
+      "type": "string",
+      "description": "The regular expression to search for."
+    },
+    "path": {
+      "type": "string",
+      "description": "The directory to search within."
+    },
+    "glob": {
+      "type": "string",
+      "description": "Glob limiting which files are searched."
+    },
+    "limit": {
+      "type": "number",
+      "description": "Maximum number of matches to return."
+    }
+  },
+  "required": [
+    "pattern"
+  ]
+}
+
+=== list_directory
+--- description
+List the contents of a directory. Returns files and subdirectories with type indicators.
+Paths are relative to: <CWD>
+
+Parameters:
+- path: Directory path (absolute or relative to working directory). Empty string for working directory.
+
+Returns entries in "type name" format where type is [file] or [dir].
+Automatically skips: .git, node_modules, bin, obj, .vs, __pycache__, .venv, venv, .idea, dist, build, .next, .nuget
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "The directory to list."
+    }
+  },
+  "required": [
+    "path"
+  ]
+}
+
+=== web_fetch
+--- description
+Fetch the text content of a URL (HTTP/HTTPS only).
+Useful for reading API docs, READMEs, RFCs, and other web-based reference material.
+
+Parameters:
+- url: The full URL to fetch (must start with http:// or https://)
+
+Returns the text content with HTML tags stripped. Large pages are truncated.
+Requires user approval on every call.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "The URL to fetch content from."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "The prompt to run on the fetched content."
+    },
+    "format": {
+      "type": "string",
+      "description": "Preferred content format."
+    }
+  },
+  "required": [
+    "url",
+    "prompt"
+  ]
+}
+
+=== todo_write
+--- description
+Create or update the session's task checklist. Use this to plan multi-step work
+and track progress as you go. Highly recommended when a task has 3+ distinct steps,
+or when the user hands you a broad spec — write the checklist FIRST, then execute.
+
+## How it works
+Each change has `content` (unique key, the task description) and `status`:
+  - `pending`        — not yet started
+  - `in_progress`    — currently working on (keep exactly one at a time)
+  - `completed`      — done
+  - `cancelled`      — removes the item from the list
+
+Only send the items that changed. Items you don't mention stay as-is.
+  - Unknown `content` → added as a new task
+  - Known `content` → status updated
+  - `cancelled` → removed
+
+## When to use
+- Multi-step features or refactors (3+ discrete steps)
+- Broad specs that need to be decomposed before acting
+- Any time the user explicitly asks for a checklist or plan
+- To record new sub-tasks discovered mid-task
+
+## When NOT to use
+- Single-step tasks ("read this file", "what does X do")
+- Pure Q&A with no code changes
+- Tasks that finish in under 3 steps
+
+## Rules
+- Mark a task `in_progress` BEFORE you start work on it, not after.
+- Mark `completed` IMMEDIATELY when it's done. Don't batch completions.
+- Only ONE task should be `in_progress` at a time.
+- Don't mark completed if tests are failing, implementation is partial, or you're blocked.
+- If you're blocked, keep the task `in_progress` and add a new task describing the blocker.
+
+Parameters:
+- changes: array of { content: string, status: string }
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "status"
+        ]
+      }
+    }
+  },
+  "required": [
+    "changes"
+  ]
+}
+

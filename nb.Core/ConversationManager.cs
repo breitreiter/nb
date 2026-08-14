@@ -21,16 +21,16 @@ public class ConversationManager
     private IChatClient _client;
     private readonly McpManager _mcpManager;
     private readonly FakeToolManager _fakeToolManager;
-    private readonly BashTool? _bashTool;
-    private readonly ReadFileTool? _readFileTool;
-    private readonly WriteFileTool? _writeFileTool;
-    private readonly EditFileTool? _editFileTool;
-    private readonly FindFilesTool? _findFilesTool;
-    private readonly GrepTool? _grepTool;
-    private readonly ListDirTool? _listDirTool;
-    private readonly FetchUrlTool? _fetchUrlTool;
-    private readonly SearchWebTool? _searchWebTool;
-    private readonly ApplyPatchTool? _applyPatchTool;
+    private BashTool? _bashTool;
+    private ReadFileTool? _readFileTool;
+    private WriteFileTool? _writeFileTool;
+    private EditFileTool? _editFileTool;
+    private FindFilesTool? _findFilesTool;
+    private GrepTool? _grepTool;
+    private ListDirTool? _listDirTool;
+    private FetchUrlTool? _fetchUrlTool;
+    private SearchWebTool? _searchWebTool;
+    private ApplyPatchTool? _applyPatchTool;
     private readonly FileReadTracker _fileReadTracker = new();
     private readonly ApprovalPolicy _approvalPolicy;
     private readonly bool _verbose;
@@ -82,7 +82,7 @@ public class ConversationManager
     private DoomLoopDetector _doomLoopDetector = new();
     private bool _doomLoopEnabled = true;
     private readonly ToolErrorTracker _errorTracker = new();
-    private readonly NbHarness _harness;
+    private NbHarness _harness;
     private HashSet<string>? _lastRemindedTodos = null;
     private string _currentProviderName = "";
     private Transcript.ToolSurface _toolSurface = Transcript.ToolSurface.All;
@@ -190,6 +190,29 @@ public class ConversationManager
     /// Default (<see cref="Transcript.ToolSurface.All"/>): all native tools, all
     /// connected MCP servers. See plans/tool-surface-directives.md.
     /// </summary>
+    /// <summary>The harness whose surface runs currently advertise.</summary>
+    public NbHarness Harness => _harness;
+
+    /// <summary>
+    /// Swap the harness whose surface subsequent runs advertise (the <c>harness</c>
+    /// directive). The tool instances behind it do not change — a costume swaps what is
+    /// advertised, never what is implemented.
+    /// </summary>
+    public void SetHarness(NbHarness harness)
+    {
+        _harness = harness;
+        _bashTool = harness.Bash;
+        _readFileTool = harness.ReadFile;
+        _writeFileTool = harness.WriteFile;
+        _editFileTool = harness.EditFile;
+        _findFilesTool = harness.FindFiles;
+        _grepTool = harness.Grep;
+        _listDirTool = harness.ListDir;
+        _fetchUrlTool = harness.FetchUrl;
+        _searchWebTool = harness.SearchWeb;
+        _applyPatchTool = harness.ApplyPatch;
+    }
+
     public void SetToolSurface(Transcript.ToolSurface surface)
     {
         // A program that names a server (mcp +name) which failed to connect is asking
@@ -449,7 +472,7 @@ public class ConversationManager
                 // Execute tool calls
                 foreach (var message in response.Messages)
                 {
-                    foreach (var functionCall in message.Contents.OfType<FunctionCallContent>())
+                    foreach (var wireCall in message.Contents.OfType<FunctionCallContent>())
                     {
                         try
                         {
@@ -457,13 +480,25 @@ public class ConversationManager
                             // directive, or otherwise unknown) is refused here — the dispatch
                             // table below still wires every constructed tool regardless of the
                             // surface, so this membership gate is what makes filtering real.
-                            if (!(requestOptions.Tools?.Any(t => t.Name == functionCall.Name) ?? false))
+                            // Matched against the WIRE name, which is what was advertised.
+                            if (!(requestOptions.Tools?.Any(t => t.Name == wireCall.Name) ?? false))
                             {
-                                var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
-                                allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
+                                var errorMsg = $"Error: Tool '{wireCall.Name}' not found";
+                                allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, errorMsg));
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                 continue;
                             }
+
+                            // Translate the call out of the harness's vocabulary and into nb's,
+                            // so every dispatch arm below — and approval, TrustSandbox and the
+                            // read-tracker downstream of them — works in canonical identities
+                            // and never learns that costumes exist. Identity for nb's own
+                            // surface. History already holds the model's untranslated call, so
+                            // the transcript records what actually went on the wire.
+                            var (canonicalName, canonicalArgs) = _harness.ToCanonical(wireCall.Name, wireCall.Arguments);
+                            var functionCall = ReferenceEquals(canonicalArgs, wireCall.Arguments) && canonicalName == wireCall.Name
+                                ? wireCall
+                                : new FunctionCallContent(wireCall.CallId, canonicalName, canonicalArgs);
 
                             // Check if this is a native resource tool (always auto-approve, read-only)
                             if (functionCall.Name.StartsWith("nb_"))
@@ -506,8 +541,14 @@ public class ConversationManager
                             // Check if this is a bash tool (custom approval UX)
                             else if (functionCall.Name == "bash" && _bashTool != null)
                             {
-                                var description = functionCall.Arguments?["description"]?.ToString() ?? "";
-                                var command = functionCall.Arguments?["command"]?.ToString() ?? "";
+                                // Read defensively: a model can omit an argument the schema
+                                // calls required, and the raw indexer throws on a missing key
+                                // rather than yielding null (every other arm below already
+                                // guards this way). Surfaced by the qwen-code costume, where
+                                // description is genuinely optional.
+                                var args = functionCall.Arguments;
+                                var description = args != null && args.TryGetValue("description", out var d) ? d?.ToString() ?? "" : "";
+                                var command = args != null && args.TryGetValue("command", out var c) ? c?.ToString() ?? "" : "";
                                 var result = await HandleBashToolCall(functionCall.CallId, command, description);
                                 allToolResults.Add(result);
                                 LogToolCall(functionCall.Name, functionCall.Arguments, result.Content.Result?.ToString() ?? "");
@@ -875,10 +916,12 @@ public class ConversationManager
                         }
                         catch (Exception ex)
                         {
+                            // Reported under the wire name: it is what the model called, and
+                            // the canonical translation may not have happened yet.
                             var errorMsg = $"Error: {ex.Message}";
-                            allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
-                            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool error ({Markup.Escape(functionCall.Name)}): {Markup.Escape(ex.Message)}[/]");
-                            LogToolCall(functionCall.Name, functionCall.Arguments, errorMsg);
+                            allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, errorMsg));
+                            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool error ({Markup.Escape(wireCall.Name)}): {Markup.Escape(ex.Message)}[/]");
+                            LogToolCall(wireCall.Name, wireCall.Arguments, errorMsg);
                         }
                     }
                 }

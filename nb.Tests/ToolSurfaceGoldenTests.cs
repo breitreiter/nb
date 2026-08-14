@@ -67,11 +67,23 @@ public class ToolSurfaceGoldenTests : IDisposable
     [Fact]
     public Task Surface_NoBash() => AssertGolden("nobash", ToolSurface.All, noBash: true);
 
+    /// <summary>The qwen-code costume: qwen's names and parameter spellings, nb's tools behind them.</summary>
+    [Fact]
+    public Task Surface_QwenCodeHarness() => AssertGolden("qwen-code", ToolSurface.All, harness: QwenCodeHarness.HarnessName);
+
+    /// <summary>A tools directive still filters a costume — in nb's canonical vocabulary.</summary>
+    [Fact]
+    public Task Surface_QwenCodeFiltered() =>
+        AssertGolden("qwen-code-filtered", new ToolSurface
+        {
+            NativeAllow = new HashSet<string>(new[] { "read_file", "edit_file", "bash" }, StringComparer.OrdinalIgnoreCase),
+        }, harness: QwenCodeHarness.HarnessName);
+
     // ---- harness ----
 
-    private async Task AssertGolden(string name, ToolSurface surface, bool applyPatchStyle = false, bool noBash = false)
+    private async Task AssertGolden(string name, ToolSurface surface, bool applyPatchStyle = false, bool noBash = false, string? harness = null)
     {
-        var rendered = await CaptureSurface(surface, applyPatchStyle, noBash);
+        var rendered = await CaptureSurface(surface, applyPatchStyle, noBash, harness);
         var path = GoldenPath(name);
 
         if (Environment.GetEnvironmentVariable("UPDATE_GOLDEN") == "1")
@@ -88,7 +100,7 @@ public class ToolSurfaceGoldenTests : IDisposable
         Assert.Equal(Normalize(expected), Normalize(rendered));
     }
 
-    private async Task<string> CaptureSurface(ToolSurface surface, bool applyPatchStyle, bool noBash)
+    private async Task<string> CaptureSurface(ToolSurface surface, bool applyPatchStyle, bool noBash, string? harness = null)
     {
         var client = new RecordingChatClient();
         var approval = new ApprovalPolicy(trust: false, new ApprovalPatterns(), _ => false);
@@ -118,12 +130,14 @@ public class ToolSurfaceGoldenTests : IDisposable
             else { writeFile = new WriteFileTool(_env); editFile = new EditFileTool(_env); }
         }
 
-        var harness = new NbHarness(
+        NbHarness harnessInstance = new NbHarness(
             bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl,
             searchWeb: null, applyPatch);
+        if (harness is not null)
+            harnessInstance = HarnessRegistry.Create(harness, harnessInstance);
 
         var conversation = new ConversationManager(
-            client, new McpManager(), new FakeToolManager(), harness, approval);
+            client, new McpManager(), new FakeToolManager(), harnessInstance, approval);
         conversation.SetToolSurface(surface);
 
         await conversation.RunAsync("hello");

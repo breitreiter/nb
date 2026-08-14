@@ -34,6 +34,7 @@ public sealed class ProgramEvaluator
     // Message-bearing events awaiting the next run (or the final flush). Batched
     // per turn by TranscriptLoader.ToHistory, the same path a seed takes.
     private readonly List<TranscriptEvent> _turnBuffer = new();
+    private readonly NbHarness _baseHarness;
 
     public string? Provider { get; private set; }
     public string? Model { get; private set; }
@@ -44,6 +45,8 @@ public sealed class ProgramEvaluator
     public ProgramEvaluator(ConversationManager conversation, Func<string?, string?, IChatClient?> clientFactory, IList<string>? warnings = null)
     {
         _conversation = conversation;
+        // The runtime-wired surface every costume is built over.
+        _baseHarness = conversation.Harness;
         _clientFactory = clientFactory;
         _warnings = warnings ?? new List<string>();
     }
@@ -76,11 +79,11 @@ public sealed class ProgramEvaluator
                 SwapClient();
                 break;
             case HarnessEvent h:
-                // Name validity is settled by the parser (and by the serializer's
-                // reader for JSONL bytecode); this only records what is in effect.
-                // With nb's own surface the only registered harness, there is nothing
-                // to swap yet — costumes wire in here.
+                // Name validity is settled by the parser (and by the serializer's reader
+                // for JSONL bytecode). A costume swaps what is advertised, over the same
+                // tool instances the runtime wired.
                 Harness = h.Name;
+                ApplyHarness(h.Name);
                 break;
             case SurfaceDirectiveEvent sd:
                 _surfaceDirectives.Add(sd);
@@ -105,6 +108,18 @@ public sealed class ProgramEvaluator
                 break;
             // ThinkingEvent / AssistantJsonEvent / ResultEvent: output-only, ignored on input.
         }
+    }
+
+    // Swap the harness, and surface what the costume knowingly does not reproduce, so a
+    // behavioural diff against the real harness arrives with a suspect list rather than
+    // sending someone hunting through the costume's source for what it quietly skips.
+    private void ApplyHarness(string name)
+    {
+        var harness = HarnessRegistry.Create(name, _baseHarness);
+        _conversation.SetHarness(harness);
+
+        foreach (var omission in harness.Omissions)
+            _warnings.Add($"harness '{harness.Name}' does not reproduce — {omission}");
     }
 
     // Batch buffered turns into history via the same loader a seed uses, so a
