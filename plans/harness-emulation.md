@@ -164,10 +164,11 @@ Three tiers follow:
    `~/.claude/CLAUDE.md` is fine — the project file already fills that channel. Having no
    skills at all is fine.
 
-**The control is the governor.** These tiers do not have to be guessed correctly in
-advance. A miscategorised omission shows up as an open behavioural diff against the real
-harness, which promotes it. Default to the cheap tier and let the measurement force
-upgrades — that is what makes "eh, fine, good enough" a discipline rather than a shrug.
+**Judgement, with the omissions written down.** Tiering is a judgement call, and the
+thing that keeps it honest is not measurement but disclosure: every skipped channel is
+declared, so a reader can see what was traded away and argue with it. A control can
+promote a mis-tiered omission if you choose to run one, but the discipline does not
+depend on that — it depends on nobody being able to skip something quietly.
 
 **No clutter, either.** Omission is one failure mode; addition is the other, and it is
 the easier one to talk yourself into. A costume must not advertise a tool its target does
@@ -450,12 +451,21 @@ Three consequences, and they matter more than anything else in this plan:
    is the thing being avoided. A control makes the first strictly better than the second,
    so there is no tension left between the legal constraint and the quality goal.
 
-### Rule: no costume without a control
+### Controls are a tool, not a gate
 
-Do not build a costume whose real harness cannot be run headless on the fixture. An
-unvalidatable costume is a placebo with no way to know whether it works, which is worse
-than nothing — it produces confident-looking comparative numbers with no basis. All four
-current targets pass this gate; it exists to filter the fifth.
+Earlier drafts of this plan made a headless control a precondition for building a
+costume. That was wrong, and it nearly turned a tooling project into an eval project.
+
+The premise stands on its own: *if you want to know whether something works in Codex,
+run it somewhere Codex-shaped.* That is face-valid and does not need a measured
+behavioural delta to justify it. A costume's job is to **be a faithful environment**,
+and fidelity is checked against the target's published surface — which
+`ToolSurfaceGoldenTests` and `Costume_AdvertisesNothingQwenCodeDoesNotHave` already do,
+without a model in the loop.
+
+Run a control when you actually want to answer a behavioural question: does the costume
+change what the model does, how much does a paraphrased prompt cost, is a tier-3
+omission really harmless. Those are good questions. They are not the entry fee.
 
 ### What to diff
 
@@ -586,12 +596,13 @@ now:
    raw indexer, which throws on a missing key. Pre-existing, rarely fired because nb's
    own schema marks them required, exposed the moment a costume declared `description`
    optional. Fixed here.
-5. Build the control rig: run the real harness headless on the same fixture and diff the
-   metrics above. Do this at `QwenCode` rather than later — the rig is reused by every
-   costume, and it is what makes the remaining three tractable.
-6. `CodexHarness` (also vendorable), then `ClaudeCode`, then `Cursor`. Ordering is now by
-   control quality and surface-research cost, not by prompt licence — with a rig in
-   place, a closed prompt stops being the binding constraint.
+5. Vendor qwen-code's Apache-2.0 prompt, closing the largest declared omission on the
+   costume that already exists. This also builds the preamble mechanism — a licensed
+   markdown file, attribution, and injection into history as a `system` message — that
+   every later costume reuses. Finishing one costume beats starting a second.
+6. `CodexHarness` (also Apache-2.0, also vendorable), then `ClaudeCode`, then `Cursor`.
+   Ordering is by prompt licence and surface-research cost. Building a control rig is
+   optional at any point and gates nothing.
 7. Deprecate `EditToolStyle` once `CodexHarness` exists.
 
 ## Verification
