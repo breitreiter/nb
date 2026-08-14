@@ -167,6 +167,266 @@ public class NbHarness
         return tools;
     }
 
+
+    /// <summary>
+    /// Run a tool this harness advertises, by the name it advertised it under.
+    ///
+    /// This is the other half of the declaration/implementation split: <see cref="CreateTools"/>
+    /// says what the model may call, and this says what happens when it does. A costume
+    /// overrides both — declaring its target's names and schemas, and unpacking its
+    /// target's argument spellings here before calling the shared capabilities. There is
+    /// no separate translation step, because the costume's own dispatch *is* the
+    /// adaptation.
+    ///
+    /// Returns null when the tool is not the harness's to run (MCP, fake tools, the
+    /// nb_ resource pair), which is the caller's signal to keep looking.
+    /// </summary>
+    public virtual async Task<ToolOutcome?> InvokeAsync(
+        string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken = default)
+    {
+        if (name == "bash" && Bash != null)
+        {
+            // Read defensively: a model can omit an argument the schema
+            // calls required, and the raw indexer throws on a missing key
+            // rather than yielding null (every other arm below already
+            // guards this way). Surfaced by the qwen-code costume, where
+            // description is genuinely optional.
+            var args = arguments;
+            var description = args != null && args.TryGetValue("description", out var d) ? d?.ToString() ?? "" : "";
+            var command = args != null && args.TryGetValue("command", out var c) ? c?.ToString() ?? "" : "";
+            var result = await HandleBashToolCall(callId, command, description);
+            LogToolCall(name, arguments, result.Content.Result?.ToString() ?? "");
+            return result;
+        }
+        // Check if this is read_file (auto in cwd sandbox, prompt outside)
+        else if (name == "read_file" && ReadFile != null)
+        {
+            var path = arguments?["path"]?.ToString() ?? "";
+            int? readOffset = arguments?.ContainsKey("offset") == true && arguments["offset"] != null
+                ? int.Parse(arguments["offset"]!.ToString()!)
+                : null;
+            int? readLimit = arguments?.ContainsKey("limit") == true && arguments["limit"] != null
+                ? int.Parse(arguments["limit"]!.ToString()!)
+                : null;
+
+            // Sandbox check: auto-approve reads in cwd/temp, prompt outside
+            var fullReadPath = ReadFile.ResolvePath(path);
+            if (!ApproveReadPath("Read", fullReadPath, ReadFile.GetCwd()))
+            {
+                var rejMsg = "Error: User rejected read_file. Path is outside working directory.";
+                LogToolCall(name, arguments, rejMsg);
+                return ToolOutcome.Fail(callId, rejMsg);
+            }
+
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• reading {Markup.Escape(path)}[/]");
+
+            var readResult = ReadFile.ReadFile(path, readOffset, readLimit);
+
+            if (!readResult.Success)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(readResult.Error ?? "Unknown error")}[/]");
+                var errorString = $"Error: {readResult.Error}";
+                LogToolCall(name, arguments, errorString);
+                return ToolOutcome.Fail(callId, errorString);
+            }
+            else if (readResult.FileType == "image")
+            {
+                Files.RecordRead(readResult.Path);
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → image ({readResult.ImageSizeBytes:N0} bytes)[/]");
+                var imageBytes = Convert.FromBase64String(readResult.ImageBase64!);
+                var imageContent = new DataContent(imageBytes, readResult.MimeType!);
+                var textNote = new TextContent($"[Image loaded: {Path.GetFileName(path)} ({readResult.ImageSizeBytes:N0} bytes)]");
+                // Return tool result with both text description and image data
+                LogToolCall(name, arguments, $"[image: {readResult.MimeType}]");
+                return ToolOutcome.Ok(callId, new List<AIContent> { textNote, imageContent });
+            }
+            else
+            {
+                Files.RecordRead(readResult.Path);
+                var label = readResult.FileType == "pdf"
+                    ? $"{readResult.TotalLines} pages"
+                    : $"{readResult.LinesReturned} lines ({readResult.TotalLines} total)";
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {label}[/]");
+                var resultString = readResult.Content ?? "";
+                LogToolCall(name, arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+                return ToolOutcome.Ok(callId, resultString);
+            }
+        }
+        // Check if this is edit_file (custom approval UX)
+        else if (name == "edit_file" && EditFile != null)
+        {
+            var path = arguments?["path"]?.ToString() ?? "";
+            var oldString = arguments?["old_string"]?.ToString() ?? "";
+            var newString = arguments?["new_string"]?.ToString() ?? "";
+            var replaceAll = arguments?.ContainsKey("replace_all") == true
+                && arguments["replace_all"]?.ToString()?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+            var result = HandleEditFileToolCall(callId, path, oldString, newString, replaceAll);
+            LogToolCall(name, arguments, result.Content.Result?.ToString() ?? "");
+            return result;
+        }
+        // Check if this is find_files (auto in cwd sandbox, prompt outside)
+        else if (name == "find_files" && FindFiles != null)
+        {
+            var pattern = arguments?["pattern"]?.ToString() ?? "";
+            var findPath = arguments?.ContainsKey("path") == true ? arguments["path"]?.ToString() : null;
+            int? findMax = arguments?.ContainsKey("max_results") == true && arguments["max_results"] != null
+                ? int.Parse(arguments["max_results"]!.ToString()!)
+                : null;
+
+            var fullFindPath = FindFiles.ResolvePath(findPath);
+            if (!ApproveReadPath("Find", fullFindPath, FindFiles.GetCwd()))
+            {
+                var rejMsg = "Error: User rejected find_files. Path is outside working directory.";
+                LogToolCall(name, arguments, rejMsg);
+                return ToolOutcome.Fail(callId, rejMsg);
+            }
+
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• find_files: {Markup.Escape(pattern)}[/]");
+
+            var findResult = FindFiles.FindFiles(pattern, findPath, findMax);
+            string resultString;
+            if (findResult.Success)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {findResult.Files.Length} files ({findResult.TotalMatches} total)[/]");
+                resultString = findResult.Output ?? "";
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(findResult.Error ?? "Unknown error")}[/]");
+                resultString = $"Error: {findResult.Error}";
+            }
+
+            LogToolCall(name, arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+            return findResult.Success ? ToolOutcome.Ok(callId, resultString) : ToolOutcome.Fail(callId, resultString);
+        }
+        // Check if this is grep (auto in cwd sandbox, prompt outside)
+        else if (name == "grep" && Grep != null)
+        {
+            var grepPattern = arguments?["pattern"]?.ToString() ?? "";
+            var grepPath = arguments?.ContainsKey("path") == true ? arguments["path"]?.ToString() : null;
+            var filePatternArg = arguments?.ContainsKey("file_pattern") == true ? arguments["file_pattern"]?.ToString() : null;
+            bool? caseInsensitive = arguments?.ContainsKey("case_insensitive") == true && arguments["case_insensitive"] != null
+                ? arguments["case_insensitive"]?.ToString()?.Equals("true", StringComparison.OrdinalIgnoreCase)
+                : null;
+            int? grepMax = arguments?.ContainsKey("max_results") == true && arguments["max_results"] != null
+                ? int.Parse(arguments["max_results"]!.ToString()!)
+                : null;
+
+            var fullGrepPath = Grep.ResolvePath(grepPath);
+            if (!ApproveReadPath("Grep", fullGrepPath, Grep.GetCwd()))
+            {
+                var rejMsg = "Error: User rejected grep. Path is outside working directory.";
+                LogToolCall(name, arguments, rejMsg);
+                return ToolOutcome.Fail(callId, rejMsg);
+            }
+
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• grep: {Markup.Escape(grepPattern)}{(filePatternArg != null ? $" ({Markup.Escape(filePatternArg)})" : "")}[/]");
+
+            var grepOutputMode = arguments?.ContainsKey("output_mode") == true ? arguments["output_mode"]?.ToString() : null;
+
+            var grepResult = Grep.Grep(grepPattern, grepPath, filePatternArg, caseInsensitive, grepMax, grepOutputMode);
+            string resultString;
+            if (grepResult.Success)
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {grepResult.Matches.Length} matches ({grepResult.TotalMatches} total)[/]");
+                resultString = grepResult.Output ?? "";
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(grepResult.Error ?? "Unknown error")}[/]");
+                resultString = $"Error: {grepResult.Error}";
+            }
+
+            LogToolCall(name, arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+            return grepResult.Success ? ToolOutcome.Ok(callId, resultString) : ToolOutcome.Fail(callId, resultString);
+        }
+        // Check if this is list_dir (auto in cwd sandbox, prompt outside)
+        else if (name == "list_dir" && ListDir != null)
+        {
+            var listPath = arguments?.ContainsKey("path") == true ? arguments["path"]?.ToString() : null;
+
+            var fullListPath = ListDir.ResolvePath(listPath);
+            if (!ApproveReadPath("List", fullListPath, ListDir.GetCwd()))
+            {
+                var rejMsg = "Error: User rejected list_dir. Path is outside working directory.";
+                LogToolCall(name, arguments, rejMsg);
+                return ToolOutcome.Fail(callId, rejMsg);
+            }
+
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• list_dir: {Markup.Escape(listPath ?? ".")}[/]");
+
+            var listResult = ListDir.ListDir(listPath);
+            string resultString;
+            if (listResult.Success)
+            {
+                var entryCount = listResult.Output?.Split('\n').Length ?? 0;
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {entryCount} entries[/]");
+                resultString = listResult.Output ?? "";
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(listResult.Error ?? "Unknown error")}[/]");
+                resultString = $"Error: {listResult.Error}";
+            }
+
+            LogToolCall(name, arguments, resultString.Length > 200 ? resultString[..200] + "..." : resultString);
+            return listResult.Success ? ToolOutcome.Ok(callId, resultString) : ToolOutcome.Fail(callId, resultString);
+        }
+        // search_web: custom approval UX, like fetch_url. The call is
+        // recorded whether or not a backend is configured — capturing that
+        // the model wanted to search is the point (plans/web-search.md).
+        else if (name == "search_web" && SearchWeb != null)
+        {
+            var query = arguments?["query"]?.ToString() ?? "";
+            var result = await HandleSearchWebToolCall(callId, query);
+            LogToolCall(name, arguments, result.Content.Result?.ToString() ?? "");
+            return result;
+        }
+        // Check if this is fetch_url (custom approval UX — always prompts)
+        else if (name == "fetch_url" && FetchUrl != null)
+        {
+            var url = arguments?["url"]?.ToString() ?? "";
+            var result = await HandleFetchUrlToolCall(callId, url);
+            LogToolCall(name, arguments, result.Content.Result?.ToString() ?? "");
+            return result;
+        }
+        // Check if this is write_file (custom approval UX)
+        else if (name == "write_file" && WriteFile != null)
+        {
+            var path = arguments?["path"]?.ToString() ?? "";
+            var content = arguments?["content"]?.ToString() ?? "";
+            var result = await HandleWriteFileToolCall(callId, path, content);
+            LogToolCall(name, arguments, result.Content.Result?.ToString() ?? "");
+            return result;
+        }
+        // Check if this is apply_patch (custom approval UX for multi-file patches)
+        else if (name == "apply_patch" && ApplyPatch != null)
+        {
+            var input = arguments?["input"]?.ToString() ?? "";
+            var result = HandleApplyPatchToolCall(callId, input);
+            LogToolCall(name, arguments, result.Content.Result?.ToString() ?? "");
+            return result;
+        }
+        // todo_write / todo_read — always auto-approve, no approval prompt
+        else if (name == "todo_write")
+        {
+            var changes = ParseTodoChanges(arguments);
+            var resultString = Todo.Write(changes);
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_write ({changes.Count} change(s))[/]");
+            LogToolCall(name, arguments, resultString);
+            return ToolOutcome.Ok(callId, resultString);
+        }
+        else if (name == "todo_read")
+        {
+            var resultString = Todo.Read();
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_read[/]");
+            LogToolCall(name, arguments, resultString);
+            return ToolOutcome.Ok(callId, resultString);
+        }
+
+        return null;
+    }
+
     /// <summary>No TTY on stdin: an unmatched approval is denied rather than prompted.</summary>
     public static bool NonInteractive => Console.IsInputRedirected;
 
@@ -917,4 +1177,28 @@ public class NbHarness
     /// them, a derived total when only the parts came back, and a size estimate when
     /// nothing did. Sets <see cref="UsageIsEstimated"/> (once, with a warning) on the
     /// estimate path.
+
+    public static List<TodoChange> ParseTodoChanges(IDictionary<string, object?>? args)
+    {
+        var changes = new List<TodoChange>();
+        if (args == null || !args.TryGetValue("changes", out var raw) || raw == null)
+            return changes;
+
+        try
+        {
+            var json = raw is JsonElement je ? je.GetRawText() : raw.ToString();
+            if (string.IsNullOrWhiteSpace(json)) return changes;
+
+            var parsed = JsonSerializer.Deserialize<List<TodoChange>>(json!, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            });
+            if (parsed != null) changes.AddRange(parsed);
+        }
+        catch
+        {
+            // Leave changes empty; todo_write will report "no changes submitted"
+        }
+        return changes;
+    }
 }
