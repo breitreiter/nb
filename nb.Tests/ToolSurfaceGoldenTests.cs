@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using nb.Harness;
 using nb.MCP;
 using nb.Shell;
 using nb.Transcript;
@@ -12,13 +13,14 @@ namespace nb.Tests;
 /// Golden master over the <b>fully-assembled advertised tool surface</b> — every tool
 /// name, description and emitted JSON schema, exactly as they reach the wire.
 ///
-/// This exists because the assembly block in <c>ConversationManager.SendMessageInternalAsync</c>
-/// has no other unit coverage, and <c>plans/harness-emulation.md</c> step 1 refactors it
-/// out into an <c>NbHarness</c> class. A green suite would not have detected a regression
-/// there; this does. It is deliberately captured through a real <c>RunAsync</c> call
-/// rather than through <c>GetAvailableTools()</c>, because the latter is a
-/// hand-maintained mirror — snapshotting the mirror would prove nothing about what was
-/// actually advertised.
+/// This exists because the assembly block had no other unit coverage when
+/// <c>plans/harness-emulation.md</c> step 1 lifted it out of
+/// <c>ConversationManager.SendMessageInternalAsync</c> into <see cref="NbHarness"/>.
+/// A green suite would not have detected a regression there; these files, recorded
+/// against the pre-refactor code and unchanged by it, did the work.
+///
+/// Captured through a real <c>RunAsync</c> call, so what is asserted is what reached
+/// the wire.
 ///
 /// The same snapshot is reused afterwards to assert what each harness costume advertises.
 ///
@@ -116,10 +118,12 @@ public class ToolSurfaceGoldenTests : IDisposable
             else { writeFile = new WriteFileTool(_env); editFile = new EditFileTool(_env); }
         }
 
-        var conversation = new ConversationManager(
-            client, new McpManager(), new FakeToolManager(),
+        var harness = new NbHarness(
             bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl,
-            searchWebTool: null, applyPatch, approval);
+            searchWeb: null, applyPatch);
+
+        var conversation = new ConversationManager(
+            client, new McpManager(), new FakeToolManager(), harness, approval);
         conversation.SetToolSurface(surface);
 
         await conversation.RunAsync("hello");

@@ -5,6 +5,7 @@ using Spectre.Console;
 using nb.MCP;
 using nb.Shell;
 using nb.Shell.ApplyPatch;
+using nb.Harness;
 using nb.Utilities;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
@@ -81,8 +82,7 @@ public class ConversationManager
     private DoomLoopDetector _doomLoopDetector = new();
     private bool _doomLoopEnabled = true;
     private readonly ToolErrorTracker _errorTracker = new();
-    private readonly TodoManager _todoManager = new();
-    private readonly TodoTool _todoTool;
+    private readonly NbHarness _harness;
     private HashSet<string>? _lastRemindedTodos = null;
     private string _currentProviderName = "";
     private Transcript.ToolSurface _toolSurface = Transcript.ToolSurface.All;
@@ -93,8 +93,8 @@ public class ConversationManager
     /// rides the surface like any other tool, so <c>tools -todo</c> / <c>tools none</c>
     /// strips it; disabling it also silences the nudge (no todos can be created).
     /// (MCP-resource tools are internal bookkeeping and stay off the list.)
-    /// Kept in sync with the assembly in <see cref="SendMessageInternalAsync"/> and
-    /// <see cref="GetAvailableTools"/>.
+    /// Kept in sync with <see cref="NbHarness.CreateTools"/>, which is now the single
+    /// site that assembles the native surface.
     /// </summary>
     public static readonly IReadOnlyList<string> NativeToolNames = new[]
     {
@@ -106,16 +106,7 @@ public class ConversationManager
         IChatClient client,
         McpManager mcpManager,
         FakeToolManager fakeToolManager,
-        BashTool? bashTool,
-        ReadFileTool? readFileTool,
-        WriteFileTool? writeFileTool,
-        EditFileTool? editFileTool,
-        FindFilesTool? findFilesTool,
-        GrepTool? grepTool,
-        ListDirTool? listDirTool,
-        FetchUrlTool? fetchUrlTool,
-        SearchWebTool? searchWebTool,
-        ApplyPatchTool? applyPatchTool,
+        NbHarness harness,
         ApprovalPolicy approvalPolicy,
         string providerName = "",
         bool verbose = false,
@@ -134,16 +125,19 @@ public class ConversationManager
         _client = client;
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
-        _bashTool = bashTool;
-        _readFileTool = readFileTool;
-        _writeFileTool = writeFileTool;
-        _editFileTool = editFileTool;
-        _findFilesTool = findFilesTool;
-        _grepTool = grepTool;
-        _listDirTool = listDirTool;
-        _fetchUrlTool = fetchUrlTool;
-        _searchWebTool = searchWebTool;
-        _applyPatchTool = applyPatchTool;
+        _harness = harness;
+        // The dispatch arms below work in concrete tool instances, so mirror them out
+        // of the harness rather than reaching through it at every call site.
+        _bashTool = harness.Bash;
+        _readFileTool = harness.ReadFile;
+        _writeFileTool = harness.WriteFile;
+        _editFileTool = harness.EditFile;
+        _findFilesTool = harness.FindFiles;
+        _grepTool = harness.Grep;
+        _listDirTool = harness.ListDir;
+        _fetchUrlTool = harness.FetchUrl;
+        _searchWebTool = harness.SearchWeb;
+        _applyPatchTool = harness.ApplyPatch;
         _approvalPolicy = approvalPolicy;
         _currentProviderName = providerName;
         _verbose = verbose;
@@ -154,7 +148,6 @@ public class ConversationManager
         _debugStream = debugStream;
         _temperature = temperature;
         _presencePenalty = presencePenalty;
-        _todoTool = new TodoTool(_todoManager);
         _doomLoopEnabled = doomLoopEnabled;
         _doomLoopDetector = new DoomLoopDetector(Math.Max(2, doomLoopThreshold));
         _tokenBudget = tokenBudget is > 0 ? tokenBudget : null;
@@ -327,11 +320,10 @@ public class ConversationManager
                 PresencePenalty = _presencePenalty,
             };
 
-            // Assemble the tool list. NOTE: GetAvailableTools() mirrors this for the
-            // /tools command — keep the two in sync when adding/removing tools.
-            // The _toolSurface (mcp/tools directive effect) gates both surfaces:
-            // MCP is uncontrolled (all connected) unless a directive names servers;
-            // native tools are all-on unless a directive filters them.
+            // Assemble the tool list. The _toolSurface (mcp/tools directive effect)
+            // gates both surfaces: MCP is uncontrolled (all connected) unless a
+            // directive names servers; the harness applies the native filter itself.
+            // MCP is not part of a harness — it is user configuration, not costume.
             var mcpTools = (_toolSurface.McpServers is { } servers
                     ? _mcpManager.GetToolsForServers(servers)
                     : _mcpManager.GetTools())
@@ -342,66 +334,7 @@ public class ConversationManager
                 mcpTools.Add(ResourceTools.CreateReadResourceTool(_mcpManager));
             }
 
-            // Add native tools if wired (nullable via --nobash etc.) and allowed by
-            // the surface (a tools directive may drop them).
-            if (_bashTool != null && _toolSurface.AllowsNative("bash"))
-            {
-                mcpTools.Add(_bashTool.CreateTool());
-            }
-
-            if (_readFileTool != null && _toolSurface.AllowsNative("read_file"))
-            {
-                mcpTools.Add(_readFileTool.CreateTool());
-            }
-
-            if (_writeFileTool != null && _toolSurface.AllowsNative("write_file"))
-            {
-                mcpTools.Add(_writeFileTool.CreateTool());
-            }
-
-            if (_editFileTool != null && _toolSurface.AllowsNative("edit_file"))
-            {
-                mcpTools.Add(_editFileTool.CreateTool());
-            }
-
-            if (_findFilesTool != null && _toolSurface.AllowsNative("find_files"))
-            {
-                mcpTools.Add(_findFilesTool.CreateTool());
-            }
-
-            if (_grepTool != null && _toolSurface.AllowsNative("grep"))
-            {
-                mcpTools.Add(_grepTool.CreateTool());
-            }
-
-            if (_listDirTool != null && _toolSurface.AllowsNative("list_dir"))
-            {
-                mcpTools.Add(_listDirTool.CreateTool());
-            }
-
-            if (_applyPatchTool != null && _toolSurface.AllowsNative("apply_patch"))
-            {
-                mcpTools.Add(_applyPatchTool.CreateTool());
-            }
-
-            if (_fetchUrlTool != null && _toolSurface.AllowsNative("fetch_url"))
-            {
-                mcpTools.Add(_fetchUrlTool.CreateTool());
-            }
-
-            if (_searchWebTool != null && _toolSurface.AllowsNative("search_web"))
-            {
-                mcpTools.Add(_searchWebTool.CreateTool());
-            }
-
-            // todo rides the native surface: on by default, dropped by `tools -todo`
-            // / `tools none`. Removing it also silences the pending-todos nudge, since
-            // no todos can be created without the write tool.
-            if (_toolSurface.AllowsNative("todo"))
-            {
-                mcpTools.Add(_todoTool.CreateWriteTool());
-                mcpTools.Add(_todoTool.CreateReadTool());
-            }
+            mcpTools.AddRange(_harness.CreateTools(_toolSurface));
 
             var allTools = _fakeToolManager.IntegrateWithMcpTools(mcpTools);
             if (allTools.Count > 0)
@@ -802,14 +735,14 @@ public class ConversationManager
                             else if (functionCall.Name == "todo_write")
                             {
                                 var changes = ParseTodoChanges(functionCall.Arguments);
-                                var resultString = _todoTool.Write(changes);
+                                var resultString = _harness.Todo.Write(changes);
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_write ({changes.Count} change(s))[/]");
                                 allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
                             }
                             else if (functionCall.Name == "todo_read")
                             {
-                                var resultString = _todoTool.Read();
+                                var resultString = _harness.Todo.Read();
                                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_read[/]");
                                 allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
                                 LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
@@ -1019,7 +952,7 @@ public class ConversationManager
                 // unfinished todos, inject a reminder and continue. Only fires when
                 // the active set has changed since the last reminder, so we don't
                 // badger the model about the same list twice in a row.
-                var activeTodos = _todoManager.GetActive();
+                var activeTodos = _harness.Todos.GetActive();
                 if (activeTodos.Count > 0)
                 {
                     var currentSet = new HashSet<string>(activeTodos.Select(t => t.Content));
@@ -2227,61 +2160,9 @@ public class ConversationManager
         var systemMessages = _conversationHistory.TakeWhile(m => m.Role == ChatRole.System).ToList();
         _conversationHistory.Clear();
         _conversationHistory.AddRange(systemMessages);
-        _todoManager.Reset();
+        _harness.Todos.Reset();
         _lastRemindedTodos = null;
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Conversation history cleared[/]");
     }
-
-    // Enumerates the tools currently exposed to the model, grouped by source with
-    // each tool's effective approval status. Mirrors the assembly in
-    // SendMessageInternalAsync — keep the two in sync when adding/removing tools.
-    public IReadOnlyList<ToolDescriptor> GetAvailableTools()
-    {
-        var tools = new List<ToolDescriptor>();
-
-        // MCP tools from all connected servers.
-        var mcpTools = _mcpManager.GetTools();
-        foreach (var tool in mcpTools)
-        {
-            var approval = _mcpManager.IsAlwaysAllowed(tool.Name) ? "auto (always-allow)" : "prompt";
-            if (_fakeToolManager.GetFakeTool(tool.Name) != null) approval += " · faked";
-            tools.Add(new ToolDescriptor("MCP", tool.Name, approval));
-        }
-        if (mcpTools.Count > 0)
-        {
-            tools.Add(new ToolDescriptor("Resources", ResourceTools.CreateListResourcesTool(_mcpManager).Name, "auto"));
-            tools.Add(new ToolDescriptor("Resources", ResourceTools.CreateReadResourceTool(_mcpManager).Name, "auto"));
-        }
-
-        // Native tools (all null under --nobash). Read-only tools auto-approve within
-        // the cwd sandbox; writes and bash auto-approve only with trust mode.
-        var write = _trustMode ? "auto (trust)" : "prompt";
-        if (_readFileTool != null) tools.Add(new ToolDescriptor("Native", _readFileTool.CreateTool().Name, "auto (cwd)"));
-        if (_listDirTool != null) tools.Add(new ToolDescriptor("Native", _listDirTool.CreateTool().Name, "auto (cwd)"));
-        if (_findFilesTool != null) tools.Add(new ToolDescriptor("Native", _findFilesTool.CreateTool().Name, "auto (cwd)"));
-        if (_grepTool != null) tools.Add(new ToolDescriptor("Native", _grepTool.CreateTool().Name, "auto (cwd)"));
-        if (_bashTool != null) tools.Add(new ToolDescriptor("Native", _bashTool.CreateTool().Name, write));
-        if (_writeFileTool != null) tools.Add(new ToolDescriptor("Native", _writeFileTool.CreateTool().Name, write));
-        if (_editFileTool != null) tools.Add(new ToolDescriptor("Native", _editFileTool.CreateTool().Name, write));
-        if (_applyPatchTool != null) tools.Add(new ToolDescriptor("Native", _applyPatchTool.CreateTool().Name, write));
-        if (_fetchUrlTool != null) tools.Add(new ToolDescriptor("Native", _fetchUrlTool.CreateTool().Name, "prompt"));
-
-        // Todo tools ride the native surface (dropped by `tools -todo` / `tools none`).
-        if (_toolSurface.AllowsNative("todo"))
-        {
-            tools.Add(new ToolDescriptor("Todo", _todoTool.CreateWriteTool().Name, "auto"));
-            tools.Add(new ToolDescriptor("Todo", _todoTool.CreateReadTool().Name, "auto"));
-        }
-
-        // Fake tools that stand alone (overrides already show under their MCP server)
-        var seen = tools.Select(t => t.Name).ToHashSet();
-        foreach (var name in _fakeToolManager.GetFakeToolNames())
-            if (seen.Add(name))
-                tools.Add(new ToolDescriptor("Fake", name, "auto (faked)"));
-
-        return tools;
-    }
 }
-
-public record ToolDescriptor(string Group, string Name, string Approval);

@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
+using nb.Harness;
 using nb.MCP;
 using nb.Providers;
 using nb.Shell;
@@ -117,8 +118,10 @@ internal sealed class NbRuntime : IDisposable
         long? wallBudgetMs = options.WallClockBudgetMs ?? (long.TryParse(config["WallClockBudgetMs"], out var wb) ? wb : null);
         if (wallBudgetMs is <= 0) wallBudgetMs = null;
 
+        var harness = new NbHarness(bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, searchWeb, applyPatch);
+
         var conversation = new ConversationManager(
-            client, mcp, fakeTools, bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, searchWeb, applyPatch,
+            client, mcp, fakeTools, harness,
             approval, providerName, options.Verbose, trust, maxToolCalls, maxContextTokens, compactionThreshold,
             debugStream: false, temperature, presencePenalty,
             doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget,
