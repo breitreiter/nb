@@ -544,6 +544,20 @@ now:
 4. `QwenCodeHarness` — first because it has a measured failure to test against *and* an
    Apache-2.0 prompt to vendor, so the surface half can be evaluated against a
    known-good prompt half rather than against two unknowns at once.
+
+   **Done (surface only)** — `nb.Core/Harness/QwenCodeHarness.cs`. The prompt is *not*
+   vendored: qwen-code's lives in a 76KB TypeScript file with conditional interpolation,
+   which is its own task, and paraphrasing prose we are licensed to copy verbatim would
+   be the wrong trade. It is one of seven declared omissions, surfaced as run warnings.
+
+   This also isolates a variable usefully. The bug report measured the *prompt* steer
+   alone (a 10× swing in tool selection from one sentence); this measures the *surface*
+   alone. Vendoring the prompt afterwards gives the third cell.
+
+   Found while testing: nb's bash dispatch arm read `description`/`command` through the
+   raw indexer, which throws on a missing key. Pre-existing, rarely fired because nb's
+   own schema marks them required, exposed the moment a costume declared `description`
+   optional. Fixed here.
 5. Build the control rig: run the real harness headless on the same fixture and diff the
    metrics above. Do this at `QwenCode` rather than later — the rig is reused by every
    costume, and it is what makes the remaining three tractable.
