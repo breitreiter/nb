@@ -348,6 +348,18 @@ public class Program
         if (_validate) { ValidateProgram(program, config, warnings); return; }
         if (_resolve) { ResolveProgram(program); return; }
 
+        // Refuse a directive nb cannot honour rather than dropping it and reporting that
+        // at the end of the run: `--validate` already calls these errors, and the run
+        // path disagreeing with it is what let an ignored `approval` value cost a whole
+        // token budget before saying so.
+        var shapeErrors = CheckDirectiveShape(program);
+        if (shapeErrors.Count > 0)
+        {
+            foreach (var e in shapeErrors) Console.Error.WriteLine($"Error: {e}");
+            Environment.ExitCode = 1;
+            return;
+        }
+
         RunResult result;
         try
         {
@@ -422,11 +434,38 @@ public class Program
 
         foreach (var ev in program)
         {
+            if (ev is ProviderEvent p2 && providers.Count > 0 && !providers.Contains(p2.Name))
+                errors.Add($"unknown provider '{p2.Name}'. Configured: {string.Join(", ", providers)}.");
+        }
+
+        errors.AddRange(CheckDirectiveShape(program));
+
+        foreach (var w in warnings) Console.Error.WriteLine($"warning: {w}");
+        foreach (var e in errors) Console.Error.WriteLine($"error: {e}");
+
+        if (errors.Count > 0)
+        {
+            Console.Error.WriteLine($"invalid: {errors.Count} error(s).");
+            Environment.ExitCode = 1;
+        }
+        else
+        {
+            Console.Error.WriteLine($"valid: {program.Count} directive(s).");
+        }
+    }
+
+    // The config-free half of validation: directives whose value nb cannot honour. The
+    // run path checks these too, before spending a token — an unhonorable directive was
+    // otherwise dropped silently and only reported in the warning drain *after* the run,
+    // which for `approval` means a safety directive going missing for the whole run.
+    internal static List<string> CheckDirectiveShape(IReadOnlyList<TranscriptEvent> program)
+    {
+        var errors = new List<string>();
+
+        foreach (var ev in program)
+        {
             switch (ev)
             {
-                case ProviderEvent p when providers.Count > 0 && !providers.Contains(p.Name):
-                    errors.Add($"unknown provider '{p.Name}'. Configured: {string.Join(", ", providers)}.");
-                    break;
                 case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "search" or "default" or "sandbox"):
                     errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, search, default, sandbox.");
                     break;
@@ -451,18 +490,7 @@ public class Program
             }
         }
 
-        foreach (var w in warnings) Console.Error.WriteLine($"warning: {w}");
-        foreach (var e in errors) Console.Error.WriteLine($"error: {e}");
-
-        if (errors.Count > 0)
-        {
-            Console.Error.WriteLine($"invalid: {errors.Count} error(s).");
-            Environment.ExitCode = 1;
-        }
-        else
-        {
-            Console.Error.WriteLine($"valid: {program.Count} directive(s).");
-        }
+        return errors;
     }
 
     // --resolve: walk the directives without invoking, printing the effective

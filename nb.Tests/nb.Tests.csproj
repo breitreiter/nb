@@ -7,6 +7,9 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- Distribution builds publish the solution; without this the test harness
+         (xunit, Microsoft.TestPlatform.*) lands in the shipped output directory. -->
+    <IsPublishable>false</IsPublishable>
   </PropertyGroup>
 
   <ItemGroup>

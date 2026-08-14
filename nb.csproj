@@ -23,6 +23,7 @@
     <ProjectReference Include="nb.Core\nb.Core.csproj" />
   </ItemGroup>
 
+
   <!-- Sibling projects/source that sit under the globbed root but aren't ours. -->
   <ItemGroup>
     <Compile Remove="nb.Core\**" />
@@ -43,8 +44,17 @@
 
   <!-- Runtime content deployed next to the Exe, where AppContext.BaseDirectory finds it. -->
   <ItemGroup>
+    <!-- Build output only. The developer's appsettings.json holds live API keys;
+         publishing it would ship them in the distribution artifact. A published
+         binary gets its configuration from the config flag, or from an appsettings.json
+         placed next to it after the fact (it is optional at load). -->
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </None>
+    <None Update="appsettings.example.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
     <!-- License and attribution must ship alongside the binaries: the MIT and
          Apache-2.0 components in THIRD-PARTY-NOTICES.md require their notices
@@ -66,10 +76,38 @@
     </None>
   </ItemGroup>
 
-  <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
+  <!-- Providers are plugins: nothing here may reference their assemblies (they load into
+       their own AssemblyLoadContext), so publish builds them explicitly and collects the
+       result. Doing it here rather than relying on the solution build fixes two silent
+       failures: publishing nb.csproj alone produced an artifact with no providers, and
+       even a solution publish raced — nothing ordered the providers' copy-to-bin before
+       this target read that directory.
+
+       SelfContained is forced off: a plugin runs on the host's runtime, and inheriting a
+       self-contained publish gave every provider a private copy of the framework —
+       hundreds of MB, and nb then tries to load each one as a provider.
+
+       Paths are anchored to this file rather than $(SolutionDir), which is empty when a
+       project is built on its own — the original cause of the zero-provider copy. -->
+  <Target Name="BuildProvidersForPublish" Condition="'$(RuntimeIdentifier)' != ''">
     <ItemGroup>
-      <ProviderDirs Include="$(SolutionDir)bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\providers\**\*.*" />
+      <ProviderProjects Include="$(MSBuildThisFileDirectory)Providers\*\nb.Providers.*Provider.csproj" />
     </ItemGroup>
+    <MSBuild Projects="@(ProviderProjects)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=false" />
+  </Target>
+
+  <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish"
+          DependsOnTargets="BuildProvidersForPublish" Condition="'$(RuntimeIdentifier)' != ''">
+    <PropertyGroup>
+      <ProviderSourceDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\providers</ProviderSourceDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <ProviderDirs Include="$(ProviderSourceDir)\**\*.*" />
+    </ItemGroup>
+    <Warning Condition="'@(ProviderDirs)' == ''"
+             Text="No provider plugins found at $(ProviderSourceDir) — the published binary will start with no providers loaded." />
     <Copy SourceFiles="@(ProviderDirs)" DestinationFolder="$(PublishDir)providers\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 

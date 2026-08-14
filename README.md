@@ -479,8 +479,31 @@ Interactive output (`--output interactive`, and the REPL) loads its color scheme
 dotnet publish -c Release -r win-x64 --self-contained
 ```
 
+Publishing `nb.csproj` alone works too, and gives a smaller artifact (no test harness,
+no `mcp-tester`):
+
+```bash
+dotnet publish nb.csproj -c Release -r linux-x64 --self-contained -o /out
+```
+
+Either way, the provider plugins are built for the same RID and copied into
+`providers/` next to the binary. If that copy ever comes up empty the build says so
+(`No provider plugins found at …`) — the resulting binary can't run anything, so don't
+ship past that warning.
+
+**Configuration.** The publish output deliberately does **not** include your
+`appsettings.json`; it holds live API keys, and shipping it would ship them. You get
+`appsettings.example.json` instead. Point the deployed binary at a real config with
+`--config <path>`, or drop an `appsettings.json` next to the executable — it is optional
+at load, and nb starts without one (with no providers configured).
+
 Ship `mcp.json` and `theme.json` alongside the executable for custom configurations.
 Providers deploy to `providers/` next to the binary.
+
+**Minimal containers.** Self-contained .NET aborts at startup without ICU
+(`Couldn't find a valid ICU package installed on the system`), and language-toolchain
+images like `golang` don't carry `libicu`. Either install it or set
+`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`.
 
 ## License
 

@@ -20,8 +20,8 @@
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <PropertyGroup>
-      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' != ''">$(SolutionDir)bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\providers\anthropic</ProviderOutputPath>
-      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' == ''">$(SolutionDir)bin\$(Configuration)\net10.0\providers\anthropic</ProviderOutputPath>
+      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' != ''">$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\providers\anthropic</ProviderOutputPath>
+      <ProviderOutputPath Condition="'$(RuntimeIdentifier)' == ''">$(MSBuildThisFileDirectory)..\..\bin\$(Configuration)\net10.0\providers\anthropic</ProviderOutputPath>
     </PropertyGroup>
     <RemoveDir Directories="$(ProviderOutputPath)" />
     <ItemGroup>

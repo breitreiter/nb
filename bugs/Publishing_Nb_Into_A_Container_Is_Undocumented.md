@@ -1,10 +1,97 @@
 # Publishing nb for distribution: four gotchas, one of them a secret leak
 
-Status: Open (2026-08-13) — found moving a research harness's agent inside its
-fixture container, so nb ships as a bind-mounted self-contained binary rather
-than running on the host. Against `61b5a65` + the `ArgumentList` fix.
+Status: Fixed (2026-08-13) — all five, and the report's own preference taken in
+each case: the build-level fix rather than the note about the hazard. Found
+moving a research harness's agent inside its fixture container, so nb ships as a
+bind-mounted self-contained binary rather than running on the host. Against
+`61b5a65` + the `ArgumentList` fix.
 
-These are mostly **documentation** findings. §"Building for distribution" in
+## Fix
+
+**§1 — the keys don't ship.** `appsettings.json` keeps
+`CopyToOutputDirectory` (the dev loop needs it in `bin/`) and gains
+`CopyToPublishDirectory=Never`; `appsettings.example.json` inverts the pair, so
+the artifact carries the example and never the developer's file. It loads
+`optional: true`, so a published binary starts without one and takes its config
+from `--config`.
+
+**§2 — publish builds the providers itself.** Rather than documenting the
+`-p:SolutionDir=` incantation, `nb.csproj` grew `BuildProvidersForPublish`, which
+`CopyProvidersAfterPublish` now depends on: it invokes the provider projects
+directly with `RuntimeIdentifier` forwarded, then copies the result. Publishing
+`nb.csproj` alone now produces a working artifact, which is what the reader
+reaching for a smaller build wanted in the first place. Path anchors moved from
+`$(SolutionDir)` to `$(MSBuildThisFileDirectory)` in all seven provider projects
+and in `nb.csproj` — the report's "third option worth weighing", which does
+delete the failure mode rather than report it. The zero-copy warning landed too,
+as a backstop.
+
+*A `ProjectReference` with `ReferenceOutputAssembly=false` was tried first and
+does not work: the SDK treats RID-agnostic libraries as RID-agnostic and strips
+`RuntimeIdentifier` on the way through, so the providers built for no RID and the
+copy still found nothing. Hence the explicit `MSBuild` task.*
+
+**§3 — `<IsPublishable>false</IsPublishable>`** on `nb.Tests` and on
+`mcp-servers/mcp-tester`. A solution publish output now has zero
+`Microsoft.TestPlatform.*` files.
+
+**§4 — README**, as suggested. `InvariantGlobalization` was deliberately *not*
+set: it changes culture-sensitive comparison behavior across the whole engine to
+fix a container packaging problem, which is the wrong altitude.
+
+**§5 — the run path refuses.** `CheckDirectiveShape` (`Program.cs`) is the
+config-free half of `--validate`, extracted; the run path calls it before
+invoking anything and exits 1. An `approval` value nb cannot honour is now an
+error at the same point `--validate` calls it an error, instead of a directive
+dropped for the whole run and reported in the trailing warning drain. Coverage in
+`nb.Tests/DirectiveShapeTests.cs` (11 tests).
+
+### Two things the report didn't anticipate
+
+- **Even a solution publish raced.** Nothing ordered the provider projects'
+  copy-into-`bin/` before `CopyProvidersAfterPublish` read that directory. One of
+  three identical clean `dotnet publish` runs produced an artifact with no
+  `providers/` at all — the same end state as §2, from a command the README
+  endorses. `BuildProvidersForPublish` closes it by owning the ordering rather
+  than hoping for it.
+- **Every provider shipped a private copy of the framework.** Under
+  `--self-contained` the RID build gave each provider directory the full runtime:
+  200 files each, **596 MB** of `providers/`, and nb then tried to load
+  `System.Private.CoreLib.dll` as a provider seven times over. `SelfContained` is
+  forced off for the provider builds (they load into the host's runtime and never
+  needed their own). `providers/` is now 42 MB, 13 files for `mock`.
+
+  Note `<SelfContained>false</SelfContained>` in the provider `.csproj` files
+  would *not* have worked: `--self-contained` on the command line is a global
+  property and overrides the project setting. It has to be set on the build
+  invocation, which is what the new target does.
+
+### Residual
+
+The runtime chrome that this exposed — `provider load skipped: … — Could not
+load file or assembly` — goes to **stdout**, so a genuinely broken DLL in
+`providers/` would interleave with `--output jsonl` and corrupt the machine
+contract. Not reachable through the normal build any more (that's why the noise
+is gone), so it is filed here as a note rather than fixed: it belongs to the
+output/reporter seam already owed in `TODO.md`.
+
+## Verification
+
+Clean-tree, both publish shapes, `linux-x64` self-contained:
+
+| | solution publish | `nb.csproj` publish |
+|---|---|---|
+| `providers/` | 7, 42 MB | 7, 42 MB |
+| `appsettings.json` | absent | absent |
+| `Microsoft.TestPlatform.*` | 0 files | 0 files |
+| `nb - --output jsonl --config …` | clean jsonl, exit 0 | clean jsonl, exit 0 |
+
+`dotnet build` + 401 tests green; `bin/Debug` layout unchanged (providers
+deployed, `appsettings.json` present).
+
+---
+
+These were mostly **documentation** findings. §"Building for distribution" in
 `README.md` is six lines, and every one of them is true; the trouble is what
 sits just outside them. Ordered by what they cost.
 
