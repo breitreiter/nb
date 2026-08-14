@@ -1,0 +1,113 @@
+=== shell_command
+--- description
+Runs a shell command and returns its output.
+- Always set the `workdir` param when using the shell_command function. Do not use `cd` unless absolutely necessary.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "command": {
+      "type": "string",
+      "description": "Shell script to run in the user\u0027s default shell."
+    },
+    "workdir": {
+      "type": "string",
+      "description": "Working directory for the command. Defaults to the turn cwd."
+    },
+    "timeout_ms": {
+      "type": "number",
+      "description": "Maximum command runtime. Defaults to 10000 ms."
+    }
+  },
+  "required": [
+    "command"
+  ]
+}
+
+=== apply_patch
+--- description
+The `apply_patch` tool can be used to edit files.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "string",
+      "description": "A complete patch, beginning with *** Begin Patch and ending with *** End Patch."
+    }
+  },
+  "required": [
+    "input"
+  ]
+}
+
+=== update_plan
+--- description
+Updates the task plan.
+Provide an optional explanation and a list of plan items, each with a step and status.
+At most one step can be in_progress at a time.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "explanation": {
+      "type": "string",
+      "description": "Optional explanation for this plan update."
+    },
+    "plan": {
+      "type": "array",
+      "description": "The list of steps",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "description": "Task step text."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ],
+            "description": "Step status."
+          }
+        },
+        "required": [
+          "step",
+          "status"
+        ]
+      }
+    }
+  },
+  "required": [
+    "plan"
+  ]
+}
+
+=== view_image
+--- description
+View a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Local filesystem path to an image file."
+    },
+    "detail": {
+      "type": "string",
+      "enum": [
+        "high",
+        "original"
+      ],
+      "description": "Image detail level. Defaults to \u0060high\u0060; use \u0060original\u0060 to preserve exact resolution."
+    }
+  },
+  "required": [
+    "path"
+  ]
+}
+

@@ -1,0 +1,195 @@
+using Microsoft.Extensions.AI;
+using nb.Shell;
+using nb.Transcript;
+
+namespace nb.Harness;
+
+/// <summary>
+/// The Codex CLI surface — and the costume that shows how little of a harness is the
+/// tool <i>list</i>.
+///
+/// Codex has no read, write, edit, glob, grep or list tool. It has a shell, a patch
+/// applier, a plan tracker and an image viewer, and everything else is a shell command:
+/// the model greps with <c>rg</c> and reads with <c>sed -n</c>. Reproducing that means
+/// *withholding* seven tools nb has and the model would otherwise reach for, which is a
+/// larger behavioural change than any renaming the qwen costume does.
+///
+/// Names and schemas verified against <c>openai/codex</c> (Apache-2.0) at
+/// <c>codex-rs/core/src/tools/handlers/*_spec.rs</c>. The preamble is that project's
+/// own prompt, vendored — see <c>prompts/harness/codex.md</c>.
+/// </summary>
+public sealed class CodexHarness : NbHarness
+{
+    public const string HarnessName = "codex";
+
+    public CodexHarness(
+        BashTool? bash = null, ReadFileTool? readFile = null, WriteFileTool? writeFile = null,
+        EditFileTool? editFile = null, FindFilesTool? findFiles = null, GrepTool? grep = null,
+        ListDirTool? listDir = null, FetchUrlTool? fetchUrl = null, SearchWebTool? searchWeb = null,
+        ApplyPatchTool? applyPatch = null)
+        : base(bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, searchWeb, applyPatch)
+    {
+        // Codex has no read tool, so nb's read-before-edit rule is unsatisfiable here:
+        // the model reads through the shell, which the tracker cannot observe, and every
+        // apply_patch would be refused for a file it had just read with `sed`. Turning it
+        // off is what makes the costume usable, and it is what the real harness does.
+        // The trust sandbox and approval policy are untouched.
+        Files.RequireReadBeforeEdit = false;
+    }
+
+    public override string Name => HarnessName;
+
+    public override string? Preamble => _preamble;
+
+    private static readonly string? _preamble = LoadPreamble("codex.md");
+
+    public override IReadOnlyList<string> Omissions
+    {
+        get
+        {
+            var omissions = new List<string>
+            {
+                _preamble is null
+                    ? "system prompt: MISSING — prompts/harness/codex.md did not load, so this run is tool-surface-only."
+                    : "system prompt: Codex's own text, vendored under Apache-2.0, with two stated modifications — the model identity is generalised, and the sentence declaring apply_patch a freeform tool is dropped because nb declares it as a JSON function. See the header of prompts/harness/codex.md.",
+            };
+            omissions.AddRange(_omissions);
+            return omissions;
+        }
+    }
+
+    private static readonly string[] _omissions = new[]
+    {
+        "apply_patch: declared as a JSON function taking an input string. Codex declares it as a freeform tool with a lark grammar, so the model emits a bare patch rather than an argument object. nb has no freeform tool channel. The patch format itself is identical.",
+        "AGENTS.md: not loaded. Codex reads AGENTS.md from the repo root and every directory down to the cwd into the developer message, and its prompt devotes a section to obeying them. nb loads no project instruction file, so that entire channel is absent — the largest known gap in this costume.",
+        "environment context: Codex injects an <environment_context> block (cwd, sandbox mode, approval policy, network access) and appends approval-policy instructions to the prompt. nb sends neither, so the prompt's references to a \"Sandbox and approvals\" section point at nothing.",
+        "shell_command: workdir and timeout_ms are accepted and ignored — nb's bash runs in the shell cwd on its own configured timeout.",
+        "view_image: detail is accepted and ignored. A path that is not an image comes back as text rather than as an error.",
+        "update_plan: mapped onto nb's todo list. Codex replaces the plan wholesale; this reproduces that by cancelling steps the new plan drops, but nb renders the list its own way rather than as Codex's plan widget.",
+        "surface size: Codex also ships unified exec (exec_command/write_stdin), web_search, MCP resource tools, sub-agents, skills and plugins, most behind feature flags. This costume covers the default four.",
+    };
+
+    public override IReadOnlyList<AIFunction> CreateTools(ToolSurface surface)
+    {
+        var tools = new List<AIFunction>();
+
+        if (Bash != null && surface.AllowsNative("bash"))
+            tools.Add(Declare("shell_command",
+                "Runs a shell command and returns its output.\n"
+                + "- Always set the `workdir` param when using the shell_command function. Do not use `cd` unless absolutely necessary.",
+                new SchemaBuilder()
+                    .Add("command", "string", "Shell script to run in the user's default shell.", required: true)
+                    .Add("workdir", "string", "Working directory for the command. Defaults to the turn cwd.")
+                    .Add("timeout_ms", "number", "Maximum command runtime. Defaults to 10000 ms.")));
+
+        // Codex reaches files through the shell and edits them through apply_patch. The
+        // absence of read_file / write_file / edit_file / find_files / grep / list_dir is
+        // the costume, not an oversight: those tools exist on this harness and are
+        // deliberately not advertised.
+        if (ApplyPatch != null && surface.AllowsNative("apply_patch"))
+            tools.Add(Declare("apply_patch",
+                "The `apply_patch` tool can be used to edit files.",
+                new SchemaBuilder()
+                    .Add("input", "string", "A complete patch, beginning with *** Begin Patch and ending with *** End Patch.", required: true)));
+
+        if (surface.AllowsNative("todo"))
+            tools.Add(Declare("update_plan",
+                "Updates the task plan.\nProvide an optional explanation and a list of plan items, each with a step and status.\nAt most one step can be in_progress at a time.",
+                new SchemaBuilder()
+                    .Add("explanation", "string", "Optional explanation for this plan update.")
+                    .AddArray("plan", "The list of steps", required: true, item: new SchemaBuilder()
+                        .Add("step", "string", "Task step text.", required: true)
+                        .AddEnum("status", new[] { "pending", "in_progress", "completed" }, "Step status.", required: true))));
+
+        if (ReadFile != null && surface.AllowsNative("read_file"))
+            tools.Add(Declare("view_image",
+                "View a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk.",
+                new SchemaBuilder()
+                    .Add("path", "string", "Local filesystem path to an image file.", required: true)
+                    .AddEnum("detail", new[] { "high", "original" },
+                        "Image detail level. Defaults to `high`; use `original` to preserve exact resolution.")));
+
+        return tools;
+    }
+
+    private static AIFunction Declare(string name, string description, SchemaBuilder schema) =>
+        new DeclaredFunction(name, description, schema.Build());
+
+    protected override async Task<ToolOutcome?> DispatchAsync(
+        string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken)
+    {
+        switch (name)
+        {
+            case "shell_command" when Bash != null:
+                // workdir and timeout_ms are accepted and ignored. Codex has no
+                // description argument — it narrates in prose before the call instead —
+                // so there is nothing to show above an approval prompt but the command.
+                return await HandleBashToolCall(callId, Str(arguments, "command"), "");
+
+            case "apply_patch" when ApplyPatch != null:
+                return HandleApplyPatchToolCall(callId, Str(arguments, "input"));
+
+            case "update_plan":
+                return HandleTodoWriteToolCall(callId, PlanAsTodoChanges(arguments));
+
+            case "view_image" when ReadFile != null:
+                return HandleReadFileToolCall(callId, Str(arguments, "path"), null, null);
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Codex sends the whole plan on every call and the new list replaces the old one;
+    /// nb's todo list merges by content and keeps what it is not told about. Cancelling
+    /// the steps the new plan dropped is what makes a replace out of a merge, and it is
+    /// the harness's job — the decomposition of a costume tool into canonical operations
+    /// belongs in the costume, not in a new nb-level primitive.
+    /// </summary>
+    private IDictionary<string, object?> PlanAsTodoChanges(IDictionary<string, object?>? arguments)
+    {
+        var steps = ParsePlan(arguments);
+        var kept = steps.Select(s => s.Content).ToHashSet(StringComparer.Ordinal);
+        var changes = Todos.GetAll()
+            .Where(t => !kept.Contains(t.Content))
+            .Select(t => new TodoChange(t.Content, "cancelled"))
+            .Concat(steps)
+            .ToList();
+
+        return new Dictionary<string, object?>
+        {
+            ["changes"] = System.Text.Json.JsonSerializer.Serialize(changes),
+        };
+    }
+
+    private static List<TodoChange> ParsePlan(IDictionary<string, object?>? arguments)
+    {
+        var plan = new List<TodoChange>();
+        if (arguments is null || !arguments.TryGetValue("plan", out var raw) || raw is null)
+            return plan;
+
+        try
+        {
+            var json = raw is System.Text.Json.JsonElement je ? je.GetRawText() : raw.ToString();
+            if (string.IsNullOrWhiteSpace(json)) return plan;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(json!);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return plan;
+
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                var step = item.TryGetProperty("step", out var s) ? s.GetString() : null;
+                if (string.IsNullOrWhiteSpace(step)) continue;
+                var status = item.TryGetProperty("status", out var st) ? st.GetString() : null;
+                plan.Add(new TodoChange(step!, status ?? "pending"));
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Leave the plan empty; todo_write reports "no changes submitted".
+        }
+        return plan;
+    }
+}

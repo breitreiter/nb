@@ -80,6 +80,21 @@ public class ToolSurfaceGoldenTests : IDisposable
             NativeAllow = new HashSet<string>(new[] { "read_file", "edit_file", "bash" }, StringComparer.OrdinalIgnoreCase),
         }, harness: QwenCodeHarness.HarnessName);
 
+    /// <summary>
+    /// The codex costume: four tools, and — more to the point — none of the seven file
+    /// and search tools nb holds. Withholding is most of what this costume does.
+    /// </summary>
+    [Fact]
+    public Task Surface_CodexHarness() => AssertGolden("codex", ToolSurface.All, harness: CodexHarness.HarnessName);
+
+    /// <summary>
+    /// EditToolStyle no longer reaches a costume: codex advertises apply_patch either
+    /// way, because the runtime now builds every edit tool and the harness chooses.
+    /// </summary>
+    [Fact]
+    public Task Surface_CodexHarnessIgnoresEditToolStyle() =>
+        AssertGolden("codex", ToolSurface.All, applyPatchStyle: true, harness: CodexHarness.HarnessName);
+
     // ---- harness ----
 
     private async Task AssertGolden(string name, ToolSurface surface, bool applyPatchStyle = false, bool noBash = false, string? harness = null)
@@ -106,9 +121,10 @@ public class ToolSurfaceGoldenTests : IDisposable
         var client = new RecordingChatClient();
         var approval = new ApprovalPolicy(trust: false, new ApprovalPatterns(), _ => false);
 
-        // Mirrors NbRuntime's wiring: --nobash nulls every native tool; EditToolStyle
-        // picks apply_patch XOR write_file+edit_file. search_web stays null (it is
-        // config-gated on an API key and would otherwise make the golden environment-dependent).
+        // Mirrors NbRuntime's wiring: --nobash nulls every native tool; otherwise every
+        // tool is built and EditToolStyle decides only which edit surface nb's own harness
+        // advertises. search_web stays null (it is config-gated on an API key and would
+        // otherwise make the golden environment-dependent).
         BashTool? bash = null;
         ReadFileTool? readFile = null;
         WriteFileTool? writeFile = null;
@@ -127,13 +143,14 @@ public class ToolSurfaceGoldenTests : IDisposable
             grep = new GrepTool(_env);
             listDir = new ListDirTool(_env);
             fetchUrl = new FetchUrlTool();
-            if (applyPatchStyle) applyPatch = new ApplyPatchTool(_env);
-            else { writeFile = new WriteFileTool(_env); editFile = new EditFileTool(_env); }
+            writeFile = new WriteFileTool(_env);
+            editFile = new EditFileTool(_env);
+            applyPatch = new ApplyPatchTool(_env);
         }
 
         NbHarness harnessInstance = new NbHarness(
             bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl,
-            searchWeb: null, applyPatch);
+            searchWeb: null, applyPatch, applyPatchStyle);
         if (harness is not null)
             harnessInstance = HarnessRegistry.Create(harness, harnessInstance);
 

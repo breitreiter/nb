@@ -383,8 +383,10 @@ share one:
 Omit `Provider` and it defaults to `Name`.
 
 `EditToolStyle` (per entry) selects the file-edit surface: `EditReplace` (default)
-registers `edit_file` + `write_file`; `ApplyPatch` registers `apply_patch` instead.
+advertises `edit_file` + `write_file`; `ApplyPatch` advertises `apply_patch` instead.
 They're mutually exclusive — GPT-family models confuse the two when both are present.
+A program that names a `harness` overrides this, advertising whatever that harness's
+target has.
 
 ### Which Azure provider do I want?
 

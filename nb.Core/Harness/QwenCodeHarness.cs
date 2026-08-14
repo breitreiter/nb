@@ -46,14 +46,6 @@ public sealed class QwenCodeHarness : NbHarness
         {
             var omissions = new List<string>();
 
-            // A configuration conflict, not a fidelity gap: report it alongside the
-            // omissions so it reaches the operator through the same channel.
-            if (ApplyPatch != null)
-                omissions.Add(
-                    "CONFLICT: this provider entry sets EditToolStyle: ApplyPatch, which built apply_patch "
-                    + "instead of write_file + edit_file. qwen-code has no apply_patch, so this costume is "
-                    + "advertising no edit tool at all. Remove EditToolStyle from the provider entry.");
-
             // The preamble is a deployed data file, so its absence is a real runtime
             // state and not a hypothetical. Say which one is true rather than claiming a
             // prompt that may not have loaded.
@@ -127,10 +119,11 @@ public sealed class QwenCodeHarness : NbHarness
         // drops tools it does have. The goal is a model that behaves like it is in
         // qwen-code, not a model with a larger toolbox.
         //
-        // An EditToolStyle: ApplyPatch provider entry is therefore incoherent with this
-        // costume — the runtime built apply_patch *instead of* write_file+edit_file, so
-        // the costume is left with no edit tool at all. Say so rather than silently
-        // shipping a crippled surface.
+        // It used to be worse than a judgement call: EditToolStyle: ApplyPatch made the
+        // runtime build apply_patch *instead of* write_file + edit_file, so this costume
+        // was left with no edit tool at all and had to report the conflict. The runtime
+        // now builds every edit tool and lets the harness choose, so the costume always
+        // has the two it wants.
 
         if (FetchUrl != null && surface.AllowsNative("fetch_url"))
             tools.Add(Declare("web_fetch", FetchUrl.CreateTool().Description, new SchemaBuilder()

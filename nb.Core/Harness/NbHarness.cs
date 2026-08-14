@@ -50,8 +50,10 @@ public class NbHarness
         ListDirTool? listDir = null,
         FetchUrlTool? fetchUrl = null,
         SearchWebTool? searchWeb = null,
-        ApplyPatchTool? applyPatch = null)
+        ApplyPatchTool? applyPatch = null,
+        bool applyPatchStyle = false)
     {
+        ApplyPatchStyle = applyPatchStyle;
         Bash = bash;
         ReadFile = readFile;
         WriteFile = writeFile;
@@ -65,8 +67,8 @@ public class NbHarness
         _todoTool = new TodoTool(_todos);
     }
 
-    // Null when not wired: --nobash nulls the lot, and EditToolStyle picks
-    // ApplyPatch XOR WriteFile+EditFile.
+    // Null only when not wired: --nobash nulls the lot. Every edit tool is built
+    // otherwise, so a costume never inherits a hole from provider config.
     public BashTool? Bash { get; }
     public ReadFileTool? ReadFile { get; }
     public WriteFileTool? WriteFile { get; }
@@ -77,6 +79,14 @@ public class NbHarness
     public FetchUrlTool? FetchUrl { get; }
     public SearchWebTool? SearchWeb { get; }
     public ApplyPatchTool? ApplyPatch { get; }
+
+    /// <summary>
+    /// <c>EditToolStyle: ApplyPatch</c> on the active provider entry. It selects which
+    /// edit surface nb's own harness advertises — apply_patch, or write_file + edit_file —
+    /// and nothing else; both are always constructed. Costumes ignore it and advertise
+    /// whatever their target has.
+    /// </summary>
+    public bool ApplyPatchStyle { get; }
 
     /// <summary>Todo state is per-run and rides the tool surface, so the harness owns it.</summary>
     public TodoManager Todos => _todos;
@@ -173,12 +183,17 @@ public class NbHarness
 
         if (Bash != null && surface.AllowsNative("bash")) tools.Add(Bash.CreateTool());
         if (ReadFile != null && surface.AllowsNative("read_file")) tools.Add(ReadFile.CreateTool());
-        if (WriteFile != null && surface.AllowsNative("write_file")) tools.Add(WriteFile.CreateTool());
-        if (EditFile != null && surface.AllowsNative("edit_file")) tools.Add(EditFile.CreateTool());
+        // The two edit surfaces are mutually exclusive on nb's own harness — GPT-family
+        // models confuse them when both are offered — so ApplyPatchStyle picks one.
+        if (!ApplyPatchStyle)
+        {
+            if (WriteFile != null && surface.AllowsNative("write_file")) tools.Add(WriteFile.CreateTool());
+            if (EditFile != null && surface.AllowsNative("edit_file")) tools.Add(EditFile.CreateTool());
+        }
         if (FindFiles != null && surface.AllowsNative("find_files")) tools.Add(FindFiles.CreateTool());
         if (Grep != null && surface.AllowsNative("grep")) tools.Add(Grep.CreateTool());
         if (ListDir != null && surface.AllowsNative("list_dir")) tools.Add(ListDir.CreateTool());
-        if (ApplyPatch != null && surface.AllowsNative("apply_patch")) tools.Add(ApplyPatch.CreateTool());
+        if (ApplyPatchStyle && ApplyPatch != null && surface.AllowsNative("apply_patch")) tools.Add(ApplyPatch.CreateTool());
         if (FetchUrl != null && surface.AllowsNative("fetch_url")) tools.Add(FetchUrl.CreateTool());
         if (SearchWeb != null && surface.AllowsNative("search_web")) tools.Add(SearchWeb.CreateTool());
 

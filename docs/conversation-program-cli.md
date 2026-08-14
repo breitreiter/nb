@@ -154,7 +154,7 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 | --- | --- | --- |
 | `provider` | `provider <name>` | Select the active provider (matched against `ChatProviders[].Name` in config) for subsequent runs. |
 | `model` | `model <name>` | Select the model for subsequent runs. Overrides the active provider's model field in memory (both `Model` and `ChatDeploymentName`). |
-| `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Defaults to `nb` (nb's own surface). Registered names: `nb`, `qwen-code`. An unknown one is a parse error, not a warning. |
+| `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Defaults to `nb` (nb's own surface). Registered names: `nb`, `qwen-code`, `codex`. An unknown one is a parse error, not a warning. |
 
 **On `harness`.** It is a program directive rather than provider config because the
 experiment worth running is *one model across two harnesses*, and that has to be
@@ -333,7 +333,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
 | `run` | `prompt`? | Invocation directive. On output, a past run appears as the `assistant_text` it produced. |
 | `provider` / `model` | `name` | Config directive. |
-| `harness` | `name` | Harness-selection directive (§5.1). Registered: `nb`, `qwen-code`. |
+| `harness` | `name` | Harness-selection directive (§5.1). Registered: `nb`, `qwen-code`, `codex`. |
 | `mcp` / `tools` | `reset`?, `add`[], `remove`[] | Tool-surface delta. |
 | `approval` | `key`, `value` | Approval-policy directive. |
 | `loop` | `enabled`, `threshold`? | Doom-loop directive. `threshold` present only when `enabled`. |

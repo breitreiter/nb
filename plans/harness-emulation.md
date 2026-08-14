@@ -191,6 +191,10 @@ The proper fix is architectural and belongs with the `EditToolStyle` deprecation
 advertise, rather than the runtime pre-deciding by building one and not the other. Then a
 costume never inherits a hole from provider config.
 
+**Done, at step 6** — `CodexHarness` forced it, since Codex needs `apply_patch` and would
+otherwise have shipped inert unless a provider entry happened to ask for it. The
+`CONFLICT:` omission is gone with it.
+
 **What still reaches the model from outside the costume.** MCP tools and fake tools are
 merged into the surface by `ConversationManager`, not the harness. For programs MCP is
 already strict-empty unless a directive names servers, so it is opt-in; `fake-tools.yaml`
@@ -397,8 +401,13 @@ practice (step 5): its prompt is not a file but a 76KB TypeScript module assembl
 by conditional interpolation, so vendoring would mean freezing one rendered variant and
 presenting it as the source. An authored facsimile was smaller, honest about its own
 provenance, and free of a licence obligation. Check the shape of the upstream prompt
-before assuming the licence decides the question — for Codex it may well come out the
-other way.
+before assuming the licence decides the question.
+
+**And for Codex it did come out the other way** (step 6). Its prompt is a static
+markdown file with no interpolation, so there was a real artefact to copy, and a copy is
+more faithful than any facsimile could be. Vendored under Apache-2.0 with two stated
+modifications. Two costumes, one licence, opposite decisions — the shape of the upstream
+artefact is what decides, not its terms.
 
 Cursor and Claude Code are closed. Those two are paraphrase-only, written from published
 vendor documentation and observed behaviour.
@@ -635,7 +644,51 @@ now:
 6. `CodexHarness` (also Apache-2.0, also vendorable), then `ClaudeCode`, then `Cursor`.
    Ordering is by prompt licence and surface-research cost. Building a control rig is
    optional at any point and gates nothing.
+
+   **Codex done** — `nb.Core/Harness/CodexHarness.cs`, four tools: `shell_command`,
+   `apply_patch`, `update_plan`, `view_image`. Schemas verified against `openai/codex`
+   at `codex-rs/core/src/tools/handlers/*_spec.rs`.
+
+   **Vendored, and that is the contrast with qwen.** This step's prediction held: Codex's
+   prompt *is* a file (`codex-rs/core/gpt_5_2_prompt.md`, static markdown, no
+   interpolation), so there was a real thing to copy and the licence permits copying it.
+   It is vendored with an Apache-2.0 notice and two stated modifications — the model
+   identity is generalised, and the clause declaring `apply_patch` a freeform tool is
+   dropped, since nb has no freeform tool channel and the sentence would steer the model
+   into emitting a bare patch where an argument object is required. So the two costumes
+   built so far went opposite ways on the same licence, decided by the shape of the
+   upstream artefact rather than by its terms.
+
+   **Subtraction is the costume.** Codex has no read, write, edit, glob, grep or list
+   tool — it greps with `rg` and reads with `sed -n` through the shell. Building this one
+   was mostly *withholding* seven tools nb has, which is a larger behavioural change than
+   any renaming the qwen costume does, and it is the first real test of the no-clutter
+   rule.
+
+   Two things fell out of that and are worth keeping:
+
+   - **`EditToolStyle` had to stop reaching costumes first** (see step 7). Codex needs
+     `apply_patch`, which the runtime only built when a provider entry asked for it, so
+     the costume would have been inert by default — exactly what the composable-CLI
+     reorientation exists to prevent.
+   - **Read-before-edit is unsatisfiable without a read tool.** nb refuses an edit to a
+     file it never saw read; under this costume the model reads through the shell, which
+     `FileReadTracker` cannot observe, so every patch would have been refused. The
+     tracker gained `RequireReadBeforeEdit`, which the costume turns off — matching the
+     real harness. Approval and the trust sandbox are untouched. This is the first case
+     of a costume needing to relax an nb safety mechanism, and the general shape (the
+     mechanism is coupled to nb's *tool set*, not to safety as such) will recur.
 7. Deprecate `EditToolStyle` once `CodexHarness` exists.
+
+   **Architectural half done** (with step 6, because Codex forced it). `NbRuntime` now
+   builds `write_file`, `edit_file` *and* `apply_patch` whenever tools are wired, and
+   `EditToolStyle` survives only as `NbHarness.ApplyPatchStyle`, which picks which pair
+   nb's own surface advertises. Costumes ignore it. A costume can no longer inherit a
+   hole from provider config, which retires the qwen costume's `CONFLICT:` omission
+   outright. Verified by the step 0 golden masters being byte-identical.
+
+   The config field itself is still there and still documented; deprecating it is a
+   user-facing change with a window, and is what remains of this step.
 
 ## Verification
 

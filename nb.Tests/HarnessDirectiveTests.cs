@@ -37,10 +37,12 @@ public class HarnessDirectiveTests
     [Fact]
     public void Harness_UnknownName_IsRejectedWithLineAndKnownNames()
     {
-        var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("# comment\nharness codex\n"));
+        // claude-code is a planned costume that does not exist yet — naming one that is
+        // merely *coming* is the case most likely to be typed by mistake.
+        var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("# comment\nharness claude-code\n"));
 
         Assert.Contains("line 2", ex.Message);
-        Assert.Contains("codex", ex.Message);
+        Assert.Contains("claude-code", ex.Message);
         Assert.Contains("nb", ex.Message);
     }
 

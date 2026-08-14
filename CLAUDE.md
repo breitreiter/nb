@@ -247,7 +247,7 @@ The application uses an array-based provider configuration schema:
   ```
 - Provider-specific fields are read directly from the provider's config object (no nested paths)
 - Prompt files resolve by entry label first, then by implementation — `system.LocalCoder.md` if present, else `system.LocalLlm.md`. Same for the model-specific `system.{scope}.{modelslug}.md` form. Entry-label and implementation resolution live in `nb.Core/ProviderEntries.cs`
-- `EditToolStyle` (optional, per-provider) - Selects the file-edit tool surface exposed to the model. `EditReplace` (default) registers `edit_file` + `write_file`; `ApplyPatch` registers `apply_patch` instead. Mutually exclusive — GPT-family models tend to confuse the two surfaces, so pick one.
+- `EditToolStyle` (optional, per-provider) - Selects the file-edit tool surface exposed to the model. `EditReplace` (default) advertises `edit_file` + `write_file`; `ApplyPatch` advertises `apply_patch` instead. Mutually exclusive — GPT-family models tend to confuse the two surfaces, so pick one. It affects *advertisement only*: every edit tool is always constructed, so a `harness` costume advertises its target's edit surface regardless of this setting. Slated for deprecation now that `harness codex` covers the case it was invented for (see `plans/harness-emulation.md`).
 
 ## Important Workflow Reminders
 - When changing the structure of appsettings.json make sure to update appsettings.example.json

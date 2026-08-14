@@ -58,6 +58,7 @@ internal sealed class NbRuntime : IDisposable
         FetchUrlTool? fetchUrl = null;
         SearchWebTool? searchWeb = null;
         ApplyPatchTool? applyPatch = null;
+        bool applyPatchStyle = false;
         if (!options.NoBash)
         {
             var bashTimeout = int.TryParse(config["BashTimeoutSeconds"], out var bts) ? bts : 120;
@@ -70,15 +71,20 @@ internal sealed class NbRuntime : IDisposable
             try { searchWeb = SearchWebTool.FromConfig(config["Search:Provider"], config["Search:ApiKey"]); }
             catch (ArgumentException ex) { throw new NbStartupException(ex.Message); }
 
+            // Every edit tool is built; EditToolStyle decides only which of them nb's own
+            // surface *advertises*. The runtime used to build one and not the other, which
+            // meant a costume inherited a hole from provider config it had no say in —
+            // the qwen costume lost its edit tools under EditToolStyle: ApplyPatch, and the
+            // codex costume, which needs apply_patch, would have had none without it.
+            // Construction is cheap and advertisement is the harness's business.
+            // (plans/harness-emulation.md, "No clutter, either")
+            writeFile = new WriteFileTool(shell);
+            editFile = new EditFileTool(shell);
+            applyPatch = new ApplyPatchTool(shell);
+
             var providerConfig = config.GetSection("ChatProviders").GetChildren()
                 .FirstOrDefault(c => string.Equals(c["Name"], config["ActiveProvider"], StringComparison.OrdinalIgnoreCase));
-            if (string.Equals(providerConfig?["EditToolStyle"], "ApplyPatch", StringComparison.OrdinalIgnoreCase))
-                applyPatch = new ApplyPatchTool(shell);
-            else
-            {
-                writeFile = new WriteFileTool(shell);
-                editFile = new EditFileTool(shell);
-            }
+            applyPatchStyle = string.Equals(providerConfig?["EditToolStyle"], "ApplyPatch", StringComparison.OrdinalIgnoreCase);
         }
 
         var trust = options.Trust || string.Equals(config["Trust"], "true", StringComparison.OrdinalIgnoreCase);
@@ -118,7 +124,7 @@ internal sealed class NbRuntime : IDisposable
         long? wallBudgetMs = options.WallClockBudgetMs ?? (long.TryParse(config["WallClockBudgetMs"], out var wb) ? wb : null);
         if (wallBudgetMs is <= 0) wallBudgetMs = null;
 
-        var harness = new NbHarness(bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, searchWeb, applyPatch);
+        var harness = new NbHarness(bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl, searchWeb, applyPatch, applyPatchStyle);
 
         var conversation = new ConversationManager(
             client, mcp, fakeTools, harness,

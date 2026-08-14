@@ -182,25 +182,27 @@ public class QwenCodeHarnessTests : IDisposable
     }
 
     /// <summary>
-    /// apply_patch has no qwen-code counterpart, so it is not advertised even when the
-    /// provider entry built one — and because EditToolStyle: ApplyPatch builds it
-    /// *instead of* write_file + edit_file, that configuration leaves the costume with no
-    /// edit tool, which must be reported rather than silently shipped.
+    /// apply_patch has no qwen-code counterpart, so it is not advertised even though the
+    /// runtime always builds one — and the costume keeps its own edit tools regardless,
+    /// which is what stops <c>EditToolStyle: ApplyPatch</c> from reaching in and leaving
+    /// it with no way to edit a file.
     /// </summary>
     [Fact]
-    public void ApplyPatch_IsNeverAdvertised_AndTheConflictIsReported()
+    public void ApplyPatch_IsNeverAdvertised_AndTheEditToolsSurviveAnyway()
     {
         var env = ShellEnvironment.Detect();
         env.SetCwd(_dir);
         var withApplyPatch = new QwenCodeHarness(
             new BashTool(env, defaultTimeoutSeconds: 120), new ReadFileTool(env),
-            writeFile: null, editFile: null, findFiles: null, grep: null, listDir: null,
-            fetchUrl: null, searchWeb: null, applyPatch: new ApplyPatchTool(env));
+            new WriteFileTool(env), new EditFileTool(env), findFiles: null, grep: null,
+            listDir: null, fetchUrl: null, searchWeb: null, applyPatch: new ApplyPatchTool(env));
 
         var advertised = withApplyPatch.CreateTools(ToolSurface.All).Select(t => t.Name).ToList();
 
         Assert.DoesNotContain("apply_patch", advertised);
-        Assert.Contains(withApplyPatch.Omissions, o => o.StartsWith("CONFLICT:"));
+        Assert.Contains("write_file", advertised);
+        Assert.Contains("edit", advertised);
+        Assert.DoesNotContain(withApplyPatch.Omissions, o => o.StartsWith("CONFLICT:"));
     }
 
     /// <summary>

@@ -17,19 +17,30 @@ public static class HarnessRegistry
     /// <summary>nb's own surface — what a program gets when it names no harness.</summary>
     public const string Default = "nb";
 
-    public static IReadOnlyList<string> KnownNames { get; } = new[] { Default, QwenCodeHarness.HarnessName };
+    public static IReadOnlyList<string> KnownNames { get; } =
+        new[] { Default, QwenCodeHarness.HarnessName, CodexHarness.HarnessName };
 
     /// <summary>
     /// Build the harness a name selects, over the tool instances the runtime wired.
-    /// A costume swaps what is advertised, never what is behind it.
+    /// A costume swaps what is advertised, never what is behind it — and it gets every
+    /// tool the runtime built, not the subset nb's own surface happens to advertise.
     /// </summary>
-    public static NbHarness Create(string name, NbHarness baseHarness) =>
-        string.Equals(name, QwenCodeHarness.HarnessName, StringComparison.OrdinalIgnoreCase)
-            ? new QwenCodeHarness(
+    public static NbHarness Create(string name, NbHarness baseHarness)
+    {
+        if (string.Equals(name, QwenCodeHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
+            return new QwenCodeHarness(
                 baseHarness.Bash, baseHarness.ReadFile, baseHarness.WriteFile, baseHarness.EditFile,
                 baseHarness.FindFiles, baseHarness.Grep, baseHarness.ListDir, baseHarness.FetchUrl,
-                baseHarness.SearchWeb, baseHarness.ApplyPatch)
-            : baseHarness;
+                baseHarness.SearchWeb, baseHarness.ApplyPatch);
+
+        if (string.Equals(name, CodexHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
+            return new CodexHarness(
+                baseHarness.Bash, baseHarness.ReadFile, baseHarness.WriteFile, baseHarness.EditFile,
+                baseHarness.FindFiles, baseHarness.Grep, baseHarness.ListDir, baseHarness.FetchUrl,
+                baseHarness.SearchWeb, baseHarness.ApplyPatch);
+
+        return baseHarness;
+    }
 
     public static bool IsKnown(string name) =>
         KnownNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));

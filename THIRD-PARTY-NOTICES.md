@@ -44,6 +44,26 @@ Self-contained builds also bundle the .NET runtime and libraries,
 PdfPig additionally embeds components under their own terms — see
 **PdfPig external components** below.
 
+## Vendored text
+
+nb ships harness costumes that reproduce another agent's tool surface and
+system prompt (see `plans/harness-emulation.md`). Where that prompt is openly
+licensed, nb vendors it rather than paraphrasing it.
+
+| File | Source | License | Copyright |
+|---|---|---|---|
+| `nb.Core/prompts/harness/codex.md` | `openai/codex`, `codex-rs/core/gpt_5_2_prompt.md` | Apache-2.0 | Copyright OpenAI |
+
+That file is **modified** from its original, as Apache-2.0 section 4(b)
+requires be stated. The two changes — a generalised model identity, and the
+removal of a sentence describing `apply_patch` as a freeform tool, which nb
+declares as an ordinary JSON function — are recorded in full in a comment at
+the top of the file itself.
+
+`nb.Core/prompts/harness/qwen-code.md` is **not** vendored despite qwen-code
+also being Apache-2.0; it is original prose written for nb and carries no
+third-party terms. Its own header says why.
+
 ---
 
 ## MIT License
