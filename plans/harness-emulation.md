@@ -523,7 +523,13 @@ now:
    except todo, skipped `search_web`, and listed MCP tools unfiltered by server.
    `ToolDescriptor` existed only to feed it and went too. Anything needing that view
    should be rebuilt from `NbHarness.CreateTools`, which cannot drift by construction.
-2. Fake-tool schema fix.
+2. Fake-tool schema fix. **Done** — `FakeAIFunction` in `nb.Core/MCP/FakeToolManager.cs`
+   subclasses `AIFunction` directly and builds the schema from the declared parameters,
+   since it comes from data rather than a reflected signature. Author-friendly type
+   spellings normalise; unknown types pass through. The dispatch-side unwrap of a nested
+   `parameters` object went with it — pure compensation for the opaque schema, and a trap
+   once schemas are flat. Covered by `nb.Tests/FakeToolSchemaTests.cs` (the manager had no
+   tests before).
 3. `harness` directive + transcript field; `NbHarness` remains the only value. Restate
    §5.5 and the §6 invariant in `docs/conversation-program-cli.md` at this step, while
    the restatement is still a no-op — the bare default is unchanged, so the wording
