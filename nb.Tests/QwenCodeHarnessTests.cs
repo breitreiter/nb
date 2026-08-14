@@ -152,6 +152,50 @@ public class QwenCodeHarnessTests : IDisposable
     }
 
     /// <summary>
+    /// A costume that ADDS tools its target does not have is as unfaithful as one that
+    /// drops tools it does have — the goal is a model behaving as though it were in
+    /// qwen-code, not a model with a bigger toolbox. Every advertised name must be a real
+    /// qwen-code tool name (packages/core/src/tools/tool-names.ts).
+    /// </summary>
+    [Fact]
+    public void Costume_AdvertisesNothingQwenCodeDoesNotHave()
+    {
+        // Verified against QwenLM/qwen-code tool-names.ts.
+        var qwenCodeToolNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "edit", "write_file", "read_file", "grep_search", "glob", "run_shell_command",
+            "todo_write", "web_fetch", "web_search", "list_directory",
+        };
+
+        var advertised = _harness.CreateTools(ToolSurface.All).Select(t => t.Name).ToList();
+
+        Assert.NotEmpty(advertised);
+        Assert.All(advertised, name => Assert.Contains(name, qwenCodeToolNames));
+    }
+
+    /// <summary>
+    /// apply_patch has no qwen-code counterpart, so it is not advertised even when the
+    /// provider entry built one — and because EditToolStyle: ApplyPatch builds it
+    /// *instead of* write_file + edit_file, that configuration leaves the costume with no
+    /// edit tool, which must be reported rather than silently shipped.
+    /// </summary>
+    [Fact]
+    public void ApplyPatch_IsNeverAdvertised_AndTheConflictIsReported()
+    {
+        var env = ShellEnvironment.Detect();
+        env.SetCwd(_dir);
+        var withApplyPatch = new QwenCodeHarness(
+            new BashTool(env, defaultTimeoutSeconds: 120), new ReadFileTool(env),
+            writeFile: null, editFile: null, findFiles: null, grep: null, listDir: null,
+            fetchUrl: null, searchWeb: null, applyPatch: new ApplyPatchTool(env));
+
+        var advertised = withApplyPatch.CreateTools(ToolSurface.All).Select(t => t.Name).ToList();
+
+        Assert.DoesNotContain("apply_patch", advertised);
+        Assert.Contains(withApplyPatch.Omissions, o => o.StartsWith("CONFLICT:"));
+    }
+
+    /// <summary>
     /// A tools directive filters in nb's canonical vocabulary, not the costume's — so a
     /// program reads the same whichever harness it wears. See the open question in
     /// plans/harness-emulation.md.

@@ -169,6 +169,34 @@ advance. A miscategorised omission shows up as an open behavioural diff against 
 harness, which promotes it. Default to the cheap tier and let the measurement force
 upgrades — that is what makes "eh, fine, good enough" a discipline rather than a shrug.
 
+**No clutter, either.** Omission is one failure mode; addition is the other, and it is
+the easier one to talk yourself into. A costume must not advertise a tool its target does
+not have — not nb-specific tools with no counterpart, not "harmless" extras, not a tool
+kept because dropping it would break some other configuration. The goal is a model that
+behaves as though it were in the target harness, not a model with a bigger toolbox, and
+every extra tool is a behavioural difference you then cannot attribute.
+
+This bit immediately: `QwenCodeHarness` initially passed `apply_patch` through under its
+own name, rationalised in a code comment as avoiding a stripped edit tool under
+`EditToolStyle: ApplyPatch`. qwen-code has no `apply_patch`. The right answer is to drop
+it and report the configuration conflict — `EditToolStyle: ApplyPatch` builds `apply_patch`
+*instead of* `write_file` + `edit_file`, so that entry genuinely cannot wear this costume,
+and saying so beats shipping a surface nobody asked for. `ToolSurfaceGoldenTests` pins the
+advertised set and `Costume_AdvertisesNothingQwenCodeDoesNotHave` asserts the rule
+directly.
+
+The proper fix is architectural and belongs with the `EditToolStyle` deprecation (step 7):
+`NbRuntime` should always construct every tool and let the *harness* decide which to
+advertise, rather than the runtime pre-deciding by building one and not the other. Then a
+costume never inherits a hole from provider config.
+
+**What still reaches the model from outside the costume.** MCP tools and fake tools are
+merged into the surface by `ConversationManager`, not the harness. For programs MCP is
+already strict-empty unless a directive names servers, so it is opt-in; `fake-tools.yaml`
+auto-loads from cwd, which is a file someone deliberately created. Both are legitimate but
+both dilute a costume — a run measuring faux-qwen-code against real qwen-code should carry
+neither.
+
 **Declare the omissions.** Each costume states what it knowingly skips, surfaced in the
 transcript alongside the harness name. A surprising diff then arrives with a suspect list
 attached, instead of sending someone hunting through a costume's source for what it

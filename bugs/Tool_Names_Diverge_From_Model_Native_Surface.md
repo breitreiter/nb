@@ -105,6 +105,55 @@ Also worth noting: if a one-line `system` steer recovers most of the benefit,
 that may be the right shipping order — document the steer now, land toolsets when
 the interface change is affordable.
 
+## Confirmation with a real costume, 2026-08-14
+
+The aliasing fix has now been built and measured. `harness qwen-code`
+(`nb.Core/Harness/QwenCodeHarness.cs`) advertises qwen-code's actual names and
+parameter spellings — `edit`, `glob`, `grep_search`, `list_directory`,
+`run_shell_command`, `file_path` throughout — over nb's unchanged tools.
+
+**Method.** Three Python files (~30 lines total), each using `print()` for logging.
+Task: replace every `print(` with `log(` and add an import. Same model
+(`qwen3-coder-next` on the local box), same fixture copied fresh per run, same
+minimal `system` directive in both arms — deliberately *without* the tool-preference
+sentence from the section above, so the advertised surface is the only variable.
+Three replicates per arm.
+
+| | baseline (nb surface) | costume (`harness qwen-code`) |
+| --- | --- | --- |
+| run 1 | `edit_file` ×6, `write_file` ×0 | `edit` ×3, `write_file` ×0 |
+| run 2 | `edit_file` ×0, **`write_file` ×3** | `edit` ×3, `write_file` ×0 |
+| run 3 | `edit_file` ×0, **`write_file` ×3** | `edit` ×11, `write_file` ×0 |
+| mean edits / writes | 2.0 / 2.0 | 5.7 / 0.0 |
+| mean turns | 9.7 | 12.0 |
+| mean input tokens | 39,769 | 54,375 |
+| task correct | 3/3 | 3/3 |
+
+**Tool selection moves, consistently.** Under nb's surface, two of three runs
+abandoned editing entirely and rewrote all three files wholesale. Under the costume,
+every run edited and `write_file` was never called once. This is not an artefact of
+removing the option: `write_file` keeps its name in qwen-code and is advertised in
+both arms, so the model had the same choice and made a different one. That is the
+original report's hypothesis reproducing.
+
+**Tokens and turns do not support the costume**, which is consistent with the
+correction above and worth restating: the costume averaged *more* input and more
+turns. One outlier drives much of it (costume run 3 made eleven small edits), and the
+cheap baseline runs are cheap precisely *because* whole-file rewrite is nearly free on
+a 12-line file. The case rests on tool selection, not on cost.
+
+**This fixture cannot test the completion claim.** 3/3 correct in both arms — at this
+size a whole-file rewrite is a perfectly good strategy. Rewriting only becomes
+pathological on files large enough to truncate mid-write, which is where the original
+411,938-token abort came from. Testing that needs a fixture with files of a few hundred
+lines.
+
+**Caveats.** n=3 per arm against a non-deterministic model; a 2/3-vs-0/3 split is
+directionally consistent with the 6:1 write:edit ratio in the original report but is not
+on its own strong. The costume is tool-surface-only — qwen-code's system prompt is not
+vendored yet — so this measures the surface half alone, where the 2026-08-12 entry
+measured the prompt half alone.
+
 ## Where the fix lives, 2026-08-14
 
 The "tool naming profile" suggested above is now `plans/harness-emulation.md` —
