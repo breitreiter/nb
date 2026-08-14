@@ -57,36 +57,6 @@ public sealed class QwenCodeHarness : NbHarness
         "todo_read: not offered — qwen-code declares todo_write with no read counterpart.",
     };
 
-    // wire name -> canonical nb name. Verified against packages/core/src/tools/tool-names.ts.
-    private static readonly Dictionary<string, string> WireToCanonical = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["read_file"] = "read_file",
-        ["write_file"] = "write_file",
-        ["edit"] = "edit_file",
-        ["glob"] = "find_files",
-        ["grep_search"] = "grep",
-        ["list_directory"] = "list_dir",
-        ["run_shell_command"] = "bash",
-        ["web_fetch"] = "fetch_url",
-        ["web_search"] = "search_web",
-        ["todo_write"] = "todo_write",
-    };
-
-    private static readonly Dictionary<string, string> CanonicalToWire =
-        WireToCanonical.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.OrdinalIgnoreCase);
-
-    // Per wire tool: wire argument name -> canonical argument name. Arguments absent from
-    // a map pass through; arguments mapped to null are dropped (accepted and ignored).
-    private static readonly Dictionary<string, Dictionary<string, string?>> ArgumentMaps = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["read_file"] = new() { ["file_path"] = "path" },
-        ["write_file"] = new() { ["file_path"] = "path" },
-        ["edit"] = new() { ["file_path"] = "path" },
-        ["grep_search"] = new() { ["glob"] = "file_pattern", ["limit"] = "max_results" },
-        ["run_shell_command"] = new() { ["is_background"] = null, ["directory"] = null, ["timeout"] = "timeout_seconds" },
-        ["web_fetch"] = new() { ["prompt"] = null, ["format"] = null },
-    };
-
     public override IReadOnlyList<AIFunction> CreateTools(ToolSurface surface)
     {
         var tools = new List<AIFunction>();
@@ -161,35 +131,6 @@ public sealed class QwenCodeHarness : NbHarness
         return tools;
     }
 
-    public override (string Name, IDictionary<string, object?>? Arguments) ToCanonical(
-        string wireName, IDictionary<string, object?>? arguments)
-    {
-        if (!WireToCanonical.TryGetValue(wireName, out var canonicalName))
-            return (wireName, arguments); // MCP / fake / apply_patch — not ours to rename
-
-        if (arguments is null || !ArgumentMaps.TryGetValue(wireName, out var map))
-            return (canonicalName, arguments);
-
-        var translated = new Dictionary<string, object?>();
-        foreach (var (key, value) in arguments)
-        {
-            if (!map.TryGetValue(key, out var target))
-            {
-                translated[key] = value;      // not mentioned: passes through
-                continue;
-            }
-            if (target is null) continue;     // accepted and ignored
-
-            translated[target] = target == "timeout_seconds" ? MillisecondsToSeconds(value) : value;
-        }
-
-        return (canonicalName, translated);
-    }
-
-    public override string ToWireName(string canonicalName) =>
-        CanonicalToWire.TryGetValue(canonicalName, out var wire) ? wire : canonicalName;
-
-    /// <summary>qwen-code's shell timeout is milliseconds; nb's is seconds.</summary>
     private static object? MillisecondsToSeconds(object? value)
     {
         var ms = value switch
@@ -205,4 +146,60 @@ public sealed class QwenCodeHarness : NbHarness
 
     private static AIFunction Declare(string name, string? description, SchemaBuilder schema) =>
         new DeclaredFunction(name, description ?? "", schema.Build());
+
+    /// <summary>
+    /// qwen-code's argument spellings, unpacked onto the shared capabilities.
+    ///
+    /// This replaces what used to be three translation tables and a generic argument
+    /// rewriter. The adaptation is now ordinary typed code in the costume that owns it:
+    /// file_path becomes a path argument by being passed as one, and qwen's
+    /// millisecond timeout becomes nb's seconds with arithmetic instead of a special
+    /// case buried in a rename loop.
+    /// </summary>
+    protected override async Task<ToolOutcome?> DispatchAsync(
+        string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken)
+    {
+        switch (name)
+        {
+            case "run_shell_command" when Bash != null:
+                // is_background and directory are accepted and ignored; nb's bash runs
+                // foreground in the shell cwd. timeout is milliseconds here, seconds there.
+                return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"));
+
+            case "read_file" when ReadFile != null:
+                return HandleReadFileToolCall(callId, Str(arguments, "file_path"),
+                    Int(arguments, "offset"), Int(arguments, "limit"));
+
+            case "write_file" when WriteFile != null:
+                return await HandleWriteFileToolCall(callId, Str(arguments, "file_path"), Str(arguments, "content"));
+
+            case "edit" when EditFile != null:
+                return HandleEditFileToolCall(callId, Str(arguments, "file_path"), Str(arguments, "old_string"),
+                    Str(arguments, "new_string"), Bool(arguments, "replace_all") ?? false);
+
+            case "glob" when FindFiles != null:
+                return HandleFindFilesToolCall(callId, Str(arguments, "pattern"), StrOrNull(arguments, "path"), null);
+
+            case "grep_search" when Grep != null:
+                return HandleGrepToolCall(callId, Str(arguments, "pattern"), StrOrNull(arguments, "path"),
+                    StrOrNull(arguments, "glob"), null, Int(arguments, "limit"), null);
+
+            case "list_directory" when ListDir != null:
+                return HandleListDirToolCall(callId, StrOrNull(arguments, "path"));
+
+            case "web_fetch" when FetchUrl != null:
+                // qwen-code answers a prompt against the page; nb returns the content.
+                // The prompt and format arguments are accepted and ignored.
+                return await HandleFetchUrlToolCall(callId, Str(arguments, "url"));
+
+            case "web_search" when SearchWeb != null:
+                return await HandleSearchWebToolCall(callId, Str(arguments, "query"));
+
+            case "todo_write":
+                return HandleTodoWriteToolCall(callId, arguments);
+
+            default:
+                return null;
+        }
+    }
 }

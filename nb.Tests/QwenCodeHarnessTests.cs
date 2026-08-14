@@ -26,6 +26,8 @@ public class QwenCodeHarnessTests : IDisposable
             new BashTool(env, defaultTimeoutSeconds: 120), new ReadFileTool(env), new WriteFileTool(env),
             new EditFileTool(env), new FindFilesTool(env), new GrepTool(env), new ListDirTool(env),
             new FetchUrlTool());
+        _harness.Configure(new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false),
+            trustMode: true, verbose: false);
     }
 
     public void Dispose()
@@ -33,101 +35,107 @@ public class QwenCodeHarnessTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    [Theory]
-    [InlineData("edit", "edit_file")]
-    [InlineData("glob", "find_files")]
-    [InlineData("grep_search", "grep")]
-    [InlineData("list_directory", "list_dir")]
-    [InlineData("run_shell_command", "bash")]
-    [InlineData("web_fetch", "fetch_url")]
-    [InlineData("web_search", "search_web")]
-    [InlineData("read_file", "read_file")]
-    [InlineData("write_file", "write_file")]
-    public void WireNames_TranslateToCanonical(string wire, string canonical)
-    {
-        var (name, _) = _harness.ToCanonical(wire, new Dictionary<string, object?>());
-        Assert.Equal(canonical, name);
-        Assert.Equal(wire, _harness.ToWireName(canonical));
-    }
+    // Dispatch is the adaptation now — there is no translation layer to unit-test, so
+    // these drive the costume's own tool names and argument spellings all the way to a
+    // real file and assert the effect.
 
-    /// <summary>
-    /// The sharpest mismatch in the whole costume, and the one the measured failure sits
-    /// on: a model emitting file_path against nb's schema produces an empty path, which
-    /// presents as the model being stupid rather than as a schema mismatch.
-    /// </summary>
     [Fact]
-    public void FilePath_TranslatesToPath()
+    public async Task Edit_UnpacksFilePathAndAppliesTheChange()
     {
-        var (name, args) = _harness.ToCanonical("edit", new Dictionary<string, object?>
+        var file = Path.Combine(_dir, "sample.txt");
+        await File.WriteAllTextAsync(file, "alpha\nbeta\n");
+
+        // read-before-edit is enforced, so read it the way the costume would.
+        await _harness.InvokeAsync("read_file", "c0", new Dictionary<string, object?> { ["file_path"] = file });
+
+        var outcome = await _harness.InvokeAsync("edit", "c1", new Dictionary<string, object?>
         {
-            ["file_path"] = "/tmp/x.cs",
-            ["old_string"] = "a",
-            ["new_string"] = "b",
+            ["file_path"] = file,
+            ["old_string"] = "beta",
+            ["new_string"] = "gamma",
         });
 
-        Assert.Equal("edit_file", name);
-        Assert.Equal("/tmp/x.cs", args!["path"]);
-        Assert.False(args.ContainsKey("file_path"));
-        Assert.Equal("a", args["old_string"]);
+        Assert.NotNull(outcome);
+        Assert.False(outcome!.Value.IsError);
+        Assert.Equal("alpha\ngamma\n", await File.ReadAllTextAsync(file));
     }
 
     [Fact]
-    public void GrepSearch_RenamesGlobAndLimit()
+    public async Task GrepSearch_UnpacksGlobAndLimit()
     {
-        var (_, args) = _harness.ToCanonical("grep_search", new Dictionary<string, object?>
+        await File.WriteAllTextAsync(Path.Combine(_dir, "a.cs"), "// TODO one\n");
+        await File.WriteAllTextAsync(Path.Combine(_dir, "b.txt"), "// TODO two\n");
+
+        var outcome = await _harness.InvokeAsync("grep_search", "c1", new Dictionary<string, object?>
         {
             ["pattern"] = "TODO",
             ["glob"] = "*.cs",
-            ["limit"] = 20,
+            ["limit"] = 10,
         });
 
-        Assert.Equal("*.cs", args!["file_pattern"]);
-        Assert.Equal(20, args["max_results"]);
-        Assert.Equal("TODO", args["pattern"]);
+        Assert.NotNull(outcome);
+        var text = outcome!.Value.Content.Result?.ToString() ?? "";
+        Assert.Contains("a.cs", text);
+        Assert.DoesNotContain("b.txt", text);
     }
 
-    /// <summary>qwen-code's shell timeout is milliseconds; nb's bash takes seconds.</summary>
+    [Fact]
+    public async Task Glob_UnpacksPattern()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_dir, "x.cs"), "");
+        await File.WriteAllTextAsync(Path.Combine(_dir, "y.md"), "");
+
+        var outcome = await _harness.InvokeAsync("glob", "c1",
+            new Dictionary<string, object?> { ["pattern"] = "*.cs" });
+
+        var text = outcome!.Value.Content.Result?.ToString() ?? "";
+        Assert.Contains("x.cs", text);
+        Assert.DoesNotContain("y.md", text);
+    }
+
+    /// <summary>Arguments nb has no equivalent for are accepted and ignored, not fatal.</summary>
+    [Fact]
+    public async Task UnsupportedArguments_AreIgnored()
+    {
+        var outcome = await _harness.InvokeAsync("list_directory", "c1", new Dictionary<string, object?>
+        {
+            ["path"] = _dir,
+            ["ignore"] = new[] { "*.tmp" },
+            ["file_filtering_options"] = "whatever",
+        });
+
+        Assert.NotNull(outcome);
+        Assert.False(outcome!.Value.IsError);
+    }
+
+    /// <summary>
+    /// nb's own tool names are NOT part of this costume, so dispatching one must decline
+    /// rather than quietly work — otherwise the surface the model sees and the surface it
+    /// can actually reach would differ.
+    /// </summary>
     [Theory]
-    [InlineData(30000, 30)]
-    [InlineData(1500, 2)]
-    [InlineData(100, 1)]   // floors at one second rather than zero
-    public void ShellTimeout_ConvertsMillisecondsToSeconds(int ms, int expectedSeconds)
+    [InlineData("edit_file")]
+    [InlineData("find_files")]
+    [InlineData("list_dir")]
+    [InlineData("bash")]
+    [InlineData("some_mcp_tool")]
+    public async Task NamesOutsideTheCostume_AreDeclined(string name)
     {
-        var (_, args) = _harness.ToCanonical("run_shell_command", new Dictionary<string, object?>
-        {
-            ["command"] = "ls",
-            ["timeout"] = ms,
-        });
-
-        Assert.Equal(expectedSeconds, args!["timeout_seconds"]);
+        Assert.Null(await _harness.InvokeAsync(name, "c1", new Dictionary<string, object?>()));
     }
 
-    /// <summary>Arguments nb has no equivalent for are accepted and dropped, not passed through.</summary>
-    [Fact]
-    public void UnsupportedArguments_AreDropped()
+    [Theory]
+    [InlineData("edit")]
+    [InlineData("glob")]
+    [InlineData("grep_search")]
+    [InlineData("list_directory")]
+    [InlineData("read_file")]
+    [InlineData("write_file")]
+    public async Task EveryAdvertisedName_Dispatches(string name)
     {
-        var (_, args) = _harness.ToCanonical("run_shell_command", new Dictionary<string, object?>
-        {
-            ["command"] = "ls",
-            ["is_background"] = false,
-            ["directory"] = "/elsewhere",
-        });
-
-        Assert.Equal("ls", args!["command"]);
-        Assert.False(args.ContainsKey("is_background"));
-        Assert.False(args.ContainsKey("directory"));
-    }
-
-    /// <summary>MCP and fake tools are not part of a costume and must pass through untouched.</summary>
-    [Fact]
-    public void ForeignToolNames_PassThrough()
-    {
-        var args = new Dictionary<string, object?> { ["file_path"] = "keep me" };
-        var (name, translated) = _harness.ToCanonical("some_mcp_tool", args);
-
-        Assert.Equal("some_mcp_tool", name);
-        Assert.Same(args, translated);
-        Assert.Equal("some_mcp_tool", _harness.ToWireName("some_mcp_tool"));
+        // Empty arguments: the call may well fail, but it must be *handled* (non-null),
+        // which is what proves the advertised name reaches an implementation.
+        Assert.NotNull(await _harness.InvokeAsync(name, "c1", new Dictionary<string, object?>()));
     }
 
     [Fact]

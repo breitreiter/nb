@@ -491,52 +491,42 @@ public class ConversationManager
                                 continue;
                             }
 
-                            // Translate the call out of the harness's vocabulary and into nb's,
-                            // so every dispatch arm below — and approval, TrustSandbox and the
-                            // read-tracker downstream of them — works in canonical identities
-                            // and never learns that costumes exist. Identity for nb's own
-                            // surface. History already holds the model's untranslated call, so
-                            // the transcript records what actually went on the wire.
-                            var (canonicalName, canonicalArgs) = _harness.ToCanonical(wireCall.Name, wireCall.Arguments);
-                            var functionCall = ReferenceEquals(canonicalArgs, wireCall.Arguments) && canonicalName == wireCall.Name
-                                ? wireCall
-                                : new FunctionCallContent(wireCall.CallId, canonicalName, canonicalArgs);
 
                             // Check if this is a native resource tool (always auto-approve, read-only)
-                            if (functionCall.Name.StartsWith("nb_"))
+                            if (wireCall.Name.StartsWith("nb_"))
                             {
                                 // Handle native resource tools - no approval needed
-                                var resourceTool = mcpTools.FirstOrDefault(t => t.Name == functionCall.Name);
+                                var resourceTool = mcpTools.FirstOrDefault(t => t.Name == wireCall.Name);
                                 if (resourceTool != null)
                                 {
                                     var arguments = new AIFunctionArguments();
-                                    if (functionCall.Arguments != null)
+                                    if (wireCall.Arguments != null)
                                     {
-                                        foreach (var kvp in functionCall.Arguments)
+                                        foreach (var kvp in wireCall.Arguments)
                                         {
                                             arguments[kvp.Key] = kvp.Value?.ToString();
                                         }
                                     }
 
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {wireCall.Name}[/]");
                                     try
                                     {
                                         var result = await resourceTool.InvokeAsync(arguments, cancellationToken).AsTask().WaitAsync(McpToolTimeout, cancellationToken);
                                         var resultString = result?.ToString() ?? string.Empty;
-                                        allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
-                                        _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                        allToolResults.Add(ToolOutcome.Ok(wireCall.CallId, resultString));
+                                        _harness.LogToolCall(wireCall.Name, wireCall.Arguments, resultString);
                                     }
                                     catch (TimeoutException)
                                     {
-                                        var errorMsg = $"Error: Tool '{functionCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
-                                        allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
+                                        var errorMsg = $"Error: Tool '{wireCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
+                                        allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, errorMsg));
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                     }
                                 }
                                 else
                                 {
-                                    var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
-                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
+                                    var errorMsg = $"Error: Tool '{wireCall.Name}' not found";
+                                    allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, errorMsg));
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                 }
                             }
@@ -544,57 +534,57 @@ public class ConversationManager
                             // names it advertised and unpacks its own argument spellings.
                             // Null means "not mine" — fake tools and MCP fall through below.
                             else if (await _harness.InvokeAsync(
-                                         functionCall.Name, functionCall.CallId, functionCall.Arguments, cancellationToken)
+                                         wireCall.Name, wireCall.CallId, wireCall.Arguments, cancellationToken)
                                      is { } harnessOutcome)
                             {
                                 allToolResults.Add(harnessOutcome);
                             }
                             // Check if this is a fake tool (always auto-approve)
-                            else if (_fakeToolManager.GetFakeTool(functionCall.Name) is {} fakeTool)
+                            else if (_fakeToolManager.GetFakeTool(wireCall.Name) is {} fakeTool)
                             {
                                 // Fake tools are always auto-approved. Arguments arrive flat:
                                 // the emitted schema declares the parameters directly, so there
                                 // is no longer a nested "parameters" object to unwrap (there was,
                                 // while fake tools registered as IDictionary and advertised one
                                 // opaque property — see FakeToolManager.BuildSchema).
-                                var displayArgs = functionCall.Arguments;
+                                var displayArgs = wireCall.Arguments;
                                 var argumentsJson = JsonSerializer.Serialize(displayArgs, new JsonSerializerOptions { WriteIndented = false });
 
                                 var expandedResponse = _fakeToolManager.ExpandMacros(fakeTool.Response, displayArgs);
 
-                                AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {functionCall.Name}[/]");
+                                AnsiConsole.MarkupLine($"[{UIColors.SpectreFakeTool}]🎭 Fake tool invoked: {wireCall.Name}[/]");
                                 if (!_verbose)
                                 {
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   Parameters: {Markup.Escape(argumentsJson)}[/]");
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]   → {Markup.Escape(expandedResponse)}[/]");
                                 }
 
-                                allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, expandedResponse));
-                                _harness.LogToolCall(functionCall.Name, functionCall.Arguments, expandedResponse);
+                                allToolResults.Add(ToolOutcome.Ok(wireCall.CallId, expandedResponse));
+                                _harness.LogToolCall(wireCall.Name, wireCall.Arguments, expandedResponse);
                             }
                             else
                             {
                                 // Handle MCP tools - check approval
-                                var mcpTool = mcpTools.FirstOrDefault(t => t.Name == functionCall.Name);
+                                var mcpTool = mcpTools.FirstOrDefault(t => t.Name == wireCall.Name);
                                 if (mcpTool != null)
                                 {
                                     // Check the approval policy (alwaysAllow / Approval.McpTools) for this tool
-                                    var mcpDecision = _harness.ApprovalPolicy.DecideMcp(functionCall.Name);
+                                    var mcpDecision = _harness.ApprovalPolicy.DecideMcp(wireCall.Name);
                                     bool approved = mcpDecision == ApprovalDecision.Allow;
 
                                     if (!approved && (NbHarness.NonInteractive || mcpDecision == ApprovalDecision.Deny))
                                     {
                                         // No terminal to prompt at, or the policy default is deny: refuse without a prompt.
-                                        Console.Error.WriteLine($"[nb] denied: MCP tool '{functionCall.Name}' needs approval, but it is not allow-listed and {(NbHarness.NonInteractive ? "stdin is not a TTY" : "the approval policy default is deny")}.");
+                                        Console.Error.WriteLine($"[nb] denied: MCP tool '{wireCall.Name}' needs approval, but it is not allow-listed and {(NbHarness.NonInteractive ? "stdin is not a TTY" : "the approval policy default is deny")}.");
                                     }
                                     else if (!approved)
                                     {
                                         // Show tool call details and request approval
-                                        var argumentsJson = JsonSerializer.Serialize(functionCall.Arguments, new JsonSerializerOptions { WriteIndented = true });
+                                        var argumentsJson = JsonSerializer.Serialize(wireCall.Arguments, new JsonSerializerOptions { WriteIndented = true });
 
                                         while (true)
                                         {
-                                            AnsiConsole.MarkupLine($"[{UIColors.SpectreUserPrompt}]Allow tool call: {functionCall.Name}? (Y/n/?)[/]");
+                                            AnsiConsole.MarkupLine($"[{UIColors.SpectreUserPrompt}]Allow tool call: {wireCall.Name}? (Y/n/?)[/]");
                                             var key = Console.ReadKey().KeyChar;
 
                                             if (key == 'n')
@@ -631,43 +621,43 @@ public class ConversationManager
                                             ? "Error: User rejected this tool call. Permission denied. Do not retry this action."
                                             : $"Error: User rejected this tool call. Reason: {reason}. Please consider an alternative approach based on the user's feedback.";
 
-                                        allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, rejectionMessage));
+                                        allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, rejectionMessage));
 
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool call rejected, notifying model[/]");
-                                        _harness.LogToolCall(functionCall.Name, functionCall.Arguments, rejectionMessage);
+                                        _harness.LogToolCall(wireCall.Name, wireCall.Arguments, rejectionMessage);
                                         _toolCallCount++;
                                         continue; // Skip to next tool call
                                     }
 
                                     // Execute approved MCP tool
                                     var arguments = new AIFunctionArguments();
-                                    if (functionCall.Arguments != null)
+                                    if (wireCall.Arguments != null)
                                     {
-                                        foreach (var kvp in functionCall.Arguments)
+                                        foreach (var kvp in wireCall.Arguments)
                                         {
                                             arguments[kvp.Key] = kvp.Value?.ToString();
                                         }
                                     }
 
-                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {functionCall.Name}[/]");
+                                    AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• calling {wireCall.Name}[/]");
                                     try
                                     {
                                         var result = await mcpTool.InvokeAsync(arguments, cancellationToken).AsTask().WaitAsync(McpToolTimeout, cancellationToken);
                                         var resultString = result?.ToString() ?? string.Empty;
-                                        allToolResults.Add(ToolOutcome.Ok(functionCall.CallId, resultString));
-                                        _harness.LogToolCall(functionCall.Name, functionCall.Arguments, resultString);
+                                        allToolResults.Add(ToolOutcome.Ok(wireCall.CallId, resultString));
+                                        _harness.LogToolCall(wireCall.Name, wireCall.Arguments, resultString);
                                     }
                                     catch (TimeoutException)
                                     {
-                                        var errorMsg = $"Error: Tool '{functionCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
-                                        allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
+                                        var errorMsg = $"Error: Tool '{wireCall.Name}' timed out after {McpToolTimeout.TotalSeconds}s";
+                                        allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, errorMsg));
                                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                     }
                                 }
                                 else
                                 {
-                                    var errorMsg = $"Error: Tool '{functionCall.Name}' not found";
-                                    allToolResults.Add(ToolOutcome.Fail(functionCall.CallId, errorMsg));
+                                    var errorMsg = $"Error: Tool '{wireCall.Name}' not found";
+                                    allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, errorMsg));
                                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]{errorMsg}[/]");
                                 }
                             }
