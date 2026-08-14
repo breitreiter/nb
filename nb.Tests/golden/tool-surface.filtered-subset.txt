@@ -1,0 +1,131 @@
+=== read_file
+--- description
+Read file contents with line numbers.
+Paths are relative to: <CWD>
+
+Supports text (with offset/limit pagination), PDF (text extraction), and images (.jpg/.jpeg/.png, returned as base64 for vision).
+
+Parameters:
+- path: File path (absolute or relative to working directory)
+- offset: 1-based line number to start from (default: 1, text only)
+- limit: Max lines to return (default: 2000, text only)
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "offset": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "limit": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "path",
+    "offset",
+    "limit"
+  ]
+}
+
+=== edit_file
+--- description
+Targeted string replacement in an existing file.
+Paths are relative to: <CWD>
+
+Parameters:
+- path: File path (absolute or relative to working directory)
+- old_string: Exact text to find (must match including whitespace and indentation)
+- new_string: Replacement text
+- replace_all: Replace all occurrences (default: false)
+
+Fails if old_string is not found. Fails if old_string is not unique when replace_all is false — add more surrounding context to make it unique.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "old_string": {
+      "type": "string"
+    },
+    "new_string": {
+      "type": "string"
+    },
+    "replace_all": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "path",
+    "old_string",
+    "new_string",
+    "replace_all"
+  ]
+}
+
+=== grep
+--- description
+Search file contents using regex.
+Searches from: <CWD>
+
+Parameters:
+- pattern: Regular expression to search for
+- path: Directory or file to search (absolute or relative to working directory). Empty string for working directory.
+- file_pattern: Glob filter for files to search (e.g. "*.cs", "*.ts"). Empty string for all files.
+- case_insensitive: If true, perform case-insensitive search (default: false)
+- max_results: Maximum number of results to return (default: 100)
+- output_mode: "content" (default) returns matching lines as "file:line: content". "files_with_matches" returns only file paths that contain matches.
+
+Automatically skips binary files and common non-source directories.
+--- schema
+{
+  "type": "object",
+  "properties": {
+    "pattern": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "file_pattern": {
+      "type": "string"
+    },
+    "case_insensitive": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "max_results": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "output_mode": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "pattern",
+    "path",
+    "file_pattern",
+    "case_insensitive",
+    "max_results",
+    "output_mode"
+  ]
+}
+
