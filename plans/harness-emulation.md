@@ -510,8 +510,19 @@ now:
    `UPDATE_GOLDEN=1 dotnet test`.
 
 1. Extract `NbHarness` from `ConversationManager`'s assembly block; no behaviour change.
-   Collapse `GetAvailableTools()` into it. Verified by the step 0 golden master being
-   byte-identical, not by the suite being green.
+   Verified by the step 0 golden master being byte-identical, not by the suite being green.
+
+   **Done** — `nb.Core/Harness/NbHarness.cs`. The constructor lost ten positional tool
+   parameters for one harness; dispatch arms keep concrete tool fields, mirrored out of
+   the harness at construction, so canonicalisation can revisit them later without
+   inflating this diff.
+
+   `GetAvailableTools()` was **deleted, not collapsed**. It had no callers (the `/tools`
+   command it served went with `CommandProcessor`) and had already drifted from the
+   assembly it claimed to mirror — it ignored the tool surface for every native tool
+   except todo, skipped `search_web`, and listed MCP tools unfiltered by server.
+   `ToolDescriptor` existed only to feed it and went too. Anything needing that view
+   should be rebuilt from `NbHarness.CreateTools`, which cannot drift by construction.
 2. Fake-tool schema fix.
 3. `harness` directive + transcript field; `NbHarness` remains the only value. Restate
    §5.5 and the §6 invariant in `docs/conversation-program-cli.md` at this step, while
