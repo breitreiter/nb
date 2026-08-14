@@ -129,12 +129,10 @@ Three replicates per arm.
 | mean input tokens | 39,769 | 54,375 |
 | task correct | 3/3 | 3/3 |
 
-**Tool selection moves, consistently.** Under nb's surface, two of three runs
-abandoned editing entirely and rewrote all three files wholesale. Under the costume,
-every run edited and `write_file` was never called once. This is not an artefact of
-removing the option: `write_file` keeps its name in qwen-code and is advertised in
-both arms, so the model had the same choice and made a different one. That is the
-original report's hypothesis reproducing.
+**Tool selection appeared to move**: under nb's surface two of three runs abandoned
+editing and rewrote all three files wholesale, while every costume run edited and
+`write_file` was never called. **This did not replicate — see the correction below
+before relying on any of it.**
 
 **Tokens and turns do not support the costume**, which is consistent with the
 correction above and worth restating: the costume averaged *more* input and more
@@ -160,3 +158,41 @@ The "tool naming profile" suggested above is now `plans/harness-emulation.md` �
 harnesses as C# classes deriving from `NbHarness`, selected per program. The
 qwen-code costume there subsumes this report's suggested fix, and the fixture and
 numbers above are the measurement that validates it.
+
+## Replication attempt, 2026-08-14 — the effect did not hold
+
+The same six runs again, after the harness capability refactor, on the same fixture,
+model and programs.
+
+| | session 1 | session 2 |
+| --- | --- | --- |
+| baseline, runs preferring edits | 1/3 | 1/3 |
+| costume, runs preferring edits | 3/3 | 1/3 |
+
+Pooled: **baseline 2/6, costume 4/6** — Fisher exact two-tailed p ≈ 0.57. That is no
+effect at this sample size. The baseline behaved identically across both sessions; the
+costume's 3/3 was a streak.
+
+**Not a regression.** Zero tool errors across all six runs; the costume's `edit` works
+(one run made eight successful edits) and its `write_file` works. Both arms finished
+3/3 correct. The advertised surface is pinned byte-for-byte by
+`nb.Tests/ToolSurfaceGoldenTests.cs` and is unchanged. The model simply chose
+differently.
+
+**The fixture cannot discriminate, and that is the real lesson.** The section above
+already noted it could not test the *completion* claim, because at 12 lines a
+whole-file rewrite is a perfectly good strategy. The same fact defeats the
+tool-selection measurement: rewriting is not merely acceptable here, it is the
+*cheapest* path (those runs finish in 18–23k tokens against 73–75k for the edit-heavy
+ones). When both strategies succeed and the wrong-looking one is cheaper, which the
+model picks is close to a coin flip, and three runs cannot see through that.
+
+**What would actually test this.** Files of a few hundred lines, where a whole-file
+rewrite risks truncating mid-write — the condition that produced the original
+411,938-token abort. Plus enough replicates to see a rate difference rather than a
+streak: at a plausible effect size, single-digit runs per arm are not enough.
+
+**Standing conclusion.** The costume is verified to *work* — correct dispatch, correct
+surface, task completed — but there is **no measured evidence yet that it changes model
+behaviour**. The only demonstrated intervention on this bug remains the one-sentence
+`system` steer from 2026-08-12.
