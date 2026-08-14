@@ -9,6 +9,7 @@ namespace nb.Tests;
 // providers/ — so it points NbOptions.ProvidersDirectory at nb's built providers
 // dir, which is exactly the Phase 6b library-host loading contract. One class so
 // the global AnsiConsole/Console swaps inside Nb.RunAsync never race across tests.
+[Collection(ConsoleBoundCollection.Name)]
 public class NbFacadeTests
 {
     private static IConfiguration MockConfig(string activeProvider = "Mock", string response = "OK")

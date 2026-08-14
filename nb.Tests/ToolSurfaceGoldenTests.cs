@@ -27,6 +27,7 @@ namespace nb.Tests;
 /// To re-baseline after an intentional change: <c>UPDATE_GOLDEN=1 dotnet test</c>, then
 /// read the diff before committing it.
 /// </summary>
+[Collection(ConsoleBoundCollection.Name)]
 public class ToolSurfaceGoldenTests : IDisposable
 {
     private readonly string _testDir;

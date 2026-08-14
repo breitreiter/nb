@@ -6,6 +6,7 @@ namespace nb.Tests;
 // The classifier is the whole load-bearing guess: nb.Core can't reference any
 // provider SDK, so a throttling rejection has to be recognized from a status it
 // may not carry and prose it may not phrase consistently.
+[Collection(ConsoleBoundCollection.Name)]
 public class RateLimitClassifierTests
 {
     private static bool IsRateLimit(Exception ex, out TimeSpan? retryAfter)
