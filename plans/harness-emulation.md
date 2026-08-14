@@ -534,6 +534,13 @@ now:
    §5.5 and the §6 invariant in `docs/conversation-program-cli.md` at this step, while
    the restatement is still a no-op — the bare default is unchanged, so the wording
    lands before any costume can be accused of having quietly moved it.
+
+   **Done** — `HarnessEvent`, `HarnessRegistry`, `ProgramEvaluator.Harness`,
+   `RunResult.Harness`, `ResultEvent.Harness`. An unknown name is a **parse error with a
+   line number**, breaking from the evaluator's warn-and-ignore treatment of unknown
+   approval keys: an ignored approval key degrades safely, a silently-ignored costume
+   invalidates the run's meaning. Docs updated at §5.1, §5.5, §6 and §10. Covered by
+   `nb.Tests/HarnessDirectiveTests.cs`.
 4. `QwenCodeHarness` — first because it has a measured failure to test against *and* an
    Apache-2.0 prompt to vendor, so the surface half can be evaluated against a
    known-good prompt half rather than against two unknowns at once.
