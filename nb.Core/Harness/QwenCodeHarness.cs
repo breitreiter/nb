@@ -31,25 +31,44 @@ public sealed class QwenCodeHarness : NbHarness
 
     public override string Name => HarnessName;
 
+    /// <summary>
+    /// nb-authored prose occupying the same channel as qwen-code's system prompt. Read
+    /// once per process — a preamble is a data file, but it is not expected to change
+    /// under a running program.
+    /// </summary>
+    public override string? Preamble => _preamble;
+
+    private static readonly string? _preamble = LoadPreamble("qwen-code.md");
+
     public override IReadOnlyList<string> Omissions
     {
         get
         {
+            var omissions = new List<string>();
+
             // A configuration conflict, not a fidelity gap: report it alongside the
             // omissions so it reaches the operator through the same channel.
             if (ApplyPatch != null)
-                return _omissions.Prepend(
+                omissions.Add(
                     "CONFLICT: this provider entry sets EditToolStyle: ApplyPatch, which built apply_patch "
                     + "instead of write_file + edit_file. qwen-code has no apply_patch, so this costume is "
-                    + "advertising no edit tool at all. Remove EditToolStyle from the provider entry.").ToArray();
-            return _omissions;
+                    + "advertising no edit tool at all. Remove EditToolStyle from the provider entry.");
+
+            // The preamble is a deployed data file, so its absence is a real runtime
+            // state and not a hypothetical. Say which one is true rather than claiming a
+            // prompt that may not have loaded.
+            omissions.Add(_preamble is null
+                ? "system prompt: MISSING — prompts/harness/qwen-code.md did not load, so this run is tool-surface-only."
+                : "system prompt: an nb-authored facsimile, not qwen-code's text. It occupies the same channel (role, conventions-first mandates, plan/implement/verify workflow, terse CLI output contract, the edit-over-rewrite steer) in original prose. Wording differences from the real prompt are unmeasured.");
+
+            omissions.AddRange(_omissions);
+            return omissions;
         }
     }
 
     private static readonly string[] _omissions = new[]
     {
-        "system prompt: not yet vendored — qwen-code's prompt is Apache-2.0 and can be used verbatim, but lives in a 76KB TypeScript file with conditional interpolation. This costume is currently tool-surface-only.",
-        "tool descriptions: nb's own prose, with corrected parameter names. qwen-code's descriptions are vendorable and not yet vendored.",
+        "tool descriptions: nb's own prose, with corrected parameter names. qwen-code's descriptions are Apache-2.0 and vendorable, and are not vendored.",
         "run_shell_command: is_background and directory are accepted and ignored — nb's bash runs foreground in the shell cwd. timeout is converted from qwen's milliseconds to nb's seconds.",
         "web_fetch: qwen-code runs a model over the fetched page and answers the prompt; nb's fetch_url returns the content. The prompt and format arguments are accepted and ignored.",
         "list_directory: ignore and file_filtering_options are not offered.",

@@ -118,9 +118,25 @@ public sealed class ProgramEvaluator
         var harness = HarnessRegistry.Create(name, _baseHarness);
         _conversation.SetHarness(harness);
 
+        // A named harness brings its prompt — no second directive. It materialises as an
+        // ordinary system message rather than a special engine-held slot, so it round-trips
+        // through the transcript and a --seed replay reproduces the run even if the costume
+        // has been edited since (plans/harness-emulation.md, "The preamble arrives with the
+        // costume"). It goes to the FRONT of the pending turns: the costume speaks first and
+        // the program's own system directives get the last word, which is how these harnesses
+        // layer project context onto their own prompts anyway.
+        if (harness.Preamble is { Length: > 0 } preamble)
+            _turnBuffer.Insert(0, new SystemEvent { Turn = FirstPendingTurn(), Text = preamble });
+
         foreach (var omission in harness.Omissions)
             _warnings.Add($"harness '{harness.Name}' does not reproduce — {omission}");
     }
+
+    // Turn numbers must be non-decreasing within a flush batch, so a preamble joining the
+    // front of the buffer takes the turn already at the front rather than assuming zero —
+    // a harness named after the first run would otherwise flush an out-of-order batch.
+    private int FirstPendingTurn() =>
+        _turnBuffer.OfType<MessageEvent>().Select(e => e.Turn ?? 0).DefaultIfEmpty(0).Min();
 
     // Batch buffered turns into history via the same loader a seed uses, so a
     // turn's assistant text + tool calls become one assistant message and its

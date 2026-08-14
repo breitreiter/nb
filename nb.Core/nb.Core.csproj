@@ -30,4 +30,14 @@
     <EmbeddedResource Include="Resources\robot-logo.bmp" />
   </ItemGroup>
 
+  <!-- Harness preambles are data, not string literals (rules/model-policy-in-prompt-layers.md
+       clause 2), and they live with the engine rather than with the CLI so a library host
+       calling Nb.RunAsync gets them too. Content flows to every referencing project's
+       output directory, which is also how nb.Tests sees them. -->
+  <ItemGroup>
+    <Content Include="prompts\harness\*.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

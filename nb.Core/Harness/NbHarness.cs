@@ -93,6 +93,50 @@ public class NbHarness
     /// </summary>
     public virtual IReadOnlyList<string> Omissions => Array.Empty<string>();
 
+    /// <summary>
+    /// The system-prompt fragment this costume contributes, ahead of the program's own
+    /// <c>system</c> directives. Null for nb's own surface: a program that names no
+    /// harness gets exactly the system text it writes, as §5.5 promises.
+    ///
+    /// Opting into a costume opts into the whole costume — there is no second directive
+    /// to remember, because telling a user "of course it didn't work, you never
+    /// *explicitly* asked for the prompt" would be a failure of the tool. The evaluator
+    /// materialises this into history as an ordinary system message, so it lands in the
+    /// transcript and a <c>--seed</c> replay reproduces the run even if the costume has
+    /// been edited since.
+    /// </summary>
+    public virtual string? Preamble => null;
+
+    /// <summary>
+    /// Load a preamble from <c>prompts/harness/</c> beside the executable — data, not a
+    /// C# string literal, so it can be revised without a rebuild and reviewed as prose.
+    /// Missing or unreadable resolves to null rather than throwing: the costume still
+    /// works as a tool surface, and its omission list is what says the prompt is absent.
+    /// </summary>
+    protected static string? LoadPreamble(string fileName)
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "prompts", "harness", fileName);
+            if (!File.Exists(path)) return null;
+            var text = StripLeadingComment(File.ReadAllText(path)).Trim();
+            return text.Length == 0 ? null : text;
+        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
+
+    // A preamble file opens with an HTML comment carrying its provenance — where the
+    // text came from, what it deliberately is not, what that costs. That is for whoever
+    // reviews the file, not for the model, so it does not go on the wire.
+    private static string StripLeadingComment(string text)
+    {
+        var trimmed = text.TrimStart();
+        if (!trimmed.StartsWith("<!--", StringComparison.Ordinal)) return text;
+        var end = trimmed.IndexOf("-->", StringComparison.Ordinal);
+        return end < 0 ? text : trimmed[(end + 3)..];
+    }
+
 
     // ---- Execution state -------------------------------------------------------
     // The capabilities below run tools, which means they own approval, the

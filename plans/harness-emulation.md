@@ -385,12 +385,20 @@ hard half, and the difficulty turns out to be **per-costume, not uniform**.
 - **qwen-code is Apache-2.0**, being a fork of Gemini CLI (also Apache-2.0).
 - **openai/codex is Apache-2.0.**
 
-Their prompts can be vendored verbatim with attribution. Apache-2.0 material inside an
+Their prompts *may* be vendored verbatim with attribution. Apache-2.0 material inside an
 MIT project is routine: retain the licence header on the file, note any modifications,
 and carry a third-party-licences entry. The project as a whole stays MIT; those files
 carry their own terms. This composes exactly with the decision that preambles are
 markdown data files — a vendored file with a licence header in a prompts directory *is*
 that shape.
+
+**Being permitted to vendor is not a reason to.** qwen-code, done first, settled this in
+practice (step 5): its prompt is not a file but a 76KB TypeScript module assembling text
+by conditional interpolation, so vendoring would mean freezing one rendered variant and
+presenting it as the source. An authored facsimile was smaller, honest about its own
+provenance, and free of a licence obligation. Check the shape of the upstream prompt
+before assuming the licence decides the question — for Codex it may well come out the
+other way.
 
 Cursor and Claude Code are closed. Those two are paraphrase-only, written from published
 vendor documentation and observed behaviour.
@@ -596,10 +604,34 @@ now:
    raw indexer, which throws on a missing key. Pre-existing, rarely fired because nb's
    own schema marks them required, exposed the moment a costume declared `description`
    optional. Fixed here.
-5. Vendor qwen-code's Apache-2.0 prompt, closing the largest declared omission on the
-   costume that already exists. This also builds the preamble mechanism — a licensed
-   markdown file, attribution, and injection into history as a `system` message — that
-   every later costume reuses. Finishing one costume beats starting a second.
+5. Close the qwen-code costume's largest declared omission — its missing prompt — and
+   build the preamble mechanism that every later costume reuses.
+
+   **Done** — `NbHarness.Preamble` + `LoadPreamble`, a `Content` file at
+   `nb.Core/prompts/harness/qwen-code.md`, and injection in `ProgramEvaluator.ApplyHarness`
+   as an ordinary `SystemEvent` at the front of the pending turns. Covered by
+   `nb.Tests/HarnessPreambleTests.cs`, which asserts off a recording `IChatClient` — what
+   went on the wire, not what the evaluator thinks it buffered.
+
+   **Authored facsimile, not vendored** — a change from what this step originally said,
+   and the reasoning is worth keeping. qwen-code's prompt is Apache-2.0 and could be
+   copied verbatim with attribution, but it is not a file: it is a 76KB TypeScript module
+   that assembles text by conditional interpolation (sandbox on/off, git repo or not,
+   tool names spliced in). "Vendor the prompt" would mean choosing one rendered variant
+   and shipping it as though it were the source. An nb-authored facsimile occupying the
+   same channel — role, conventions-first mandates, plan/implement/verify workflow, terse
+   CLI output contract, the edit-over-rewrite steer — is smaller, stays a data file
+   rather than a template engine, and carries no third-party licence obligation into an
+   MIT repo. The cost is that wording differences from the real prompt are unmeasured,
+   which is now what the costume's `system prompt:` omission says.
+
+   The preamble lives in `nb.Core`, not beside the CLI's `prompts/system*.md`, so a
+   library host calling `Nb.RunAsync` gets it too.
+
+   Found while testing: two concurrent `RunAsync` calls in one process collide on
+   Spectre's global `AnsiConsole`, and the loser returns having never called the model.
+   Filed as `bugs/Concurrent_Runs_Collide_On_The_Global_Console.md`; worked around in the
+   tests by an xunit collection.
 6. `CodexHarness` (also Apache-2.0, also vendorable), then `ClaudeCode`, then `Cursor`.
    Ordering is by prompt licence and surface-research cost. Building a control rig is
    optional at any point and gates nothing.
