@@ -104,3 +104,10 @@ grounds.
 Also worth noting: if a one-line `system` steer recovers most of the benefit,
 that may be the right shipping order — document the steer now, land toolsets when
 the interface change is affordable.
+
+## Where the fix lives, 2026-08-14
+
+The "tool naming profile" suggested above is now `plans/harness-emulation.md` —
+harnesses as C# classes deriving from `NbHarness`, selected per program. The
+qwen-code costume there subsumes this report's suggested fix, and the fixture and
+numbers above are the measurement that validates it.

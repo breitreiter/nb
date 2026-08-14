@@ -2,9 +2,10 @@
 kind: plan
 title: Tool dialects — matching a model's trained tool surface
 created: 2026-08-11
-updated: 2026-08-11
-status: current
-state: draft
+updated: 2026-08-14
+status: superseded
+state: shelved
+superseded-by: plans/harness-emulation.md
 touches:
   files:
     - ConversationManager.cs
@@ -19,6 +20,13 @@ provenance:
 ---
 
 # Tool dialects — matching a model's trained tool surface
+
+> **Superseded 2026-08-14 by `plans/harness-emulation.md`.** The rename-table mechanism
+> here cannot express the structurally different schemas (`MultiEdit`, enum-valued
+> `output_mode`) or the result formatting that harness emulation needs, and the
+> selection axis is wrong — the choice belongs to the experiment, not the provider
+> entry. `QwenCodeHarness` covers this plan's committed scope. Kept for the qwen-code
+> mapping table below, which is still accurate and feeds that costume directly.
 
 ## Context
 
