@@ -159,7 +159,8 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 **On `harness`.** It is a program directive rather than provider config because the
 experiment worth running is *one model across two harnesses*, and that has to be
 expressible as two files in a directory rather than as an edit to global config between
-runs. A named harness brings its whole costume, prompt preamble included — see §5.5.
+runs. A named harness brings its whole costume — prompt preamble and the project instruction
+files its target reads, such as `AGENTS.md` under `codex` — see §5.5.
 Runs that wear a non-default harness record it on the `result` trailer as `harness`
 (omitted for the default). A costume also reports what it knowingly does not reproduce,
 as run warnings, so a surprising result arrives with a suspect list attached. Further
@@ -245,9 +246,19 @@ history at the next `run`.
 Opting into a named harness opts into the whole costume — the preamble is not a separate
 opt-in, because a program that asks to imitate another agent and is then told it should
 *also* have requested the prompt has been failed by the tool. The bare default is
-unchanged: name no harness and nothing is injected. A preamble that does arrive is
-materialised into the transcript as an ordinary `system` message, so everything the model
-was sent is on the wire record and a `--seed` replay reproduces it exactly.
+unchanged: name no harness and nothing is injected.
+
+A costume also brings the **project instruction files its target reads** — `AGENTS.md`
+for `codex` — collected from the repo root down to the working directory and wrapped as
+that harness wraps them. This is the one thing a program does not fully determine: the
+same program run in two directories sends different text, because that is exactly what
+the harness being imitated does. Named-harness runs are therefore reproducible from the
+transcript, not from the program alone.
+
+Everything injected — preamble first, then project instructions, then the program's own
+`system` directives — is materialised into the transcript as ordinary `system` messages,
+so everything the model was sent is on the wire record and a `--seed` replay reproduces
+it exactly, even if the costume or the project's instruction file has changed since.
 
 ### 5.6 `run` — the sole invocation
 

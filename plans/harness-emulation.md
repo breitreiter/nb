@@ -671,6 +671,25 @@ now:
      `apply_patch`, which the runtime only built when a provider entry asked for it, so
      the costume would have been inert by default — exactly what the composable-CLI
      reorientation exists to prevent.
+   - **AGENTS.md, the first context-furniture channel.** Item 4 of *What a harness owns*
+     is now real for one costume: `NbHarness.ProjectInstructions()` is a virtual the
+     evaluator injects right after the preamble, and `CodexHarness` fills it by walking
+     the project root down to the cwd for `AGENTS.override.md` / `AGENTS.md`, bounded at
+     Codex's own 32 KiB, wrapped in Codex's own `# AGENTS.md instructions for <dir>` +
+     `<INSTRUCTIONS>` block (verified against `codex-rs/core/src/agents_md.rs` and
+     `context/user_instructions.rs`). Discovery is shared on the base class, so the
+     CLAUDE.md and QWEN.md channels are a filename and a wrapper away.
+
+     One consequence to state plainly, because it is a genuine loosening: **a named
+     harness makes a program directory-dependent.** The same program run in two
+     repositories now sends different text. That is what the imitated harness does, so
+     it is right, and the transcript still records everything that went on the wire — but
+     "predict the run from the program text" now means *program plus cwd* under a
+     costume. §5.5 is restated accordingly.
+
+     The one deliberate infidelity: Codex sends this as a user-role fragment and nb sends
+     a system message, because consecutive user messages are not portable across
+     providers. The wrapper carries the framing either way. Declared.
    - **Read-before-edit is unsatisfiable without a read tool.** nb refuses an edit to a
      file it never saw read; under this costume the model reads through the shell, which
      `FileReadTracker` cannot observe, so every patch would have been refused. The

@@ -118,15 +118,23 @@ public sealed class ProgramEvaluator
         var harness = HarnessRegistry.Create(name, _baseHarness);
         _conversation.SetHarness(harness);
 
-        // A named harness brings its prompt — no second directive. It materialises as an
-        // ordinary system message rather than a special engine-held slot, so it round-trips
-        // through the transcript and a --seed replay reproduces the run even if the costume
-        // has been edited since (plans/harness-emulation.md, "The preamble arrives with the
-        // costume"). It goes to the FRONT of the pending turns: the costume speaks first and
-        // the program's own system directives get the last word, which is how these harnesses
-        // layer project context onto their own prompts anyway.
-        if (harness.Preamble is { Length: > 0 } preamble)
-            _turnBuffer.Insert(0, new SystemEvent { Turn = FirstPendingTurn(), Text = preamble });
+        // A named harness brings its prompt and its context furniture — no second
+        // directive for either. Both materialise as ordinary system messages rather than
+        // special engine-held slots, so they round-trip through the transcript and a
+        // --seed replay reproduces the run even if the costume, or the project's own
+        // instruction file, has been edited since (plans/harness-emulation.md, "The
+        // preamble arrives with the costume"). They go to the FRONT of the pending turns:
+        // the costume speaks first and the program's own system directives get the last
+        // word, which is how these harnesses layer project context onto their own prompts
+        // anyway. Preamble before project instructions, matching the real harnesses —
+        // the prompt explains what AGENTS.md is before the model is handed one.
+        var leading = new[] { harness.Preamble, harness.ProjectInstructions() }
+            .Where(t => !string.IsNullOrEmpty(t))
+            .ToList();
+
+        var turn = FirstPendingTurn();
+        for (var i = 0; i < leading.Count; i++)
+            _turnBuffer.Insert(i, new SystemEvent { Turn = turn, Text = leading[i]! });
 
         foreach (var omission in harness.Omissions)
             _warnings.Add($"harness '{harness.Name}' does not reproduce — {omission}");

@@ -110,6 +110,109 @@ public class CodexHarnessTests : IDisposable
         Assert.Contains(omissions, o => o.StartsWith("AGENTS.md:"));
     }
 
+    // ---- AGENTS.md, the context-furniture channel ----
+
+    [Fact]
+    public void ProjectInstructions_AreNullWhenThereIsNoAgentsFile()
+    {
+        Assert.Null(_harness.ProjectInstructions());
+    }
+
+    /// <summary>nb's own surface fills no context channel — §5.5, unchanged.</summary>
+    [Fact]
+    public void NbsOwnSurface_ReadsNoProjectFile()
+    {
+        File.WriteAllText(Path.Combine(_dir, "AGENTS.md"), "Never send this.");
+
+        Assert.Null(new NbHarness(new BashTool(_env, defaultTimeoutSeconds: 120)).ProjectInstructions());
+    }
+
+    /// <summary>
+    /// The wrapper is the channel. Codex heads the block with the directory and fences the
+    /// contents in &lt;INSTRUCTIONS&gt;, which is what marks them as workspace instructions
+    /// rather than part of the task.
+    /// </summary>
+    [Fact]
+    public void ProjectInstructions_UseCodexsWrapper()
+    {
+        File.WriteAllText(Path.Combine(_dir, "AGENTS.md"), "Use tabs, not spaces.");
+
+        var instructions = _harness.ProjectInstructions();
+
+        Assert.Equal(
+            $"# AGENTS.md instructions for {_dir}\n\n<INSTRUCTIONS>\nUse tabs, not spaces.\n</INSTRUCTIONS>",
+            instructions);
+    }
+
+    /// <summary>
+    /// Root first, cwd last, so the deeper file's instructions land last and win — which
+    /// is the precedence Codex's own prompt promises for nested AGENTS.md files.
+    /// </summary>
+    [Fact]
+    public void ProjectInstructions_WalkTheRepoRootDownToTheCwd()
+    {
+        Directory.CreateDirectory(Path.Combine(_dir, ".git"));
+        var nested = Path.Combine(_dir, "src", "web");
+        Directory.CreateDirectory(nested);
+
+        File.WriteAllText(Path.Combine(_dir, "AGENTS.md"), "ROOT RULE");
+        File.WriteAllText(Path.Combine(_dir, "src", "AGENTS.md"), "SRC RULE");
+        File.WriteAllText(Path.Combine(nested, "AGENTS.md"), "WEB RULE");
+        _env.SetCwd(nested);
+
+        var instructions = _harness.ProjectInstructions()!;
+
+        Assert.Contains("ROOT RULE\n\nSRC RULE\n\nWEB RULE", instructions);
+    }
+
+    /// <summary>The walk stops at the project root — a doc above it is out of scope.</summary>
+    [Fact]
+    public void ProjectInstructions_DoNotClimbPastTheProjectRoot()
+    {
+        var root = Path.Combine(_dir, "repo");
+        Directory.CreateDirectory(Path.Combine(root, ".git"));
+        File.WriteAllText(Path.Combine(_dir, "AGENTS.md"), "OUTSIDE THE REPO");
+        File.WriteAllText(Path.Combine(root, "AGENTS.md"), "INSIDE THE REPO");
+        _env.SetCwd(root);
+
+        var instructions = _harness.ProjectInstructions()!;
+
+        Assert.Contains("INSIDE THE REPO", instructions);
+        Assert.DoesNotContain("OUTSIDE THE REPO", instructions);
+    }
+
+    [Fact]
+    public void ProjectInstructions_PreferAnOverrideFile()
+    {
+        File.WriteAllText(Path.Combine(_dir, "AGENTS.md"), "COMMITTED");
+        File.WriteAllText(Path.Combine(_dir, "AGENTS.override.md"), "LOCAL");
+
+        var instructions = _harness.ProjectInstructions()!;
+
+        Assert.Contains("LOCAL", instructions);
+        Assert.DoesNotContain("COMMITTED", instructions);
+    }
+
+    /// <summary>
+    /// A large docs tree must not eat the context window. Codex bounds the total at 32 KiB
+    /// and truncates the file that crosses it; so does this.
+    /// </summary>
+    [Fact]
+    public void ProjectInstructions_AreBoundedInTotalSize()
+    {
+        Directory.CreateDirectory(Path.Combine(_dir, ".git"));
+        var nested = Path.Combine(_dir, "deep");
+        Directory.CreateDirectory(nested);
+        File.WriteAllText(Path.Combine(_dir, "AGENTS.md"), new string('r', 40 * 1024));
+        File.WriteAllText(Path.Combine(nested, "AGENTS.md"), "NEVER REACHED");
+        _env.SetCwd(nested);
+
+        var instructions = _harness.ProjectInstructions()!;
+
+        Assert.True(instructions.Length < 34 * 1024, $"instructions were {instructions.Length} chars");
+        Assert.DoesNotContain("NEVER REACHED", instructions);
+    }
+
     // ---- dispatch ----
 
     [Fact]

@@ -136,6 +136,85 @@ public class NbHarness
         catch (UnauthorizedAccessException) { return null; }
     }
 
+    /// <summary>
+    /// The project instruction files this harness's target reads — AGENTS.md for Codex,
+    /// CLAUDE.md for Claude Code — rendered in that harness's own wrapper, or null when
+    /// there are none.
+    ///
+    /// This is context furniture rather than prompt: a channel the real harness fills
+    /// from the filesystem on every run, which a costume must reproduce or a whole class
+    /// of instruction never arrives (plans/harness-emulation.md, tier 1). Evaluated when
+    /// the harness is applied, not cached, because it reads the working directory.
+    ///
+    /// Null for nb's own surface. nb has no project instruction file of its own, and
+    /// §5.5 promises a program that names no harness gets exactly what it writes.
+    /// </summary>
+    public virtual string? ProjectInstructions() => null;
+
+    /// <summary>Where the run's tools operate. Falls back to the process cwd under --nobash.</summary>
+    protected string WorkingDirectory =>
+        Bash?.GetCwd() ?? ReadFile?.GetCwd() ?? Directory.GetCurrentDirectory();
+
+    /// <summary>
+    /// Walk the project root down to the working directory collecting instruction files,
+    /// shallowest first, so a deeper file's instructions land last and win.
+    ///
+    /// The root is the nearest ancestor holding a <c>.git</c> entry; without one, only
+    /// the working directory is considered, and the walk never passes the root. Within a
+    /// directory the first name in <paramref name="fileNames"/> that exists wins, so a
+    /// caller orders overrides ahead of defaults. Reading stops at
+    /// <paramref name="maxTotalBytes"/> across all files, truncating the file that
+    /// crosses it — the same budget the real harnesses apply, and the thing standing
+    /// between a large repo's docs and the context window.
+    /// </summary>
+    protected static IReadOnlyList<(string Path, string Text)> DiscoverProjectDocs(
+        string workingDirectory, int maxTotalBytes, params string[] fileNames)
+    {
+        var docs = new List<(string, string)>();
+        if (maxTotalBytes <= 0) return docs;
+
+        DirectoryInfo? cwd;
+        try { cwd = new DirectoryInfo(Path.GetFullPath(workingDirectory)); }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException) { return docs; }
+        if (!cwd.Exists) return docs;
+
+        // Shallowest first: push each ancestor onto the front until the root is reached.
+        var chain = new List<DirectoryInfo>();
+        for (var dir = cwd; dir != null; dir = dir.Parent)
+        {
+            chain.Insert(0, dir);
+            if (Directory.Exists(Path.Combine(dir.FullName, ".git")) ||
+                File.Exists(Path.Combine(dir.FullName, ".git")))
+                break;
+
+            // No marker anywhere above: the working directory alone is the scope.
+            if (dir.Parent is null) { chain.Clear(); chain.Add(cwd); }
+        }
+
+        var remaining = maxTotalBytes;
+        foreach (var dir in chain)
+        {
+            if (remaining <= 0) break;
+
+            var path = fileNames
+                .Select(n => Path.Combine(dir.FullName, n))
+                .FirstOrDefault(File.Exists);
+            if (path is null) continue;
+
+            string text;
+            try { text = File.ReadAllText(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+
+            if (text.Length > remaining) text = text[..remaining];
+            if (string.IsNullOrWhiteSpace(text)) continue;
+
+            docs.Add((path, text));
+            remaining -= text.Length;
+        }
+
+        return docs;
+    }
+
     // A preamble file opens with an HTML comment carrying its provenance — where the
     // text came from, what it deliberately is not, what that costs. That is for whoever
     // reviews the file, not for the model, so it does not go on the wire.

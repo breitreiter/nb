@@ -114,6 +114,38 @@ public class HarnessPreambleTests
         Assert.Equal("Be terse.", systems[1].Text);
     }
 
+    /// <summary>
+    /// The costume's context furniture reaches the wire too, after its prompt and before
+    /// the program's own directives — the order the real harness uses, so the model is
+    /// told what AGENTS.md is before it is handed one.
+    /// </summary>
+    [Fact]
+    public async Task NamedHarness_SendsItsProjectInstructionsAfterItsPrompt()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"nb-test-agents-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "AGENTS.md"), "Prefer tabs in this repo.");
+            var env = ShellEnvironment.Detect();
+            env.SetCwd(dir);
+
+            var client = new RecordingChatClient();
+            var conversation = NewConversation(client,
+                new NbHarness(new BashTool(env, defaultTimeoutSeconds: 120)));
+            await Evaluate(conversation, "harness codex\nsystem Be terse.\nrun hello\n");
+
+            var messages = client.CapturedMessages!;
+            Assert.Contains("running in the Codex CLI", messages[0].Text);
+            Assert.Contains("<INSTRUCTIONS>\nPrefer tabs in this repo.\n</INSTRUCTIONS>", messages[1].Text);
+            Assert.Equal("Be terse.", messages[2].Text);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
     /// <summary>The prompt is a facsimile, and the costume says so rather than implying fidelity.</summary>
     [Fact]
     public void Costume_DeclaresThePreambleIsAFacsimile()
@@ -134,8 +166,8 @@ public class HarnessPreambleTests
         return client;
     }
 
-    private static ConversationManager NewConversation(IChatClient client) =>
-        new(client, new McpManager(), new FakeToolManager(), new NbHarness(),
+    private static ConversationManager NewConversation(IChatClient client, NbHarness? harness = null) =>
+        new(client, new McpManager(), new FakeToolManager(), harness ?? new NbHarness(),
             new ApprovalPolicy(trust: false, new ApprovalPatterns(), _ => false));
 
     private static Task Evaluate(ConversationManager conversation, string source)

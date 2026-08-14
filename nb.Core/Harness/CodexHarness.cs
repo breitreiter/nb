@@ -43,6 +43,28 @@ public sealed class CodexHarness : NbHarness
 
     private static readonly string? _preamble = LoadPreamble("codex.md");
 
+    /// <summary>Codex's total budget for project docs, across every file it collects.</summary>
+    private const int AgentsMdMaxBytes = 32 * 1024;
+
+    /// <summary>
+    /// AGENTS.md, in Codex's own wrapper. Codex collects them from the project root down
+    /// to the cwd and hands the model the concatenation inside an <c>&lt;INSTRUCTIONS&gt;</c>
+    /// block headed by the directory — verified against <c>codex-rs/core/src/agents_md.rs</c>
+    /// and <c>context/user_instructions.rs</c>. The wrapper is not decoration: it is what
+    /// tells the model these are workspace instructions rather than part of the task.
+    /// </summary>
+    public override string? ProjectInstructions()
+    {
+        var cwd = WorkingDirectory;
+
+        // AGENTS.override.md wins over AGENTS.md within a directory, per candidate_filenames.
+        var docs = DiscoverProjectDocs(cwd, AgentsMdMaxBytes, "AGENTS.override.md", "AGENTS.md");
+        if (docs.Count == 0) return null;
+
+        var body = string.Join("\n\n", docs.Select(d => d.Text.TrimEnd()));
+        return $"# AGENTS.md instructions for {cwd}\n\n<INSTRUCTIONS>\n{body}\n</INSTRUCTIONS>";
+    }
+
     public override IReadOnlyList<string> Omissions
     {
         get
@@ -61,7 +83,7 @@ public sealed class CodexHarness : NbHarness
     private static readonly string[] _omissions = new[]
     {
         "apply_patch: declared as a JSON function taking an input string. Codex declares it as a freeform tool with a lark grammar, so the model emits a bare patch rather than an argument object. nb has no freeform tool channel. The patch format itself is identical.",
-        "AGENTS.md: not loaded. Codex reads AGENTS.md from the repo root and every directory down to the cwd into the developer message, and its prompt devotes a section to obeying them. nb loads no project instruction file, so that entire channel is absent — the largest known gap in this costume.",
+        "AGENTS.md: loaded from the project root down to the cwd, in Codex's own <INSTRUCTIONS> wrapper, but sent as a system message where Codex sends a user-role fragment. Not reproduced: user-level instructions from ~/.codex, and Codex's re-check when the model works outside the cwd — its prompt tells the model to look for those itself, which this costume's shell can do.",
         "environment context: Codex injects an <environment_context> block (cwd, sandbox mode, approval policy, network access) and appends approval-policy instructions to the prompt. nb sends neither, so the prompt's references to a \"Sandbox and approvals\" section point at nothing.",
         "shell_command: workdir and timeout_ms are accepted and ignored — nb's bash runs in the shell cwd on its own configured timeout.",
         "view_image: detail is accepted and ignored. A path that is not an image comes back as text rather than as an error.",
