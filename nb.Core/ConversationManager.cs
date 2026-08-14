@@ -750,15 +750,12 @@ public class ConversationManager
                             // Check if this is a fake tool (always auto-approve)
                             else if (_fakeToolManager.GetFakeTool(functionCall.Name) is {} fakeTool)
                             {
-                                // Handle fake tool - no approval needed
-                                // Extract nested "parameters" if present (from IDictionary schema)
+                                // Fake tools are always auto-approved. Arguments arrive flat:
+                                // the emitted schema declares the parameters directly, so there
+                                // is no longer a nested "parameters" object to unwrap (there was,
+                                // while fake tools registered as IDictionary and advertised one
+                                // opaque property — see FakeToolManager.BuildSchema).
                                 var displayArgs = functionCall.Arguments;
-                                if (displayArgs?.Count == 1 &&
-                                    displayArgs.TryGetValue("parameters", out var nested) &&
-                                    nested is JsonElement nestedElement)
-                                {
-                                    displayArgs = JsonSerializer.Deserialize<Dictionary<string, object?>>(nestedElement.GetRawText());
-                                }
                                 var argumentsJson = JsonSerializer.Serialize(displayArgs, new JsonSerializerOptions { WriteIndented = false });
 
                                 var expandedResponse = _fakeToolManager.ExpandMacros(fakeTool.Response, displayArgs);

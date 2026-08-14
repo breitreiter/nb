@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
@@ -164,7 +165,9 @@ public class FakeToolManager
 
     private static AIFunction CreateAIFunctionFromFakeTool(FakeTool fakeTool)
     {
-        // Build description with parameter documentation
+        // Build description with parameter documentation. The schema carries the same
+        // information, but nb's native tools document parameters in prose too, so a
+        // fake tool that stands in for one should look the same to the model.
         var description = new StringBuilder(fakeTool.Description);
 
         if (fakeTool.Parameters.Count > 0)
@@ -179,13 +182,86 @@ public class FakeToolManager
             }
         }
 
-        // Accept a generic dictionary to capture all arguments
-        // The actual invocation is handled by ConversationManager
-        return AIFunctionFactory.Create(
-            (IDictionary<string, object?> parameters) => fakeTool.Response,
-            name: fakeTool.Name,
-            description: description.ToString()
-        );
+        return new FakeAIFunction(fakeTool.Name, description.ToString(), BuildSchema(fakeTool), fakeTool.Response);
+    }
+
+    /// <summary>
+    /// Emit a real JSON schema from the declared parameters.
+    ///
+    /// This used to register the function as <c>(IDictionary&lt;string, object?&gt; parameters)</c>,
+    /// which reflected to a single opaque <c>parameters</c> object — the declared names,
+    /// types and required-ness never reached the wire at all, and the model had to guess
+    /// the shape from the prose. Harness emulation (plans/harness-emulation.md) leans on
+    /// fake tools to stand in for tools nb does not implement, and a costume's whole
+    /// value is the schema it advertises, so the shape has to be real.
+    /// </summary>
+    private static JsonElement BuildSchema(FakeTool fakeTool)
+    {
+        var properties = new JsonObject();
+        var required = new JsonArray();
+
+        foreach (var param in fakeTool.Parameters)
+        {
+            var property = new JsonObject { ["type"] = NormalizeType(param.Type) };
+            if (!string.IsNullOrWhiteSpace(param.Description))
+                property["description"] = param.Description;
+
+            properties[param.Name] = property;
+            if (param.Required) required.Add(param.Name);
+        }
+
+        var schema = new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = properties,
+            ["required"] = required,
+        };
+
+        return JsonSerializer.SerializeToElement(schema);
+    }
+
+    /// <summary>
+    /// fake-tools.yaml is hand-authored, so accept the C#/YAML spellings an author will
+    /// reach for and map them onto JSON Schema's type names. An unrecognised type passes
+    /// through untouched rather than being silently coerced — a wrong type in the emitted
+    /// schema is easier to spot than one quietly rewritten to "string".
+    /// </summary>
+    private static string NormalizeType(string? type) => (type ?? "string").Trim().ToLowerInvariant() switch
+    {
+        "int" or "int32" or "int64" or "long" or "integer" => "integer",
+        "float" or "double" or "decimal" or "number" => "number",
+        "bool" or "boolean" => "boolean",
+        "str" or "string" => "string",
+        "list" or "array" => "array",
+        "dict" or "object" => "object",
+        var other => other,
+    };
+
+    /// <summary>
+    /// A fake tool's advertised surface. <see cref="ConversationManager"/> intercepts
+    /// fake-tool calls by name and expands the response macros itself, so invocation here
+    /// is the un-taken path — it returns the raw (unexpanded) response for any caller
+    /// that does drive the function directly.
+    /// </summary>
+    private sealed class FakeAIFunction : AIFunction
+    {
+        private readonly string _response;
+
+        public FakeAIFunction(string name, string description, JsonElement schema, string response)
+        {
+            Name = name;
+            Description = description;
+            JsonSchema = schema;
+            _response = response;
+        }
+
+        public override string Name { get; }
+        public override string Description { get; }
+        public override JsonElement JsonSchema { get; }
+
+        protected override ValueTask<object?> InvokeCoreAsync(
+            AIFunctionArguments arguments, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<object?>(_response);
     }
 }
 
