@@ -91,6 +91,9 @@ public static class TranscriptSerializer
             case ModelEvent md:
                 w.WriteString("name", md.Name);
                 break;
+            case HarnessEvent h:
+                w.WriteString("name", h.Name);
+                break;
             case SurfaceDirectiveEvent s:
                 if (s.Reset) w.WriteBoolean("reset", true);
                 WriteStringArray(w, "add", s.Add);
@@ -174,6 +177,7 @@ public static class TranscriptSerializer
         if (r.Turns is { } turns) w.WriteNumber("turns", turns);
         if (r.ToolCalls is { } calls) w.WriteNumber("tool_calls", calls);
         if (r.DurationMs is { } d) w.WriteNumber("duration_ms", d);
+        if (r.Harness is { } h) w.WriteString("harness", h);
     }
 
     // ---- Reading ----
@@ -258,6 +262,8 @@ public static class TranscriptSerializer
                 return new ProviderEvent { Turn = turn, Name = RequireString(root, "name", lineNumber, type) };
             case "model":
                 return new ModelEvent { Turn = turn, Name = RequireString(root, "name", lineNumber, type) };
+            case "harness":
+                return new HarnessEvent { Turn = turn, Name = RequireString(root, "name", lineNumber, type) };
             case "mcp":
                 return new McpEvent { Turn = turn, Add = ReadStringArray(root, "add"), Remove = ReadStringArray(root, "remove"), Reset = GetBool(root, "reset") };
             case "tools":
@@ -279,6 +285,7 @@ public static class TranscriptSerializer
                     Turns = GetInt(root, "turns"),
                     ToolCalls = GetInt(root, "tool_calls"),
                     DurationMs = GetLong(root, "duration_ms"),
+                    Harness = GetString(root, "harness"),
                 };
             default:
                 warnings?.Add($"line {lineNumber}: unknown event type \"{type}\" — skipped");

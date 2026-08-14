@@ -154,6 +154,15 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 | --- | --- | --- |
 | `provider` | `provider <name>` | Select the active provider (matched against `ChatProviders[].Name` in config) for subsequent runs. |
 | `model` | `model <name>` | Select the model for subsequent runs. Overrides the active provider's model field in memory (both `Model` and `ChatDeploymentName`). |
+| `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Defaults to `nb` (nb's own surface). Currently `nb` is the only registered name; an unknown one is a parse error, not a warning. |
+
+**On `harness`.** It is a program directive rather than provider config because the
+experiment worth running is *one model across two harnesses*, and that has to be
+expressible as two files in a directory rather than as an edit to global config between
+runs. A named harness brings its whole costume, prompt preamble included — see §5.5.
+Runs that wear a non-default harness record it on the `result` trailer as `harness`
+(omitted for the default). Costumes imitating other agents' harnesses are planned;
+see `plans/harness-emulation.md`.
 
 Output format is **not** a directive — it's the `--output` flag / caller's choice
 (the program computes a conversation; delivery format is the caller's business).
@@ -226,9 +235,18 @@ additive — a program that names none behaves exactly as before.
 ### 5.5 Turn directives — `system`, `user`, `assistant`
 
 `system <text>`, `user <text>`, `assistant <text>` append one message of that role.
-`system` is a plain message — nb injects no persona; a program gets only the `system`
-directives it writes. `@file` and `\` continuation apply. Turns buffer and flush into
+`system` is a plain message — **nb injects no persona a program did not ask for**. By
+default a program gets exactly the `system` directives it writes; the only other way
+persona arrives is a `harness` directive naming a costume, which brings that harness's
+prompt preamble with it. `@file` and `\` continuation apply. Turns buffer and flush into
 history at the next `run`.
+
+Opting into a named harness opts into the whole costume — the preamble is not a separate
+opt-in, because a program that asks to imitate another agent and is then told it should
+*also* have requested the prompt has been failed by the tool. The bare default is
+unchanged: name no harness and nothing is injected. A preamble that does arrive is
+materialised into the transcript as an ordinary `system` message, so everything the model
+was sent is on the wire record and a `--seed` replay reproduces it exactly.
 
 ### 5.6 `run` — the sole invocation
 
@@ -255,7 +273,9 @@ the tool surface, and invokes the model; at end of program, trailing buffered tu
 still join the conversation.
 
 Invariants:
-- **No implicit persona.** A program gets exactly the `system` directives it writes.
+- **No implicit persona.** Persona arrives only when the program asks for it — by
+  `system`, or by `harness` naming a costume that carries a preamble. Name no harness
+  and a program gets exactly the `system` directives it writes.
 - **Completed rounds only.** Fabricated tool rounds must be well-formed (each call
   paired with a result, turns monotonic); malformed → exit 1.
 - **Usage sums** across every run and tool-loop round-trip, and is estimated (and
@@ -312,6 +332,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
 | `run` | `prompt`? | Invocation directive. On output, a past run appears as the `assistant_text` it produced. |
 | `provider` / `model` | `name` | Config directive. |
+| `harness` | `name` | Harness-selection directive (§5.1). Only `nb` is registered today. |
 | `mcp` / `tools` | `reset`?, `add`[], `remove`[] | Tool-surface delta. |
 | `approval` | `key`, `value` | Approval-policy directive. |
 | `loop` | `enabled`, `threshold`? | Doom-loop directive. `threshold` present only when `enabled`. |
@@ -327,7 +348,8 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 ```
 
 Fields: `exit_reason` (§2), `usage{input,output,total,estimated?}`, `turns`,
-`tool_calls`, `duration_ms`?. Read `exit_reason` for the outcome; read the last
+`tool_calls`, `duration_ms`?, `harness`?. `harness` names the costume the run wore and
+is **omitted for nb's own** — so a default run's trailer is unchanged. Read `exit_reason` for the outcome; read the last
 `assistant_text` for the answer.
 
 **Estimated usage.** `usage` normally carries the provider's own counts. Two

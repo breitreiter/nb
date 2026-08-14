@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
+using nb.Harness;
 using nb.Transcript;
 
 namespace nb;
@@ -73,6 +74,7 @@ public static class Nb
                 Usage = usage,
                 ExitReason = reason,
                 ExitCode = ExitReasons.ToExitCode(reason),
+                Harness = evaluator.Harness == HarnessRegistry.Default ? null : evaluator.Harness,
                 Warnings = warnings,
             };
         }

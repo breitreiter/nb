@@ -71,7 +71,7 @@ public static class TranscriptMapper
     /// from the emitted events; usage is passed in from the live response (it is
     /// not in history).
     /// </summary>
-    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null)
+    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null)
     {
         // "turns" = assistant rounds: distinct turns carrying an assistant message.
         // (Counting distinct turns rather than the max keeps the number meaningful
@@ -82,7 +82,7 @@ public static class TranscriptMapper
             .Distinct()
             .Count();
         int toolCalls = events.OfType<ToolCallEvent>().Count();
-        return new ResultEvent { ExitReason = exitReason, Usage = usage, Turns = turns, ToolCalls = toolCalls };
+        return new ResultEvent { ExitReason = exitReason, Usage = usage, Turns = turns, ToolCalls = toolCalls, Harness = harness };
     }
 
     /// <summary>The model's final prose: the last non-empty assistant-text event's

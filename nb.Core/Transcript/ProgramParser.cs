@@ -1,4 +1,5 @@
 using System.Text;
+using nb.Harness;
 
 namespace nb.Transcript;
 
@@ -47,6 +48,9 @@ public static class ProgramParser
                 case "model":
                     events.Add(new ModelEvent { Name = RequireContent(verb, content, lineNo) });
                     break;
+                case "harness":
+                    events.Add(ParseHarness(RequireContent(verb, content, lineNo), lineNo));
+                    break;
                 case "mcp":
                     events.Add(ParseSurface(new McpEvent(), content, lineNo));
                     break;
@@ -79,7 +83,7 @@ public static class ProgramParser
                     throw new ProgramParseException($"line {lineNo}: '{verb}' has structured fields — author it as JSONL bytecode, not source syntax.");
                 default:
                     throw new ProgramParseException(
-                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, mcp, tools, approval, loop, budget, system, user, assistant, run.");
+                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, harness, mcp, tools, approval, loop, budget, system, user, assistant, run.");
             }
         }
 
@@ -166,6 +170,19 @@ public static class ProgramParser
     // (bash|mcp|search|default|sandbox), the rest is the value (a bash pattern may
     // contain spaces). Key validity is a semantic check (--validate / evaluator),
     // not syntactic.
+    // Unlike an approval key (a semantic check that degrades to a warning), an unknown
+    // harness name is rejected here, with a line number. Falling back to nb's surface
+    // while the program says it is wearing another agent's would silently invalidate
+    // every comparison drawn from the run — see plans/harness-emulation.md.
+    private static HarnessEvent ParseHarness(string name, int lineNo)
+    {
+        if (!HarnessRegistry.IsKnown(name))
+            throw new ProgramParseException(
+                $"line {lineNo}: unknown harness '{name}'. Known: {HarnessRegistry.KnownNamesForError()}.");
+
+        return new HarnessEvent { Name = HarnessRegistry.Canonicalize(name) };
+    }
+
     private static ApprovalEvent ParseApproval(string content, int lineNo)
     {
         var trimmed = content.Trim();

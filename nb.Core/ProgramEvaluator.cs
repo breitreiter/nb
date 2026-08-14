@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using nb.Harness;
 using nb.Shell;
 using nb.Transcript;
 
@@ -37,6 +38,9 @@ public sealed class ProgramEvaluator
     public string? Provider { get; private set; }
     public string? Model { get; private set; }
 
+    /// <summary>The harness in effect — nb's own surface unless a <c>harness</c> directive says otherwise.</summary>
+    public string Harness { get; private set; } = HarnessRegistry.Default;
+
     public ProgramEvaluator(ConversationManager conversation, Func<string?, string?, IChatClient?> clientFactory, IList<string>? warnings = null)
     {
         _conversation = conversation;
@@ -70,6 +74,13 @@ public sealed class ProgramEvaluator
             case ModelEvent m:
                 Model = m.Name;
                 SwapClient();
+                break;
+            case HarnessEvent h:
+                // Name validity is settled by the parser (and by the serializer's
+                // reader for JSONL bytecode); this only records what is in effect.
+                // With nb's own surface the only registered harness, there is nothing
+                // to swap yet — costumes wire in here.
+                Harness = h.Name;
                 break;
             case SurfaceDirectiveEvent sd:
                 _surfaceDirectives.Add(sd);

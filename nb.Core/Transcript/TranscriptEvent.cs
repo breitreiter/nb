@@ -132,6 +132,17 @@ public sealed record ModelEvent : TranscriptEvent
 }
 
 /// <summary>
+/// Select the harness whose tool surface, result formatting and prompt preamble the
+/// run wears — nb's own by default, or a costume imitating another agent's harness.
+/// See plans/harness-emulation.md; names come from <c>HarnessRegistry</c>.
+/// </summary>
+public sealed record HarnessEvent : TranscriptEvent
+{
+    public override string Type => "harness";
+    public required string Name { get; init; }
+}
+
+/// <summary>
 /// A tool-surface directive with delta semantics: <see cref="Add"/> /
 /// <see cref="Remove"/> toggle named members and <see cref="Reset"/> (the source
 /// <c>none</c> token) clears the surface. Presets establish a baseline; a program
@@ -208,6 +219,14 @@ public sealed record ResultEvent : TranscriptEvent
     public int? Turns { get; init; }
     public int? ToolCalls { get; init; }
     public long? DurationMs { get; init; }
+
+    /// <summary>
+    /// The harness the run wore, when it was not nb's own. Omitted for the default, so a
+    /// plain trailer stays byte-identical to before this field existed. Recorded for the
+    /// same reason the model is: a corpus of runs spanning more than one costume cannot
+    /// be interpreted without it.
+    /// </summary>
+    public string? Harness { get; init; }
 }
 
 /// <summary>Token usage on the run-level <see cref="ResultEvent"/> trailer.</summary>

@@ -26,6 +26,12 @@ public sealed record RunResult
     /// <summary>The coarse process exit code the reason collapses to.</summary>
     public required int ExitCode { get; init; }
 
+    /// <summary>
+    /// The harness the run wore, when it was not nb's own — null for the default.
+    /// Mirrors the <c>harness</c> field on the transcript trailer.
+    /// </summary>
+    public string? Harness { get; init; }
+
     /// <summary>Non-fatal evaluator warnings (unknown directive value, unbuildable client, …).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }
