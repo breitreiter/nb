@@ -290,7 +290,6 @@ public class NbHarness
     // base is where the safety concerns stay.
 
     private ApprovalPolicy _approvalPolicy = null!;
-    private bool _trustMode;
     private bool _verbose;
 
     /// <summary>Read-before-edit bookkeeping. Per-run, and tied to the file tools.</summary>
@@ -299,11 +298,15 @@ public class NbHarness
     /// <summary>The resolved approval policy — the <c>approval</c> directive layers onto it.</summary>
     public ApprovalPolicy ApprovalPolicy => _approvalPolicy;
 
-    /// <summary>Hand the harness the run-level execution context. Called by the runtime.</summary>
-    public void Configure(ApprovalPolicy approvalPolicy, bool trustMode, bool verbose)
+    /// <summary>
+    /// Hand the harness the run-level execution context. Called by the runtime.
+    ///
+    /// Trust is not passed separately: it reaches tool calls through
+    /// <see cref="ApprovalPolicy"/>, which owns the whole auto-approve ladder.
+    /// </summary>
+    public void Configure(ApprovalPolicy approvalPolicy, bool verbose)
     {
         _approvalPolicy = approvalPolicy;
-        _trustMode = trustMode;
         _verbose = verbose;
     }
 
@@ -1383,11 +1386,10 @@ public class NbHarness
     }
 
     /// <summary>
-    /// Token counts for one model round-trip: the provider's own numbers when it reported
-    /// them, a derived total when only the parts came back, and a size estimate when
-    /// nothing did. Sets <see cref="UsageIsEstimated"/> (once, with a warning) on the
-    /// estimate path.
-
+    /// Unpack nb's own <c>todo_write</c> argument shape: a <c>changes</c> array of
+    /// content/status pairs, already incremental. Costumes whose target sends a whole
+    /// checklist go through <see cref="ParseChecklist"/> instead.
+    /// </summary>
     public static List<TodoChange> ParseTodoChanges(IDictionary<string, object?>? args)
     {
         var changes = new List<TodoChange>();

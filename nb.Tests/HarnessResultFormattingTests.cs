@@ -193,8 +193,7 @@ public class HarnessResultFormattingTests : IDisposable
         if (typeof(T) != typeof(NbHarness))
             harness = HarnessRegistry.Create(NameOf<T>(), harness);
 
-        harness.Configure(new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false),
-            trustMode: true, verbose: false);
+        harness.Configure(new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false), verbose: false);
         return (T)harness;
     }
 

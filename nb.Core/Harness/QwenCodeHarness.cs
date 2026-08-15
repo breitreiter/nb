@@ -14,7 +14,8 @@ namespace nb.Harness;
 /// aborted on budget. Names and parameter spellings are verified against
 /// <c>QwenLM/qwen-code</c> (Apache-2.0) at <c>packages/core/src/tools/</c>.
 ///
-/// Everything downstream of <see cref="ToCanonical"/> keeps seeing nb's canonical names.
+/// The renaming is confined to what this costume advertises and how <c>DispatchAsync</c>
+/// unpacks it; everything downstream keeps working in nb's canonical names.
 /// </summary>
 public sealed class QwenCodeHarness : NbHarness
 {

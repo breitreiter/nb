@@ -21,18 +21,7 @@ public class ConversationManager
     private IChatClient _client;
     private readonly McpManager _mcpManager;
     private readonly FakeToolManager _fakeToolManager;
-    private BashTool? _bashTool;
-    private ReadFileTool? _readFileTool;
-    private WriteFileTool? _writeFileTool;
-    private EditFileTool? _editFileTool;
-    private FindFilesTool? _findFilesTool;
-    private GrepTool? _grepTool;
-    private ListDirTool? _listDirTool;
-    private FetchUrlTool? _fetchUrlTool;
-    private SearchWebTool? _searchWebTool;
-    private ApplyPatchTool? _applyPatchTool;
     private readonly bool _verbose;
-    private readonly bool _trustMode;
     private readonly bool _debugStream;
     private int _maxToolCalls;
     private readonly double _compactionThreshold;
@@ -124,22 +113,9 @@ public class ConversationManager
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
         _harness = harness;
-        _harness.Configure(approvalPolicy, trustMode, verbose);
-        // The dispatch arms below work in concrete tool instances, so mirror them out
-        // of the harness rather than reaching through it at every call site.
-        _bashTool = harness.Bash;
-        _readFileTool = harness.ReadFile;
-        _writeFileTool = harness.WriteFile;
-        _editFileTool = harness.EditFile;
-        _findFilesTool = harness.FindFiles;
-        _grepTool = harness.Grep;
-        _listDirTool = harness.ListDir;
-        _fetchUrlTool = harness.FetchUrl;
-        _searchWebTool = harness.SearchWeb;
-        _applyPatchTool = harness.ApplyPatch;
+        _harness.Configure(approvalPolicy, verbose);
         _currentProviderName = providerName;
         _verbose = verbose;
-        _trustMode = trustMode;
         _maxToolCalls = trustMode ? Math.Max(maxToolCalls, 50) : maxToolCalls;
         _maxContextTokens = maxContextTokens;
         _compactionThreshold = compactionThreshold;
@@ -201,18 +177,8 @@ public class ConversationManager
     /// </summary>
     public void SetHarness(NbHarness harness)
     {
-        harness.Configure(_harness.ApprovalPolicy, _trustMode, _verbose);
+        harness.Configure(_harness.ApprovalPolicy, _verbose);
         _harness = harness;
-        _bashTool = harness.Bash;
-        _readFileTool = harness.ReadFile;
-        _writeFileTool = harness.WriteFile;
-        _editFileTool = harness.EditFile;
-        _findFilesTool = harness.FindFiles;
-        _grepTool = harness.Grep;
-        _listDirTool = harness.ListDir;
-        _fetchUrlTool = harness.FetchUrl;
-        _searchWebTool = harness.SearchWeb;
-        _applyPatchTool = harness.ApplyPatch;
     }
 
     public void SetToolSurface(Transcript.ToolSurface surface)
@@ -967,11 +933,11 @@ public class ConversationManager
     }
 
 
-    // No interactive terminal to prompt at: approval must be resolved by policy,
-    // not a key press. Anything already cleared by --approve/--trust is handled
-    // before these prompts, so the Phase 0 policy here is a flat deny — reported
-    // to the model as a structured tool error it can route around, never a hang
-    // or a thrown ReadKey. (A richer per-tool policy arrives with Phase 5.)
+    /// <summary>
+    /// Token counts for one model round-trip: the provider's own numbers when it reported
+    /// them, a derived total when only the parts came back, and a size estimate when
+    /// nothing did. Sets <see cref="UsageIsEstimated"/> (once, with a warning) on the
+    /// estimate path.
     /// </summary>
     private (long Input, long Output, long Total) MeasureOrEstimateUsage(ChatResponse response, IList<AITool>? tools)
     {

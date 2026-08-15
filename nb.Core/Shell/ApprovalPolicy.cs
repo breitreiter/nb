@@ -5,7 +5,17 @@ namespace nb.Shell;
 /// <summary>Whether a tool call auto-approves, needs a prompt, or is refused.</summary>
 public enum ApprovalDecision { Allow, Prompt, Deny }
 
-/// <summary>What an unmatched (non-auto-approved) call does: prompt, or deny outright.</summary>
+/// <summary>
+/// How permissive a run is with calls nothing explicitly allow-listed.
+///
+/// The names describe the unmatched-call disposition, but that is the smaller half of the
+/// difference. <c>Prompt</c> runs the whole auto-approve ladder — explicit patterns, then
+/// the built-in safe-command list, then <c>--trust</c> + sandbox — and only a call that
+/// survives all three reaches a prompt. <c>Deny</c> honours the explicit allow-list and
+/// nothing else, because the safe list and <c>--trust</c> are both implicit grants and the
+/// safe list includes <c>make</c>, <c>npx</c> and <c>go build</c> (arbitrary code, not just
+/// reads). So these are really permissiveness tiers; see <see cref="ApprovalPolicy.DecideBash"/>.
+/// </summary>
 public enum ApprovalDefault { Prompt, Deny }
 
 /// <summary>How the bash child is contained: not at all, or under a bwrap sandbox.</summary>

@@ -27,8 +27,7 @@ public class ClaudeCodeHarnessTests : IDisposable
             new WriteFileTool(_env), new EditFileTool(_env), new FindFilesTool(_env),
             new GrepTool(_env), new ListDirTool(_env), new FetchUrlTool(), searchWeb: null,
             applyPatch: new ApplyPatchTool(_env));
-        _harness.Configure(new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false),
-            trustMode: true, verbose: false);
+        _harness.Configure(new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false), verbose: false);
     }
 
     public void Dispose()

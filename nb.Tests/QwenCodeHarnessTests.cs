@@ -26,8 +26,7 @@ public class QwenCodeHarnessTests : IDisposable
             new BashTool(env, defaultTimeoutSeconds: 120), new ReadFileTool(env), new WriteFileTool(env),
             new EditFileTool(env), new FindFilesTool(env), new GrepTool(env), new ListDirTool(env),
             new FetchUrlTool());
-        _harness.Configure(new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false),
-            trustMode: true, verbose: false);
+        _harness.Configure(new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false), verbose: false);
     }
 
     public void Dispose()
