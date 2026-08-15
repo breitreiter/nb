@@ -159,8 +159,9 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 **On `harness`.** It is a program directive rather than provider config because the
 experiment worth running is *one model across two harnesses*, and that has to be
 expressible as two files in a directory rather than as an edit to global config between
-runs. A named harness brings its whole costume — prompt preamble and the project instruction
-files its target reads — `AGENTS.md` under `codex`, `CLAUDE.md` under `claude-code` — see §5.5.
+runs. A named harness brings its whole costume — prompt preamble, the project instruction
+files its target reads (`AGENTS.md` under `codex`, `CLAUDE.md` under `claude-code`), and
+that harness's environment block — see §5.5.
 Runs that wear a non-default harness record it on the `result` trailer as `harness`
 (omitted for the default). A costume also reports what it knowingly does not reproduce,
 as run warnings, so a surprising result arrives with a suspect list attached. Further
@@ -255,8 +256,15 @@ same program run in two directories sends different text, because that is exactl
 the harness being imitated does. Named-harness runs are therefore reproducible from the
 transcript, not from the program alone.
 
-Everything injected — preamble first, then project instructions, then the program's own
-`system` directives — is materialised into the transcript as ordinary `system` messages,
+It also brings that harness's **environment block** — working directory, shell or
+platform, and the date, in the target's own wrapper. Same caveat, more strongly: the text
+depends on where and *when* the program runs, so two runs of one program are never
+byte-identical under a costume that sends one. `qwen-code` sends none; its omission list
+says so.
+
+Everything injected — preamble first, then the costume's furniture in the order that
+harness uses, then the program's own `system` directives — is materialised into the
+transcript as ordinary `system` messages,
 so everything the model was sent is on the wire record and a `--seed` replay reproduces
 it exactly, even if the costume or the project's instruction file has changed since.
 

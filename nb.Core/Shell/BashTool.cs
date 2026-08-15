@@ -45,6 +45,12 @@ public class BashTool
 
     public string GetCwd() => _env.ShellCwd;
 
+    /// <summary>
+    /// The detected shell environment. Exposed for harness costumes, which report OS,
+    /// shell and cwd to the model in their target's own environment block.
+    /// </summary>
+    public ShellEnvironment Environment => _env;
+
     public AIFunction CreateTool()
     {
         var executeFunc = (string description, string command, int? timeout_seconds) =>

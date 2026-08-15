@@ -61,6 +61,51 @@ public sealed class ClaudeCodeHarness : NbHarness
             + "\n</system-reminder>";
     }
 
+    /// <summary>
+    /// The environment block. Claude Code states where the model is running as part of
+    /// its system prompt, so this arrives before the project instructions rather than
+    /// after them — see <see cref="LeadingContext"/>.
+    ///
+    /// The field set is what such a block has to carry to be useful (cwd, git state,
+    /// platform, OS, date); the prose around it is nb's. Consistent with the preamble,
+    /// nothing here was transcribed from a running Claude Code's own context.
+    /// </summary>
+    public override string? EnvironmentContext()
+    {
+        var shell = Bash?.Environment;
+        var lines = new List<string>
+        {
+            $"Working directory: {WorkingDirectory}",
+            $"Is directory a git repo: {(InGitRepository() ? "Yes" : "No")}",
+        };
+
+        if (shell != null)
+        {
+            lines.Add($"Platform: {shell.OS}");
+            lines.Add($"OS Version: {shell.OSVersion}");
+        }
+
+        lines.Add($"Today's date: {DateTime.Now:yyyy-MM-dd}");
+
+        return "Here is useful information about the environment you are running in:\n<env>\n"
+            + string.Join("\n", lines)
+            + "\n</env>";
+    }
+
+    /// <summary>
+    /// Environment before project instructions — the reverse of the base order.
+    ///
+    /// Claude Code carries its environment inside the system prompt and attaches
+    /// <c>CLAUDE.md</c> to the first user turn, so the project's instructions are the last
+    /// thing the model reads before the task. Codex does the opposite. This is exactly why
+    /// ordering belongs to the costume.
+    /// </summary>
+    public override IReadOnlyList<string> LeadingContext() =>
+        new[] { Preamble, EnvironmentContext(), ProjectInstructions() }
+            .Where(t => !string.IsNullOrEmpty(t))
+            .Select(t => t!)
+            .ToList();
+
     public override IReadOnlyList<string> Omissions
     {
         get
@@ -82,9 +127,11 @@ public sealed class ClaudeCodeHarness : NbHarness
         "BashOutput / KillShell: not offered, and Bash's run_in_background is accepted and ignored. nb's bash runs foreground, so advertising the poll-and-kill pair would invite the model into a loop it can never finish — worse than not backgrounding at all.",
         "Grep: type, multiline, -n and the -A/-B/-C context flags are accepted and ignored; output_mode `count` falls back to files_with_matches. pattern, path, glob, -i, head_limit and the content/files_with_matches modes are real.",
         "Read: reproduces the line-numbered format and the image branch, but not Claude Code's PDF page ranges or notebook cell rendering.",
+        "result formatting: Bash returns raw output with the exit code shown only on failure, and Edit/Write acknowledge by path — all written from observed behaviour, not from the harness's source, so they are close rather than exact. Not reproduced: the cat -n snippet of the edited region that the real Edit returns, which is the part that decides whether the model re-reads a file it just changed.",
         "WebFetch: Claude Code runs a model over the fetched page to answer the prompt; nb's fetch_url returns the content. The prompt argument is accepted and ignored.",
         "WebSearch: allowed_domains and blocked_domains are accepted and ignored.",
         "TodoWrite: activeForm is accepted and ignored — nb's todo list has one label per item, not a present-tense variant.",
+        "environment block: carries cwd, git state, platform, OS version and the date, ahead of the project instructions the way the real harness orders them. The field set is what the channel needs; the wording is nb's, written rather than transcribed. Not carried: model identity, the knowledge cutoff, or any account or session context.",
         "CLAUDE.md: loaded from the project root down to the cwd inside a <system-reminder> wrapper, but sent as a system message rather than injected mid-conversation the way the real harness re-issues reminders. The user-level file at ~/.claude/CLAUDE.md is not read.",
         "surface size: Claude Code also ships slash commands, hooks, plugins, MCP resource tools, background shells and the agent/skill ecosystem. This costume covers the file/shell/search/web core plus the three declared stubs.",
     };
@@ -214,6 +261,38 @@ public sealed class ClaudeCodeHarness : NbHarness
 
     private static AIFunction Declare(string name, string description, SchemaBuilder schema) =>
         new DeclaredFunction(name, description, schema.Build());
+
+    // ---- Result formatting ------------------------------------------------------
+    // Written from observed behaviour, like the prompt, and for the same reason. These
+    // are short functional acknowledgments rather than prose, so the gap between
+    // "observed" and "exact" is narrow — but it is not zero, and the costume says so.
+
+    /// <summary>
+    /// Raw output, no framing. Claude Code hands back what the command printed; nb
+    /// labels the streams and appends an exit-code footer. A quiet successful command
+    /// therefore returns an empty result here and a bare footer under nb's own surface —
+    /// which is the difference the model reads as "that worked, move on".
+    /// </summary>
+    protected override string FormatShellResult(ShellResult result)
+    {
+        var output = new System.Text.StringBuilder();
+        if (!string.IsNullOrEmpty(result.Stdout)) output.AppendLine(result.Stdout.TrimEnd());
+        if (!string.IsNullOrEmpty(result.Stderr)) output.AppendLine(result.Stderr.TrimEnd());
+
+        // The exit code shows up only when it carries information — a failure.
+        if (result.TimedOut) output.AppendLine("Command timed out");
+        else if (result.ExitCode != 0) output.AppendLine($"Exit code {result.ExitCode}");
+
+        return output.ToString().TrimEnd();
+    }
+
+    protected override string FormatWriteResult(string path, long bytesWritten, bool created) =>
+        created
+            ? $"File created successfully at: {path}"
+            : $"The file {path} has been updated.";
+
+    protected override string FormatEditResult(string path, int replacements) =>
+        $"The file {path} has been updated.";
 
     protected override async Task<ToolOutcome?> DispatchAsync(
         string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken)

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using nb.Shell;
+using nb.Shell.ApplyPatch;
 using nb.Transcript;
 
 namespace nb.Harness;
@@ -65,6 +66,39 @@ public sealed class CodexHarness : NbHarness
         return $"# AGENTS.md instructions for {cwd}\n\n<INSTRUCTIONS>\n{body}\n</INSTRUCTIONS>";
     }
 
+    /// <summary>
+    /// Codex's <c>&lt;environment_context&gt;</c> block, verified against the render in
+    /// <c>codex-rs/core/src/context/world_state/environment.rs</c> and its snapshot test.
+    ///
+    /// One available environment takes the flat "legacy single" layout — <c>cwd</c> and
+    /// <c>shell</c> inline rather than wrapped in <c>&lt;environments&gt;</c> — which is
+    /// nb's case exactly: one local shell, always available. Element order is the render
+    /// function's own.
+    ///
+    /// The <c>network</c> and <c>filesystem</c> elements are not emitted; see the
+    /// omissions.
+    /// </summary>
+    public override string? EnvironmentContext()
+    {
+        var now = DateTime.Now;
+        var lines = new List<string>
+        {
+            $"  <cwd>{Escape(WorkingDirectory)}</cwd>",
+        };
+
+        if (Bash?.Environment.ShellName is { Length: > 0 } shell)
+            lines.Add($"  <shell>{Escape(shell)}</shell>");
+
+        lines.Add($"  <current_date>{now:yyyy-MM-dd}</current_date>");
+        lines.Add($"  <timezone>{Escape(TimeZoneInfo.Local.Id)}</timezone>");
+
+        return $"<environment_context>\n{string.Join("\n", lines)}\n</environment_context>";
+
+        static string Escape(string value) => value
+            .Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;")
+            .Replace("\"", "&quot;").Replace("'", "&apos;");
+    }
+
     public override IReadOnlyList<string> Omissions
     {
         get
@@ -84,7 +118,7 @@ public sealed class CodexHarness : NbHarness
     {
         "apply_patch: declared as a JSON function taking an input string. Codex declares it as a freeform tool with a lark grammar, so the model emits a bare patch rather than an argument object. nb has no freeform tool channel. The patch format itself is identical.",
         "AGENTS.md: loaded from the project root down to the cwd, in Codex's own <INSTRUCTIONS> wrapper, but sent as a system message where Codex sends a user-role fragment. Not reproduced: user-level instructions from ~/.codex, and Codex's re-check when the model works outside the cwd — its prompt tells the model to look for those itself, which this costume's shell can do.",
-        "environment context: Codex injects an <environment_context> block (cwd, sandbox mode, approval policy, network access) and appends approval-policy instructions to the prompt. nb sends neither, so the prompt's references to a \"Sandbox and approvals\" section point at nothing.",
+        "environment context: the <environment_context> block carries cwd, shell, current_date and timezone in Codex's verified layout, but not its <network> or <filesystem> elements — mapping nb's approval model and trust sandbox onto Codex's permission-profile vocabulary would mean inventing enum spellings, which is worse than a missing element. Approval-policy instructions are not appended to the prompt either, so the prompt's references to a \"Sandbox and approvals\" section still point at nothing.",
         "shell_command: workdir and timeout_ms are accepted and ignored — nb's bash runs in the shell cwd on its own configured timeout.",
         "view_image: detail is accepted and ignored. A path that is not an image comes back as text rather than as an error.",
         "update_plan: mapped onto nb's todo list. Codex replaces the plan wholesale; this reproduces that by cancelling steps the new plan drops, but nb renders the list its own way rather than as Codex's plan widget.",
@@ -136,6 +170,50 @@ public sealed class CodexHarness : NbHarness
 
     private static AIFunction Declare(string name, string description, SchemaBuilder schema) =>
         new DeclaredFunction(name, description, schema.Build());
+
+    // ---- Result formatting ------------------------------------------------------
+    // Both shapes are verified against openai/codex rather than reconstructed:
+    // format_exec_output_for_model in codex-rs/core/src/tools/mod.rs, and print_summary
+    // in codex-rs/apply-patch/src/lib.rs.
+
+    /// <summary>
+    /// Codex leads with the exit code and labels the body, where nb trails an
+    /// <c>[exit code: N]</c> footer. The difference is not cosmetic: the model reads the
+    /// status before the output rather than after it.
+    /// </summary>
+    protected override string FormatShellResult(ShellResult result)
+    {
+        var body = result.TimedOut
+            ? $"command timed out\n{Combined(result)}"
+            : Combined(result);
+
+        var sections = new List<string> { $"Exit code: {result.ExitCode}" };
+        if (result.Truncated) sections.Add("Total output lines: (truncated)");
+        sections.Add("Output:");
+        sections.Add(body);
+
+        return string.Join("\n", sections);
+
+        // Codex's shell aggregates the two streams into one, unlabelled — there is no
+        // [stderr] marker to key off.
+        static string Combined(ShellResult r) =>
+            string.Concat(r.Stdout, r.Stderr).TrimEnd();
+    }
+
+    /// <summary>Codex's git-style patch summary: a status letter and a path per file.</summary>
+    protected override string FormatApplyPatchResult(PatchPreview preview)
+    {
+        var lines = new List<string> { "Success. Updated the following files:" };
+        lines.AddRange(Paths(FileOpKind.Add).Select(p => $"A {p}"));
+        lines.AddRange(preview.Files
+            .Where(f => f.Kind is FileOpKind.Update or FileOpKind.UpdateAndMove)
+            .Select(f => $"M {f.FinalPath}"));
+        lines.AddRange(Paths(FileOpKind.Delete).Select(p => $"D {p}"));
+        return string.Join("\n", lines);
+
+        IEnumerable<string> Paths(FileOpKind kind) =>
+            preview.Files.Where(f => f.Kind == kind).Select(f => f.FinalPath);
+    }
 
     protected override async Task<ToolOutcome?> DispatchAsync(
         string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken)

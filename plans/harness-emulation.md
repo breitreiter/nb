@@ -756,6 +756,40 @@ now:
      tools nb does not have, which is the wrong trade. Declared.
 7. Deprecate `EditToolStyle` once `CodexHarness` exists.
 
+8. **Result formatting.** Ranked second in *What a harness owns* and unbuilt through
+   steps 4–6, which meant three costumes were reshaping only the action half of the loop.
+
+   **Done** — four virtuals on `NbHarness` (`FormatShellResult`, `FormatWriteResult`,
+   `FormatEditResult`, `FormatApplyPatchResult`). The capability methods keep approval,
+   the sandbox and the read tracker and call a formatter to render what the model sees, so
+   a costume changes the observation without re-implementing any of the rest. nb's own
+   strings are the defaults, so overriding nothing preserves behaviour exactly.
+
+   The three costumes diverge by how well their upstream text is known, and the divergence
+   is deliberate:
+
+   - **`codex` — verified.** `format_exec_output_for_model` and `print_summary` are in the
+     Apache-2.0 source, so the shapes are exact: shell results *lead* with `Exit code: N`
+     and label the body `Output:` where nb trails an `[exit code: N]` footer, and patches
+     report git-style `A`/`M`/`D` lines instead of a count.
+   - **`claude-code` — observed.** Raw shell output with the exit code shown only on
+     failure, and path-based Edit/Write acknowledgments. Close rather than exact, and the
+     costume says so. The known miss is the `cat -n` snippet the real `Edit` returns,
+     which is plausibly the single highest-value string in the whole scheme — it is what
+     decides whether the model re-reads a file it just changed.
+   - **`qwen-code` — not researched, so not guessed.** It keeps nb's strings and declares
+     that it does. Pinned by a test so it stays a decision rather than decaying into an
+     oversight.
+
+   That gradient is the useful output of this step: the mechanism costs nothing to extend,
+   so the remaining question is per-costume research, not design. Note also what did *not*
+   need a formatter — read, grep and glob output are produced by the tools themselves and
+   are already `cat -n`-shaped, so the costumes inherit them correctly for free.
+
+   **The open question below is now answerable.** "How much result-formatting fidelity is
+   load-bearing" was ranked on reasoning; with `codex` exact, `claude-code` close and
+   `qwen-code` untouched, one fixture across the three measures it directly.
+
    **Architectural half done** (with step 6, because Codex forced it). `NbRuntime` now
    builds `write_file`, `edit_file` *and* `apply_patch` whenever tools are wired, and
    `EditToolStyle` survives only as `NbHarness.ApplyPatchStyle`, which picks which pair
@@ -765,6 +799,48 @@ now:
 
    The config field itself is still there and still documented; deprecating it is a
    user-facing change with a window, and is what remains of this step.
+
+9. **The environment block.** The other half of context furniture, and the last unbuilt
+   channel from *What a harness owns*.
+
+   **Done.** `NbHarness.EnvironmentContext()` joins `ProjectInstructions()`, and a new
+   `LeadingContext()` composes everything the costume contributes ahead of the program's
+   own `system` directives. The evaluator no longer assembles that list itself.
+
+   **Ordering had to move to the costume**, which was the one design surprise. The two
+   harnesses disagree and both are right: Codex sends its environment *after* the
+   workspace instructions, while Claude Code carries environment inside the system prompt
+   and attaches `CLAUDE.md` to the first user turn, so its project instructions come
+   *last*. There is no default that serves both, so `LeadingContext()` is virtual and
+   `ClaudeCodeHarness` reverses it. Worth noting the general shape: the first two
+   furniture channels were enough to prove that furniture *order* is part of a costume,
+   not a property of the engine.
+
+   The same three-tier fidelity gradient as step 8, and for the same reasons:
+
+   - **`codex` — verified.** The flat single-environment layout (`cwd`/`shell` inline
+     rather than wrapped in `<environments>`), element order taken from the render
+     function, checked against its snapshot test. nb has exactly one available
+     environment, which is the case that layout exists for. Its `<network>` and
+     `<filesystem>` elements are dropped: mapping nb's approval model and trust sandbox
+     onto Codex's permission-profile vocabulary would mean inventing enum spellings, and
+     a wrong element is worse than a missing one.
+   - **`claude-code` — observed.** cwd, git state, platform, OS version, date. The field
+     set is what the channel needs to be useful; the prose is nb's. Consistent with the
+     preamble decision, nothing was transcribed from a running Claude Code's own context.
+   - **`qwen-code` — none, declared.** Its block was not researched. The declaration names
+     the consequence rather than just the gap: expect the model to open by running `pwd`.
+
+   **Why an invented block is worse than an absent one** is the reusable lesson, and it
+   is sharper here than for prompts or result strings. A model treats an environment block
+   as *fact about the world*, not as instruction — it will not second-guess a `cwd` the
+   way it might second-guess a style rule. Guessing at this channel does not degrade
+   fidelity gracefully; it lies. That asymmetry is what makes "declare the omission"
+   the right default for a channel nobody has researched yet.
+
+   Incidental finding: `ShellEnvironment.BuildSystemPromptSection()` is dead code — nb's
+   own harness has never sent an environment block, and §5.5's promise means it should not
+   start now without a decision. Left alone rather than deleted or wired up.
 
 ## Verification
 
@@ -795,5 +871,7 @@ now:
   choice but touches `ToolSurface`, the `tools` directive docs, and every fixture.
   Worth confirming before step 3.
 - **How much result-formatting fidelity is actually load-bearing?** Ranked second here
-  on reasoning, not measurement. Step 4's live run is the first chance to find out, and
-  the answer should be allowed to reorder the staging.
+  on reasoning, not measurement. Still unmeasured, but no longer un*measurable*: step 8
+  left the three costumes at three different fidelities — `codex` exact, `claude-code`
+  observed, `qwen-code` untouched — so a single fixture run across them answers it
+  directly, and the answer should be allowed to reorder what is left.

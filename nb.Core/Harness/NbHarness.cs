@@ -151,6 +151,62 @@ public class NbHarness
     /// </summary>
     public virtual string? ProjectInstructions() => null;
 
+    /// <summary>
+    /// The environment block this harness's target injects — cwd, platform, shell, date,
+    /// git state — in that harness's own wrapper, or null when it injects none.
+    ///
+    /// The second half of context furniture, alongside <see cref="ProjectInstructions"/>.
+    /// Every real harness tells the model where it is before the model asks, and a costume
+    /// that omits it produces a model that opens by running <c>pwd</c> and <c>uname</c> —
+    /// a behavioural diff with an obvious cause that would otherwise get misattributed to
+    /// the prompt. Evaluated on apply, not cached: it reads the clock and the cwd.
+    ///
+    /// Null for nb's own surface, which sends no environment block today. §5.5 promises a
+    /// program that names no harness gets exactly the system text it writes, and this is
+    /// not the change that should quietly break that promise.
+    /// </summary>
+    public virtual string? EnvironmentContext() => null;
+
+    /// <summary>
+    /// Everything the costume contributes ahead of the program's own <c>system</c>
+    /// directives, in the order the model should read it.
+    ///
+    /// Order is a costume's own business rather than the evaluator's, because the real
+    /// harnesses disagree about it: Codex sends the environment block after the workspace
+    /// instructions, Claude Code carries its environment inside the system prompt and
+    /// attaches project instructions to the first user turn — so the two want opposite
+    /// orders and neither is a default the other can live with.
+    /// </summary>
+    public virtual IReadOnlyList<string> LeadingContext() =>
+        new[] { Preamble, ProjectInstructions(), EnvironmentContext() }
+            .Where(t => !string.IsNullOrEmpty(t))
+            .Select(t => t!)
+            .ToList();
+
+    /// <summary>Whether the working directory sits inside a git repository — furniture every costume reports.</summary>
+    protected bool InGitRepository()
+    {
+        for (var dir = SafeDirectory(WorkingDirectory); dir != null; dir = dir.Parent)
+        {
+            var git = Path.Combine(dir.FullName, ".git");
+            if (Directory.Exists(git) || File.Exists(git)) return true;
+        }
+        return false;
+    }
+
+    private static DirectoryInfo? SafeDirectory(string path)
+    {
+        try
+        {
+            var dir = new DirectoryInfo(Path.GetFullPath(path));
+            return dir.Exists ? dir : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Where the run's tools operate. Falls back to the process cwd under --nobash.</summary>
     protected string WorkingDirectory =>
         Bash?.GetCwd() ?? ReadFile?.GetCwd() ?? Directory.GetCurrentDirectory();
@@ -364,6 +420,51 @@ public class NbHarness
             default:
                 return null;
         }
+    }
+
+    // ---- Result formatting -------------------------------------------------------
+    // The exact text a tool call returns is the *observation* half of the loop, and
+    // models are trained on it as hard as on the action half — so it is part of the
+    // costume, ranked second in plans/harness-emulation.md behind only the advertised
+    // surface. These are the seams: the capability methods below own approval, the
+    // sandbox and the read tracker, and call one of these to render what the model
+    // sees. A costume overrides the rendering without re-implementing any of the rest.
+    //
+    // nb's own strings are the defaults, so overriding nothing preserves behaviour
+    // exactly — which is what the golden masters check.
+
+    /// <summary>What the model sees after a shell command runs.</summary>
+    protected virtual string FormatShellResult(ShellResult result)
+    {
+        var output = new System.Text.StringBuilder();
+
+        if (!string.IsNullOrEmpty(result.Stdout)) output.AppendLine(result.Stdout);
+        if (!string.IsNullOrEmpty(result.Stderr)) output.AppendLine($"[stderr]\n{result.Stderr}");
+
+        output.AppendLine($"\n[exit code: {result.ExitCode}]");
+        if (result.Truncated) output.AppendLine("[output was truncated]");
+        if (result.TimedOut) output.AppendLine("[command timed out]");
+
+        return output.ToString().Trim();
+    }
+
+    /// <summary>What the model sees after a file is written. <paramref name="created"/> distinguishes a new file from an overwrite.</summary>
+    protected virtual string FormatWriteResult(string path, long bytesWritten, bool created) =>
+        $"Successfully wrote {bytesWritten} bytes to {path}";
+
+    /// <summary>What the model sees after a targeted edit lands.</summary>
+    protected virtual string FormatEditResult(string path, int replacements) =>
+        replacements == 1
+            ? $"Successfully edited {path} (1 replacement)"
+            : $"Successfully edited {path} ({replacements} replacements)";
+
+    /// <summary>What the model sees after a patch applies.</summary>
+    protected virtual string FormatApplyPatchResult(PatchPreview preview)
+    {
+        var added = preview.Files.Count(f => f.Kind == FileOpKind.Add);
+        var updated = preview.Files.Count(f => f.Kind == FileOpKind.Update || f.Kind == FileOpKind.UpdateAndMove);
+        var deleted = preview.Files.Count(f => f.Kind == FileOpKind.Delete);
+        return $"Applied patch: {added} added, {updated} updated, {deleted} deleted";
     }
 
     // ---- Argument unpacking ------------------------------------------------------
@@ -706,32 +807,7 @@ public class NbHarness
         {
             var result = await Bash.ExecuteAsync(command);
 
-            // Format result for the model
-            var output = new System.Text.StringBuilder();
-
-            if (!string.IsNullOrEmpty(result.Stdout))
-            {
-                output.AppendLine(result.Stdout);
-            }
-
-            if (!string.IsNullOrEmpty(result.Stderr))
-            {
-                output.AppendLine($"[stderr]\n{result.Stderr}");
-            }
-
-            output.AppendLine($"\n[exit code: {result.ExitCode}]");
-
-            if (result.Truncated)
-            {
-                output.AppendLine("[output was truncated]");
-            }
-
-            if (result.TimedOut)
-            {
-                output.AppendLine("[command timed out]");
-            }
-
-            var outputStr = output.ToString().Trim();
+            var outputStr = FormatShellResult(result);
 
             // Show brief status to user
             var statusColor = result.ExitCode == 0 ? UIColors.SpectreSuccess : UIColors.SpectreWarning;
@@ -756,8 +832,12 @@ public class NbHarness
             // Resolve path for display
             var fullPath = WriteFile?.ResolvePath(path) ?? path;
 
+            // Captured before the write, because a costume's acknowledgment distinguishes
+            // creating a file from overwriting one.
+            var created = !File.Exists(fullPath);
+
             // Guard: if file exists, it must have been read first
-            if (File.Exists(fullPath))
+            if (!created)
             {
                 if (!Files.HasBeenRead(fullPath))
                     return Task.FromResult(ToolOutcome.Fail(callId, "Error: You must read_file before overwriting an existing file."));
@@ -790,7 +870,7 @@ public class NbHarness
                     {
                         Files.RecordWrite(writeResult.Path);
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {writeResult.BytesWritten} bytes[/]");
-                        return Task.FromResult(ToolOutcome.Ok(callId, $"Successfully wrote {writeResult.BytesWritten} bytes to {writeResult.Path}"));
+                        return Task.FromResult(ToolOutcome.Ok(callId, FormatWriteResult(writeResult.Path, writeResult.BytesWritten, created)));
                     }
                     else
                     {
@@ -849,7 +929,7 @@ public class NbHarness
                     {
                         Files.RecordWrite(result.Path);
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]wrote {result.BytesWritten} bytes[/]");
-                        return Task.FromResult(ToolOutcome.Ok(callId, $"Successfully wrote {result.BytesWritten} bytes to {result.Path}"));
+                        return Task.FromResult(ToolOutcome.Ok(callId, FormatWriteResult(result.Path, result.BytesWritten, created)));
                     }
                     else
                     {
@@ -1033,9 +1113,7 @@ public class NbHarness
                     if (editResult.Success)
                     {
                         Files.RecordWrite(editResult.Path);
-                        var msg = editResult.Replacements == 1
-                            ? $"Successfully edited {editResult.Path} (1 replacement)"
-                            : $"Successfully edited {editResult.Path} ({editResult.Replacements} replacements)";
+                        var msg = FormatEditResult(editResult.Path, editResult.Replacements);
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
                         return ToolOutcome.Ok(callId, msg);
                     }
@@ -1089,9 +1167,7 @@ public class NbHarness
                     if (result.Success)
                     {
                         Files.RecordWrite(result.Path);
-                        var msg = result.Replacements == 1
-                            ? $"Successfully edited {result.Path} (1 replacement)"
-                            : $"Successfully edited {result.Path} ({result.Replacements} replacements)";
+                        var msg = FormatEditResult(result.Path, result.Replacements);
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(msg)}[/]");
                         return ToolOutcome.Ok(callId, msg);
                     }
@@ -1176,7 +1252,7 @@ public class NbHarness
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch failed: {Markup.Escape(ex.Message)}[/]");
                 return ToolOutcome.Fail(callId, $"Error applying patch: {ex.Message}");
             }
-            var summary = BuildApplySummary(preview);
+            var summary = FormatApplyPatchResult(preview);
             AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(summary)}[/]");
             return ToolOutcome.Ok(callId, summary);
         }
@@ -1211,7 +1287,7 @@ public class NbHarness
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]apply_patch failed: {Markup.Escape(ex.Message)}[/]");
                     return ToolOutcome.Fail(callId, $"Error applying patch: {ex.Message}");
                 }
-                var summary = BuildApplySummary(preview);
+                var summary = FormatApplyPatchResult(preview);
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]✓[/] [{UIColors.SpectreMuted}]{Markup.Escape(summary)}[/]");
                 return ToolOutcome.Ok(callId, summary);
             }
@@ -1244,13 +1320,6 @@ public class NbHarness
         }
     }
 
-    private static string BuildApplySummary(PatchPreview preview)
-    {
-        var added = preview.Files.Count(f => f.Kind == FileOpKind.Add);
-        var updated = preview.Files.Count(f => f.Kind == FileOpKind.Update || f.Kind == FileOpKind.UpdateAndMove);
-        var deleted = preview.Files.Count(f => f.Kind == FileOpKind.Delete);
-        return $"Applied patch: {added} added, {updated} updated, {deleted} deleted";
-    }
 
     private static readonly JsonSerializerOptions _verboseJsonOptions = new()
     {

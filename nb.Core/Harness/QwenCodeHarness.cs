@@ -61,6 +61,8 @@ public sealed class QwenCodeHarness : NbHarness
     private static readonly string[] _omissions = new[]
     {
         "tool descriptions: nb's own prose, with corrected parameter names. qwen-code's descriptions are Apache-2.0 and vendorable, and are not vendored.",
+        "environment block: none. qwen-code injects one; its shape was not researched, and an invented block is worse than an absent one because the model reads it as fact. The consequence is concrete — expect the model to open by running pwd, since nothing has told it where it is.",
+        "result formatting: nb's own strings, unchanged — the exit-code footer on run_shell_command, the edit and write acknowledgments. The codex and claude-code costumes reshape theirs; this one does not, because qwen-code's exact result text was not researched and guessing at it would be worse than saying so.",
         "run_shell_command: is_background and directory are accepted and ignored — nb's bash runs foreground in the shell cwd. timeout is converted from qwen's milliseconds to nb's seconds.",
         "web_fetch: qwen-code runs a model over the fetched page and answers the prompt; nb's fetch_url returns the content. The prompt and format arguments are accepted and ignored.",
         "list_directory: ignore and file_filtering_options are not offered.",

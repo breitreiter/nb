@@ -138,7 +138,8 @@ public class HarnessPreambleTests
             var messages = client.CapturedMessages!;
             Assert.Contains("running in the Codex CLI", messages[0].Text);
             Assert.Contains("<INSTRUCTIONS>\nPrefer tabs in this repo.\n</INSTRUCTIONS>", messages[1].Text);
-            Assert.Equal("Be terse.", messages[2].Text);
+            Assert.StartsWith("<environment_context>", messages[2].Text);
+            Assert.Equal("Be terse.", messages[3].Text);
         }
         finally
         {

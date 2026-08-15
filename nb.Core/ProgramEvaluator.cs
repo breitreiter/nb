@@ -126,15 +126,13 @@ public sealed class ProgramEvaluator
         // preamble arrives with the costume"). They go to the FRONT of the pending turns:
         // the costume speaks first and the program's own system directives get the last
         // word, which is how these harnesses layer project context onto their own prompts
-        // anyway. Preamble before project instructions, matching the real harnesses —
-        // the prompt explains what AGENTS.md is before the model is handed one.
-        var leading = new[] { harness.Preamble, harness.ProjectInstructions() }
-            .Where(t => !string.IsNullOrEmpty(t))
-            .ToList();
+        // anyway. The costume orders its own fragments — preamble, project instructions,
+        // environment block — because the real harnesses disagree about that order.
+        var leading = harness.LeadingContext();
 
         var turn = FirstPendingTurn();
         for (var i = 0; i < leading.Count; i++)
-            _turnBuffer.Insert(i, new SystemEvent { Turn = turn, Text = leading[i]! });
+            _turnBuffer.Insert(i, new SystemEvent { Turn = turn, Text = leading[i] });
 
         foreach (var omission in harness.Omissions)
             _warnings.Add($"harness '{harness.Name}' does not reproduce — {omission}");
