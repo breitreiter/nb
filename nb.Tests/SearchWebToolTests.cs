@@ -87,9 +87,9 @@ public class ApprovalPolicySearchTests
         new(trust: false, new ApprovalPatterns(), _ => false, null, @default);
 
     [Fact]
-    public void Search_PromptsByDefault()
+    public void Search_DeniedByDefault()
     {
-        Assert.Equal(ApprovalDecision.Prompt, Policy().DecideSearch());
+        Assert.Equal(ApprovalDecision.Deny, Policy().DecideSearch());
     }
 
     [Fact]
@@ -100,8 +100,8 @@ public class ApprovalPolicySearchTests
         Assert.Equal(ApprovalDecision.Allow, p.DecideSearch());
     }
 
-    // Headless runs cannot prompt, so without a grant every one of them reads as a
-    // denial — the grant is what makes live search usable in nb's primary mode.
+    // nb never prompts, so without a grant every run reads as a denial — the grant is
+    // what makes live search usable at all.
     [Fact]
     public void Search_DeniedUnderDefaultDeny()
     {
@@ -121,6 +121,6 @@ public class ApprovalPolicySearchTests
     {
         // Trust is a working-directory sandbox concept; search leaves the machine.
         var p = new ApprovalPolicy(trust: true, new ApprovalPatterns(), _ => false);
-        Assert.Equal(ApprovalDecision.Prompt, p.DecideSearch());
+        Assert.Equal(ApprovalDecision.Deny, p.DecideSearch());
     }
 }

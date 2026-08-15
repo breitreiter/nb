@@ -1,0 +1,72 @@
+=== ladder-miss / shell / Bash
+--- ledger
+deny / no-match
+--- model
+Error: bash (Read): /etc/passwd was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: bash (Read): /etc/passwd — nothing in the approval policy allows it.
+       authorize with: approval bash cat *
+
+=== ladder-miss / write-outside-cwd / Write
+--- ledger
+deny / no-match
+--- model
+Error: write_file → /etc/motd was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: write_file → /etc/motd — nothing in the approval policy allows it.
+       No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
+
+=== ladder-miss / network-fetch / WebFetch
+--- ledger
+deny / no-match
+--- model
+Error: fetch_url: https://example.com/data.json was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval fetch allow. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: fetch_url: https://example.com/data.json — nothing in the approval policy allows it.
+       authorize with: approval fetch allow
+
+=== ladder-miss / read-outside-cwd / Read
+--- ledger
+deny / no-match
+--- model
+Error: read_file → /etc/hostname was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: read_file → /etc/hostname — nothing in the approval policy allows it.
+       No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
+
+=== default-deny / shell / Bash
+--- ledger
+deny / default-deny
+--- model
+Error: bash (Read): /etc/passwd was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: bash (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.
+       authorize with: approval bash cat *
+
+=== default-deny / write-outside-cwd / Write
+--- ledger
+deny / default-deny
+--- model
+Error: write_file → /etc/motd was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: write_file → /etc/motd — the approval policy default is deny, and no allow-rule matched.
+       No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
+
+=== default-deny / network-fetch / WebFetch
+--- ledger
+deny / default-deny
+--- model
+Error: fetch_url: https://example.com/data.json was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval fetch allow. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: fetch_url: https://example.com/data.json — the approval policy default is deny, and no allow-rule matched.
+       authorize with: approval fetch allow
+
+=== default-deny / read-outside-cwd / Read
+--- ledger
+deny / default-deny
+--- model
+Error: read_file → /etc/hostname was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: read_file → /etc/hostname — the approval policy default is deny, and no allow-rule matched.
+       No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
+

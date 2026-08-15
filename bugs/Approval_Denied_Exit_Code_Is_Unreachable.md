@@ -1,8 +1,37 @@
 # The documented `approval_denied` exit code can never be produced
 
-Status: Open (2026-08-15) — found during the codebase hygiene sweep
-(`TODO.md`, "Run a ReSharper pass"), while checking an open question in
-`plans/approval-without-prompts.md`.
+Status: **Fixed 2026-08-15** — implemented in step 4 of
+`plans/approval-without-prompts.md`. Found during the codebase hygiene sweep
+(`TODO.md`, "Run a ReSharper pass"), while checking an open question in that plan.
+
+## Resolution
+
+Implemented, per the recommendation below. `ToolErrorTracker` now records whether each
+failure in a tool's streak was a denial (`RecordResult(..., isDenial:)`); when the streak
+trips the limit, `ConversationManager` asks `StreakWasAllDenials` and returns
+`ExitReasons.ApprovalDenied` instead of `ToolErrorLimit`. Verified end to end:
+
+| Run | `exit_reason` | exit |
+|---|---|---|
+| Denial the model routed around | `ok` | 0 |
+| Turn aborted by repeated denials | `approval_denied` | **4** |
+| Turn aborted by repeated genuine failures | `tool_error_limit` | 3 |
+
+Two deliberate departures from the fix sketch below:
+
+- **Denials were *not* excluded from the tool-error budget** (consequence 3's
+  suggestion). They still count toward the same limit — that is what bounds a model
+  hammering a refused call — but the *reason* the budget tripped is now recorded, which
+  is the part that was actually missing. Excluding them would need a separate budget with
+  its own limit and its own exit reason, for no gain.
+- **The streak must be unanimous.** One genuine failure mixed into a denial streak yields
+  `tool_error_limit`, not `approval_denied`: a task that went wrong and also hit a wall is
+  not an authorization problem, and reporting it as one would send a caller to edit a
+  policy that was never the blocker.
+
+Covered by `ApprovalDenialTests` (exit codes through the facade) and
+`ToolErrorTrackerTests` (streak purity, including the mixed case the facade cannot easily
+produce). Original report follows unchanged.
 
 ## Symptom
 

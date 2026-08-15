@@ -186,8 +186,11 @@ public sealed record ToolsEvent : SurfaceDirectiveEvent
 /// <summary>
 /// An approval-policy directive: <c>approval &lt;key&gt; &lt;value&gt;</c> where key is
 /// <c>bash</c> (add an auto-approve command pattern), <c>mcp</c> (add an allow glob),
-/// or <c>default</c> (<c>prompt</c> | <c>deny</c> for unmatched calls). Layers onto the
-/// config-seeded policy (plans/approval-policy-and-sandbox.md).
+/// <c>search</c> / <c>fetch</c> (<c>allow</c> — grant the search_web / fetch_url tool),
+/// <c>sandbox</c> (<c>none</c> | <c>bwrap</c> | <c>bwrap-net</c>), or <c>default</c>
+/// (<c>prompt</c> | <c>deny</c> — how far an unmatched call climbs before it is refused;
+/// both tiers refuse it). Layers onto the config-seeded policy
+/// (plans/approval-policy-and-sandbox.md).
 /// </summary>
 public sealed record ApprovalEvent : TranscriptEvent
 {

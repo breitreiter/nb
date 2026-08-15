@@ -1,0 +1,36 @@
+=== ladder-miss / shell / shell_command
+--- ledger
+deny / no-match
+--- model
+Error: bash (Read): /etc/passwd was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: bash (Read): /etc/passwd — nothing in the approval policy allows it.
+       authorize with: approval bash cat *
+
+=== ladder-miss / patch-outside-cwd / apply_patch
+--- ledger
+deny / no-match
+--- model
+Error: apply_patch (path outside working directory) was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: apply_patch (path outside working directory) — nothing in the approval policy allows it.
+       No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
+
+=== default-deny / shell / shell_command
+--- ledger
+deny / default-deny
+--- model
+Error: bash (Read): /etc/passwd was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: bash (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.
+       authorize with: approval bash cat *
+
+=== default-deny / patch-outside-cwd / apply_patch
+--- ledger
+deny / default-deny
+--- model
+Error: apply_patch (path outside working directory) was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+--- human (stderr)
+[nb] denied: apply_patch (path outside working directory) — the approval policy default is deny, and no allow-rule matched.
+       No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
+

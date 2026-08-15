@@ -7,6 +7,10 @@ status: current
 state: accepted
 touches:
   files:
+    - nb.Tests/DenialGoldenTests.cs
+    - nb.Core/ToolErrorTracker.cs
+    - nb.Tests/ApprovalDenialTests.cs
+    - Providers/Mock/MockProvider.cs
     - nb.Core/Harness/NbHarness.cs
     - nb.Core/Shell/ApprovalPolicy.cs
     - nb.Core/ConversationManager.cs
@@ -288,14 +292,94 @@ nothing even if the rest of it is never built.
      supposed to fix.
 3. **Delete the seven prompt blocks**, keeping classification and display. `ApprovalDecision`
    collapses to `Allow`/`Deny`; `NonInteractive` and its uses go.
+
+   *Done 2026-08-15.* Net −292 lines. Three corrections to what this step assumed:
+
+   - **There were eight, not seven.** The eighth is the MCP approval loop in
+     `ConversationManager.cs`, which had its own `Console.ReadKey` loop, its own
+     rejection-reason prompt and its own hand-rolled refusal string — it was not in
+     `NbHarness`, so the seven-site survey missed it. It could not have been left behind
+     anyway: it gated on `NonInteractive`, which this step deletes. It now refuses through
+     the same `Deny` helper as the native tools, which is a bonus the survey did not
+     anticipate — MCP denials pick up the costume's refusal class and a pasteable
+     `approval mcp {tool}` remedy instead of the old "User rejected this tool call".
+     `Deny` became `public` for this (it was `protected`), still `virtual`.
+   - **`ApprovalDefault` keeps the name `Prompt`.** Only `ApprovalDecision` collapsed. The
+     tier still decides how far a call climbs before counting as unmatched (`Deny` skips
+     the safe list and trust), so the distinction is live — and `prompt` is the wire
+     spelling in both `approval default prompt` and `"Default": "prompt"`. Renaming it
+     would break published grammar to fix a comment. It is documented as "the permissive
+     tier" instead.
+   - **The rung had to move off the decision.** Call sites used to read
+     `decision == Deny` to mean "the program asked for `default deny`" and `NonInteractive`
+     to mean "nothing matched". With the decision collapsed, both are `Deny` and neither
+     survives — so `NbHarness.DenyRung` now reads `ApprovalPolicy.Default` directly. That
+     is what keeps `default-deny` and `no-match` distinguishable in the ledger, which
+     step 4 tests.
 4. **Tests** — the coverage that never existed: an unmatched call denies identically with
    stdin a pipe and a TTY; the denial names the authorizing directive; `approval default
    deny` and standard-ladder denials produce distinguishable messages; a denied run's exit
    code matches the documented one.
+
+   *Done 2026-08-15.* `nb.Tests/ApprovalDenialTests.cs` (9 tests, facade-driven) plus five
+   `ToolErrorTrackerTests` cases. 557 green, up from 542. Notes:
+
+   - **Exit code 4 is now reachable**, resolving
+     `bugs/Approval_Denied_Exit_Code_Is_Unreachable.md`. `ToolErrorTracker` learned
+     `isDenial`, and a streak that trips the limit reports `approval_denied` (exit 4) when
+     *every* failure in it was a denial, `tool_error_limit` (exit 3) otherwise. Unanimity
+     is deliberate: a run that mixed real failures with denials is not an authorization
+     problem, and calling it one sends the caller to fix the wrong thing. Denials still
+     count toward the same error budget — that is what bounds a model hammering a refused
+     call; only the *reason* the budget tripped is new.
+   - **The pipe-vs-TTY test could not be written as behaviour.**
+     `Console.IsInputRedirected` is not injectable, so the only way to make the two cases
+     provably identical was to delete the branch that read it. The test asserts the
+     deletion instead (no `NonInteractive`-shaped member on `NbHarness`; `ApprovalDecision`
+     has exactly two members). That is a regression guard, not a proof — worth naming,
+     because CI runs under a pipe and would not catch a reintroduced TTY check any other
+     way.
+   - **`MockProvider` gained `fetch_url` and `write_file` argument arms.** Both previously
+     fell through to `["input"] = arg`, so a scripted call reached the tool with an empty
+     url/path — which silently made the very paths this step tests untestable. Watch for
+     the same gap in `grep`, `find_files` and `edit_file` when step 5 needs them.
+   - **Gotcha for step 5: `dotnet test` alone can run against a stale mock.**
+     `Providers/Mock` is loaded at runtime through `AssemblyLoadContext`, so it is not in
+     the test project's dependency graph and `dotnet test` will not rebuild it. A mock
+     change needs `dotnet build` first, or the suite tests the previous DLL. This cost a
+     confusing red run here.
 5. **Golden masters.** Denial strings are model-visible, so the tool-surface goldens need a
    denial companion. Settled by the step 6 capture: refusals are per-costume
    model-visible text, which is precisely what the goldens exist to pin. One denial golden
    per costume, covering both denial reasons.
+
+   *Done 2026-08-15.* `nb.Tests/DenialGoldenTests.cs` + four
+   `nb.Tests/golden/denial.*.txt`. Each costume gets the same four *situations* — shell
+   command, write outside the sandbox, network fetch, read outside the sandbox — spelled
+   in its own wire vocabulary, under both denial reasons. Codex gets two (shell,
+   apply_patch): it withholds the file and network tools, so that is its whole refusable
+   surface. Captured at `NbHarness.InvokeAsync`, which is the boundary a costume owns;
+   the retry-budget nudge `ConversationManager` appends downstream belongs to the error
+   tracker and pinning it in four files would couple these goldens to an unrelated
+   subsystem. Both halves recorded — model-facing result *and* human-facing stderr.
+
+   **The baseline immediately found a defect the plan had not anticipated.**
+   `denial.nb.txt` and `denial.claude-code.txt` are byte-identical apart from the `===`
+   case headers — expected for refusal *class*, since step 6's overrides have not landed.
+   But they are also identical in a way that is wrong regardless of class: **the refusal
+   names nb's canonical tool, not the name the model actually called.** A model wearing
+   the claude-code costume calls `Write` and is told `write_file → /etc/motd was denied`;
+   under codex it calls `shell_command` and is told `bash (Read): /etc/passwd`. Both name
+   a tool the costume never advertised.
+
+   This is the same shape as the already-filed "pending-todos reminder names a tool the
+   costume doesn't advertise" (TODO.md, Harness emulation) — model-visible text leaking
+   nb's own vocabulary through a costume that exists to hide it. It is arguably worse
+   here: the todo nudge is advice, whereas a refusal is the only thing a blocked model
+   gets, and a refusal citing an unknown tool invites it to retry under the name it does
+   know. **Fold into step 6** — `Deny` is going virtual anyway, and the wire name has to
+   reach it either way, so the two changes touch the same signature. The goldens will show
+   both corrections in one reviewable diff.
 6. **Capture what real harnesses say when they refuse.** The blank spot in the emulation
    corpus, and the fact that decides open question 2.
 
@@ -386,3 +470,13 @@ call nothing authorized. All three produce the same transcript, the same exit co
 denial message that names the directive which would have allowed it. If any of the three
 differs, or if a reader has to know whether stdin was a pipe to predict the outcome, it
 did not land.
+
+*Run 2026-08-15, after step 3.* Piped and file-at-a-TTY produce **byte-identical** JSONL —
+same `tool_call` with `"approved":"deny"`, same refusal text naming `approval bash cat *`,
+same `"denied":1` trailer, same exit `0` (the model recovered, which is the documented
+rule). The REPL leg **was not driven**: this box has neither `expect` nor `tmux`, and
+feeding a file through `script` crashes UglyPrompt's line editor, which answers its own
+`ESC[6n` cursor query with nothing and then indexes a negative column. That crash
+reproduces identically at `bda08d0` (before step 3) and is in the line editor, not
+approval — but the leg is untested, not passed. Drive it by hand, or once a pty driver is
+available.

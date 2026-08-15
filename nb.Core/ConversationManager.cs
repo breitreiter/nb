@@ -542,63 +542,17 @@ public class ConversationManager
                                 var mcpTool = mcpTools.FirstOrDefault(t => t.Name == wireCall.Name);
                                 if (mcpTool != null)
                                 {
-                                    // Check the approval policy (alwaysAllow / Approval.McpTools) for this tool
-                                    var mcpDecision = _harness.ApprovalPolicy.DecideMcp(wireCall.Name);
-                                    bool approved = mcpDecision == ApprovalDecision.Allow;
-
-                                    if (!approved && (NbHarness.NonInteractive || mcpDecision == ApprovalDecision.Deny))
+                                    // Check the approval policy (alwaysAllow / Approval.McpTools) for this tool.
+                                    // An unmatched MCP tool is refused through the same helper the native
+                                    // tools use, so it gets the costume's refusal class and a pasteable
+                                    // remedy instead of its own hand-rolled string.
+                                    if (_harness.ApprovalPolicy.DecideMcp(wireCall.Name) != ApprovalDecision.Allow)
                                     {
-                                        // No terminal to prompt at, or the policy default is deny: refuse without a prompt.
-                                        Console.Error.WriteLine($"[nb] denied: MCP tool '{wireCall.Name}' needs approval, but it is not allow-listed and {(NbHarness.NonInteractive ? "stdin is not a TTY" : "the approval policy default is deny")}.");
-                                    }
-                                    else if (!approved)
-                                    {
-                                        // Show tool call details and request approval
-                                        var argumentsJson = JsonSerializer.Serialize(wireCall.Arguments, new JsonSerializerOptions { WriteIndented = true });
+                                        var denial = _harness.Deny(wireCall.CallId, $"MCP tool {wireCall.Name}",
+                                            _harness.DenyRung, $"approval mcp {wireCall.Name}");
 
-                                        while (true)
-                                        {
-                                            AnsiConsole.MarkupLine($"[{UIColors.SpectreUserPrompt}]Allow tool call: {wireCall.Name}? (Y/n/?)[/]");
-                                            var key = Console.ReadKey().KeyChar;
-
-                                            if (key == 'n')
-                                            {
-                                                approved = false;
-                                                break;
-                                            }
-                                            else if (key == '?' )
-                                            {
-                                                AnsiConsole.MarkupLine($"[dim]Arguments:[/]");
-                                                AnsiConsole.MarkupLine($"[dim]{argumentsJson}[/]");
-                                                approved = AnsiConsole.Confirm("Allow this call?", defaultValue: true);
-                                                break;
-                                            }
-                                            else if (key == '\r' || key == 'y')
-                                            {
-                                                approved = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if (!approved)
-                                    {
-                                        var reason = NbHarness.NonInteractive
-                                            ? "non-interactive session; approval policy denied"
-                                            : AnsiConsole.Prompt(
-                                                new TextPrompt<string>("Reason for rejection [dim](optional)[/]:")
-                                                    .DefaultValue("User declined")
-                                                    .AllowEmpty()
-                                            );
-
-                                        var rejectionMessage = string.IsNullOrWhiteSpace(reason) || reason == "User declined"
-                                            ? "Error: User rejected this tool call. Permission denied. Do not retry this action."
-                                            : $"Error: User rejected this tool call. Reason: {reason}. Please consider an alternative approach based on the user's feedback.";
-
-                                        allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, rejectionMessage));
-
-                                        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Tool call rejected, notifying model[/]");
-                                        _harness.LogToolCall(wireCall.Name, wireCall.Arguments, rejectionMessage);
+                                        allToolResults.Add(denial);
+                                        _harness.LogToolCall(wireCall.Name, wireCall.Arguments, denial.Content.Result?.ToString() ?? "");
                                         _toolCallCount++;
                                         continue; // Skip to next tool call
                                     }
@@ -661,7 +615,9 @@ public class ConversationManager
                     if (_doomLoopEnabled) _doomLoopDetector.Record(call.Name, SerializeArgs(call.Arguments));
 
                     var (frc, isError) = allToolResults[i];
-                    _errorTracker.RecordResult(call.Name, isError);
+                    var wasDenied = Approvals.TryGet(frc.CallId, out var verdict, out _)
+                                    && verdict == ApprovalLedger.Deny;
+                    _errorTracker.RecordResult(call.Name, isError, wasDenied);
                     if (isError)
                     {
                         var remaining = _errorTracker.RemainingAttempts(call.Name);
@@ -683,10 +639,18 @@ public class ConversationManager
                 // Hard-abort the turn if any tool has hit its failure budget
                 if (_errorTracker.LimitReached(out var offendingTool))
                 {
-                    var abortMsg = $"Tool '{offendingTool}' failed {_errorTracker.Limit} times in a row. Aborting this turn to prevent a runaway loop. Review the errors above and try a different approach, or ask the user for help.";
+                    // A turn the approval policy blocked outright is a different outcome
+                    // from one the model kept fumbling, and callers branch on it: exit 4
+                    // says "grant something", exit 3 says "the task is failing".
+                    var deniedOut = _errorTracker.StreakWasAllDenials(offendingTool!);
+                    var abortMsg = deniedOut
+                        ? $"Tool '{offendingTool}' was denied {_errorTracker.Limit} times in a row and nothing in this run will authorize it. Aborting this turn. Grant it with an `approval` directive, or proceed without it."
+                        : $"Tool '{offendingTool}' failed {_errorTracker.Limit} times in a row. Aborting this turn to prevent a runaway loop. Review the errors above and try a different approach, or ask the user for help.";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, abortMsg));
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]⛔ {Markup.Escape(abortMsg)}[/]");
-                    return Transcript.ExitReasons.ToolErrorLimit;
+                    return deniedOut
+                        ? Transcript.ExitReasons.ApprovalDenied
+                        : Transcript.ExitReasons.ToolErrorLimit;
                 }
 
                 // Inject a reminder if the model is looping

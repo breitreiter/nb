@@ -31,9 +31,19 @@ cd bin/Debug/net10.0
 
 # Run a program (quick test via stdin; MOCK: prompts drive the Mock provider)
 echo 'run MOCK:response=hi' | ./nb - --output jsonl
+
+# Tests. Always build first — see the provider gotcha below.
+dotnet build && dotnet test --no-build
 ```
 
 Note: `dotnet run` from project root won't work - provider DLLs are discovered relative to the executable.
+
+**⚠️ `dotnet test` alone can run against a stale provider DLL.** Providers (including
+`Providers/Mock`, which nearly every test drives) load at runtime through
+`AssemblyLoadContext`, so they are *not* in the test project's dependency graph and
+`dotnet test` will not rebuild them. Edit a provider, run `dotnet test`, and the suite
+silently exercises the previous build — the failure looks like a broken test rather than
+a stale binary. Run `dotnet build` first whenever provider code changed.
 
 ## Execution Modes
 nb runs a **conversation-program**, two ways:

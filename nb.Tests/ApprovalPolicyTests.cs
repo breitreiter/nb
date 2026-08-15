@@ -28,11 +28,11 @@ public class ApprovalPolicyTests
     }
 
     [Fact]
-    public void Bash_DangerousNeverSafe_FallsToPrompt()
+    public void Bash_DangerousNeverSafe_Denies()
     {
-        // rm -rf is dangerous, not pre-approved, trust off → prompt.
+        // rm -rf is dangerous, not pre-approved, trust off → nothing allows it.
         var (d, _) = Bash(Policy(), "rm -rf build");
-        Assert.Equal(ApprovalDecision.Prompt, d);
+        Assert.Equal(ApprovalDecision.Deny, d);
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public class ApprovalPolicyTests
     {
         // touch is a non-dangerous Run command, not in the safe allowlist.
         var (dNoTrust, _) = Bash(Policy(trust: false), "touch out.txt");
-        Assert.Equal(ApprovalDecision.Prompt, dNoTrust);
+        Assert.Equal(ApprovalDecision.Deny, dNoTrust);
 
         var (dTrust, reason) = Bash(Policy(trust: true), "touch out.txt");
         Assert.Equal(ApprovalDecision.Allow, dTrust);
@@ -48,26 +48,26 @@ public class ApprovalPolicyTests
     }
 
     [Fact]
-    public void Bash_UnknownReadCommand_Prompts()
+    public void Bash_UnknownReadCommand_Denies()
     {
-        // cat is a Read command but not safe-listed; without --approve/trust → prompt.
+        // cat is a Read command but not safe-listed; nothing else grants it.
         var (d, _) = Bash(Policy(), "cat /etc/passwd");
-        Assert.Equal(ApprovalDecision.Prompt, d);
+        Assert.Equal(ApprovalDecision.Deny, d);
     }
 
     [Fact]
     public void Bash_TrustDoesNotClearDangerous()
     {
         var (d, _) = Bash(Policy(trust: true), "sudo rm -rf /");
-        Assert.Equal(ApprovalDecision.Prompt, d);
+        Assert.Equal(ApprovalDecision.Deny, d);
     }
 
     [Fact]
-    public void Mcp_AlwaysAllowedAutoApproves_ElsePrompts()
+    public void Mcp_AlwaysAllowedAutoApproves_ElseDenies()
     {
         var p = Policy(mcp: name => name == "tester_current_time");
         Assert.Equal(ApprovalDecision.Allow, p.DecideMcp("tester_current_time"));
-        Assert.Equal(ApprovalDecision.Prompt, p.DecideMcp("tester_delete_all"));
+        Assert.Equal(ApprovalDecision.Deny, p.DecideMcp("tester_delete_all"));
     }
 
     [Fact]
@@ -75,15 +75,33 @@ public class ApprovalPolicyTests
     {
         var p = new ApprovalPolicy(false, new ApprovalPatterns(), _ => false, mcpGlobs: new[] { "tester/*" });
         Assert.Equal(ApprovalDecision.Allow, p.DecideMcp("tester_current_time"));
-        Assert.Equal(ApprovalDecision.Prompt, p.DecideMcp("other_tool"));
+        Assert.Equal(ApprovalDecision.Deny, p.DecideMcp("other_tool"));
     }
 
     [Fact]
-    public void Path_InSandboxAllows_OutsidePrompts()
+    public void Path_InSandboxAllows_OutsideDenies()
     {
         var p = Policy();
         Assert.Equal(ApprovalDecision.Allow, p.DecidePath(inSandbox: true));
-        Assert.Equal(ApprovalDecision.Prompt, p.DecidePath(inSandbox: false));
+        Assert.Equal(ApprovalDecision.Deny, p.DecidePath(inSandbox: false));
+    }
+
+    /// <summary>
+    /// The permissive tier is the default, and it denies an unmatched call just as
+    /// `default deny` does. Pinned as its own case because it is the whole point of
+    /// removing the prompts: before, every assertion above returned a third outcome that
+    /// only a human at a keyboard could resolve.
+    /// </summary>
+    [Fact]
+    public void PermissiveTier_StillDeniesWhatNothingMatched()
+    {
+        var p = Policy();
+        Assert.Equal(ApprovalDefault.Prompt, p.Default);
+        Assert.Equal(ApprovalDecision.Deny, Bash(p, "cat /etc/passwd").Item1);
+        Assert.Equal(ApprovalDecision.Deny, p.DecidePath(inSandbox: false));
+        Assert.Equal(ApprovalDecision.Deny, p.DecideMcp("unlisted_tool"));
+        Assert.Equal(ApprovalDecision.Deny, p.DecideSearch());
+        Assert.Equal(ApprovalDecision.Deny, p.DecideFetch());
     }
 
     [Fact]
@@ -118,7 +136,7 @@ public class ApprovalPolicyTests
     [Fact]
     public void Fetch_NeverAutoApproves()
     {
-        Assert.Equal(ApprovalDecision.Prompt, Policy().DecideFetch());
+        Assert.Equal(ApprovalDecision.Deny, Policy().DecideFetch());
     }
 
     [Fact]

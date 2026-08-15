@@ -156,6 +156,10 @@ public class MockChatClient : IChatClient
         {
             "bash" => new() { ["command"] = arg, ["description"] = "scripted by MockProvider" },
             "search_web" => new() { ["query"] = arg },
+            "fetch_url" => new() { ["url"] = arg },
+            // Content is fixed: these scripted calls exercise approval and the tool loop,
+            // and no test so far has cared what got written — only whether it was allowed.
+            "write_file" => new() { ["path"] = arg, ["content"] = "scripted by MockProvider\n" },
             // read_file keeps its name across the qwen-code costume but changes its
             // parameter spelling, and the mock cannot see which harness is active — so
             // send both; the unused one is ignored either way.

@@ -2,19 +2,25 @@ using System.Text.RegularExpressions;
 
 namespace nb.Shell;
 
-/// <summary>Whether a tool call auto-approves, needs a prompt, or is refused.</summary>
-public enum ApprovalDecision { Allow, Prompt, Deny }
+/// <summary>Whether a tool call auto-approves or is refused. There is no third outcome:
+/// nb never prompts, so a call the ladder does not allow is denied
+/// (plans/approval-without-prompts.md).</summary>
+public enum ApprovalDecision { Allow, Deny }
 
 /// <summary>
 /// How permissive a run is with calls nothing explicitly allow-listed.
 ///
-/// The names describe the unmatched-call disposition, but that is the smaller half of the
-/// difference. <c>Prompt</c> runs the whole auto-approve ladder — explicit patterns, then
-/// the built-in safe-command list, then <c>--trust</c> + sandbox — and only a call that
-/// survives all three reaches a prompt. <c>Deny</c> honours the explicit allow-list and
-/// nothing else, because the safe list and <c>--trust</c> are both implicit grants and the
-/// safe list includes <c>make</c>, <c>npx</c> and <c>go build</c> (arbitrary code, not just
-/// reads). So these are really permissiveness tiers; see <see cref="ApprovalPolicy.DecideBash"/>.
+/// Both tiers now *deny* an unmatched call — the difference is how much ladder a call gets
+/// to climb before it counts as unmatched. <c>Prompt</c> runs the whole auto-approve ladder:
+/// explicit patterns, then the built-in safe-command list, then <c>Trust</c> + sandbox.
+/// <c>Deny</c> honours the explicit allow-list and nothing else, because the safe list and
+/// trust are both implicit grants and the safe list includes <c>make</c>, <c>npx</c> and
+/// <c>go build</c> (arbitrary code, not just reads). So these are permissiveness tiers, not
+/// dispositions; see <see cref="ApprovalPolicy.DecideBash"/>.
+///
+/// <c>Prompt</c> keeps its name because it is the wire spelling — <c>approval default
+/// prompt</c> in a program, <c>"Default": "prompt"</c> in config — and renaming it would
+/// break published grammar for no behavioural gain. Read it as "the permissive tier".
 /// </summary>
 public enum ApprovalDefault { Prompt, Deny }
 
@@ -27,8 +33,9 @@ public enum SandboxMode { None, Bwrap }
 /// <c>--approve</c> / <c>alwaysAllow</c> and an <c>Approval</c> config block, and
 /// layered further by the <c>approval</c> conversation-program directive (its
 /// mutators). Carries the bash <see cref="Sandbox"/> mode (Phase 5.3). See
-/// plans/approval-policy-and-sandbox.md. The interactive prompt UX and the
-/// non-TTY deny stay at the call site; the policy only chooses the decision.
+/// plans/approval-policy-and-sandbox.md. The policy only chooses the decision;
+/// rendering the refusal — to the model and to the human — stays at the call site
+/// (<see cref="nb.Harness.NbHarness.Deny"/>).
 /// </summary>
 public sealed class ApprovalPolicy
 {
@@ -81,8 +88,11 @@ public sealed class ApprovalPolicy
         _mcpGlobs.Add(new Regex(pattern, RegexOptions.Compiled | RegexOptions.IgnoreCase));
     }
 
-    // The disposition for a call nothing auto-approved.
-    private ApprovalDecision NonMatch => _default == ApprovalDefault.Deny ? ApprovalDecision.Deny : ApprovalDecision.Prompt;
+    // The disposition for a call nothing auto-approved. Denial either way — the tier
+    // already had its say in how far the call got to climb. Kept as a named member so the
+    // decide methods read as "…else the unmatched disposition" rather than a bare Deny,
+    // and so callers consult Default (not the decision) to say *which* denial it was.
+    private const ApprovalDecision NonMatch = ApprovalDecision.Deny;
 
     /// <summary>
     /// Bash precedence: <c>--approve</c>/<c>Approval.Bash</c> match → safe-command
