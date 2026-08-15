@@ -154,13 +154,13 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 | --- | --- | --- |
 | `provider` | `provider <name>` | Select the active provider (matched against `ChatProviders[].Name` in config) for subsequent runs. |
 | `model` | `model <name>` | Select the model for subsequent runs. Overrides the active provider's model field in memory (both `Model` and `ChatDeploymentName`). |
-| `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Defaults to `nb` (nb's own surface). Registered names: `nb`, `qwen-code`, `codex`. An unknown one is a parse error, not a warning. |
+| `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Defaults to `nb` (nb's own surface). Registered names: `nb`, `qwen-code`, `codex`, `claude-code`. An unknown one is a parse error, not a warning. |
 
 **On `harness`.** It is a program directive rather than provider config because the
 experiment worth running is *one model across two harnesses*, and that has to be
 expressible as two files in a directory rather than as an edit to global config between
 runs. A named harness brings its whole costume — prompt preamble and the project instruction
-files its target reads, such as `AGENTS.md` under `codex` — see §5.5.
+files its target reads — `AGENTS.md` under `codex`, `CLAUDE.md` under `claude-code` — see §5.5.
 Runs that wear a non-default harness record it on the `result` trailer as `harness`
 (omitted for the default). A costume also reports what it knowingly does not reproduce,
 as run warnings, so a surprising result arrives with a suspect list attached. Further
@@ -249,7 +249,7 @@ opt-in, because a program that asks to imitate another agent and is then told it
 unchanged: name no harness and nothing is injected.
 
 A costume also brings the **project instruction files its target reads** — `AGENTS.md`
-for `codex` — collected from the repo root down to the working directory and wrapped as
+for `codex`, `CLAUDE.md` for `claude-code` — collected from the repo root down to the working directory and wrapped as
 that harness wraps them. This is the one thing a program does not fully determine: the
 same program run in two directories sends different text, because that is exactly what
 the harness being imitated does. Named-harness runs are therefore reproducible from the
@@ -344,7 +344,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
 | `run` | `prompt`? | Invocation directive. On output, a past run appears as the `assistant_text` it produced. |
 | `provider` / `model` | `name` | Config directive. |
-| `harness` | `name` | Harness-selection directive (§5.1). Registered: `nb`, `qwen-code`, `codex`. |
+| `harness` | `name` | Harness-selection directive (§5.1). Registered: `nb`, `qwen-code`, `codex`, `claude-code`. |
 | `mcp` / `tools` | `reset`?, `add`[], `remove`[] | Tool-surface delta. |
 | `approval` | `key`, `value` | Approval-policy directive. |
 | `loop` | `enabled`, `threshold`? | Doom-loop directive. `threshold` present only when `enabled`. |

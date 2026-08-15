@@ -505,6 +505,61 @@ public class NbHarness
         return ToolOutcome.Ok(callId, resultString);
     }
 
+    /// <summary>
+    /// Turn a whole-list checklist into the incremental changes nb's todo_write expects.
+    ///
+    /// Codex's <c>update_plan</c> and Claude Code's <c>TodoWrite</c> both send the entire
+    /// list on every call and the new list replaces the old one; nb's todo_write merges by
+    /// content and keeps what it is not told about. Cancelling the items the new list
+    /// dropped is what makes a replace out of a merge — without it a costume that reports
+    /// three steps would render five.
+    /// </summary>
+    protected static List<TodoChange> ParseChecklist(
+        IDictionary<string, object?>? args, string arrayKey, string textField)
+    {
+        var items = new List<TodoChange>();
+        if (args is null || !args.TryGetValue(arrayKey, out var raw) || raw is null)
+            return items;
+
+        try
+        {
+            var json = raw is JsonElement je ? je.GetRawText() : raw.ToString();
+            if (string.IsNullOrWhiteSpace(json)) return items;
+
+            using var doc = JsonDocument.Parse(json!);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return items;
+
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var text = item.TryGetProperty(textField, out var t) ? t.GetString() : null;
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                var status = item.TryGetProperty("status", out var s) ? s.GetString() : null;
+                items.Add(new TodoChange(text!, status ?? "pending"));
+            }
+        }
+        catch (JsonException)
+        {
+            // Leave it empty; todo_write reports "no changes submitted".
+        }
+        return items;
+    }
+
+    protected IDictionary<string, object?> AsWholeListReplacement(IReadOnlyList<TodoChange> items)
+    {
+        var kept = items.Select(i => i.Content).ToHashSet(StringComparer.Ordinal);
+        var changes = Todos.GetAll()
+            .Where(t => !kept.Contains(t.Content))
+            .Select(t => new TodoChange(t.Content, "cancelled"))
+            .Concat(items)
+            .ToList();
+
+        return new Dictionary<string, object?>
+        {
+            ["changes"] = JsonSerializer.Serialize(changes),
+        };
+    }
+
     /// <summary>Read the todo list. Always auto-approves.</summary>
     protected ToolOutcome HandleTodoReadToolCall(string callId)
     {

@@ -53,6 +53,19 @@ internal sealed class SchemaBuilder
         return this;
     }
 
+    /// <summary>An array of plain strings.</summary>
+    public SchemaBuilder AddStringArray(string name, string description, bool required = false)
+    {
+        _properties[name] = new JsonObject
+        {
+            ["type"] = "array",
+            ["description"] = description,
+            ["items"] = new JsonObject { ["type"] = "string" },
+        };
+        if (required) _required.Add(name);
+        return this;
+    }
+
     /// <summary>An array of objects, shaped by a nested builder.</summary>
     public SchemaBuilder AddArray(string name, string description, SchemaBuilder item, bool required = false)
     {

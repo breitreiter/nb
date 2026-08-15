@@ -18,7 +18,7 @@ public static class HarnessRegistry
     public const string Default = "nb";
 
     public static IReadOnlyList<string> KnownNames { get; } =
-        new[] { Default, QwenCodeHarness.HarnessName, CodexHarness.HarnessName };
+        new[] { Default, QwenCodeHarness.HarnessName, CodexHarness.HarnessName, ClaudeCodeHarness.HarnessName };
 
     /// <summary>
     /// Build the harness a name selects, over the tool instances the runtime wired.
@@ -35,6 +35,12 @@ public static class HarnessRegistry
 
         if (string.Equals(name, CodexHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
             return new CodexHarness(
+                baseHarness.Bash, baseHarness.ReadFile, baseHarness.WriteFile, baseHarness.EditFile,
+                baseHarness.FindFiles, baseHarness.Grep, baseHarness.ListDir, baseHarness.FetchUrl,
+                baseHarness.SearchWeb, baseHarness.ApplyPatch);
+
+        if (string.Equals(name, ClaudeCodeHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
+            return new ClaudeCodeHarness(
                 baseHarness.Bash, baseHarness.ReadFile, baseHarness.WriteFile, baseHarness.EditFile,
                 baseHarness.FindFiles, baseHarness.Grep, baseHarness.ListDir, baseHarness.FetchUrl,
                 baseHarness.SearchWeb, baseHarness.ApplyPatch);

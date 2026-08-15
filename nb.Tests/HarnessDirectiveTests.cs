@@ -37,12 +37,10 @@ public class HarnessDirectiveTests
     [Fact]
     public void Harness_UnknownName_IsRejectedWithLineAndKnownNames()
     {
-        // claude-code is a planned costume that does not exist yet — naming one that is
-        // merely *coming* is the case most likely to be typed by mistake.
-        var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("# comment\nharness claude-code\n"));
+        var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("# comment\nharness not-a-harness\n"));
 
         Assert.Contains("line 2", ex.Message);
-        Assert.Contains("claude-code", ex.Message);
+        Assert.Contains("not-a-harness", ex.Message);
         Assert.Contains("nb", ex.Message);
     }
 
@@ -78,7 +76,10 @@ public class HarnessDirectiveTests
     {
         Assert.Equal("nb", HarnessRegistry.Default);
         Assert.True(HarnessRegistry.IsKnown("nb"));
-        Assert.False(HarnessRegistry.IsKnown("claude-code"));
+
+        // A bogus name rather than a not-yet-built costume: the last two placeholders
+        // here both became real, and each broke this test on the day it shipped.
+        Assert.False(HarnessRegistry.IsKnown("not-a-harness"));
     }
 
     /// <summary>

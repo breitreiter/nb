@@ -75,6 +75,7 @@ already nb's own to shape.
   as a diff against something legible.
 - **A closed, in-tree set.** `ClaudeCode`, `Codex`, `Cursor`, `QwenCode`. If you need
   something weird, you write a class. No profile DSL, no config language, no discovery.
+  (`Cursor` is deferred — see *Staging* step 6. The set is still closed; it is just three.)
 - **No interface yet.** There is no extension boundary today, and per the project's
   standing guidance an interface does not get invented for future flexibility. The door
   stays open — see *Future door* below — but it is not walked through now.
@@ -375,8 +376,8 @@ implementation, and the harness class is where that composition is declared.
 |---|---|---|
 | `QwenCode` | **Apache-2.0** — vendor | Subsumes the whole of `plans/tool-dialects.md`: `edit`, `glob`, `grep_search`, `list_directory`, `run_shell_command`, `web_fetch`, and `file_path` throughout. The one costume with a measured failure and a fixture behind it. |
 | `Codex` | **Apache-2.0** — vendor | Partly exists already — see below. `apply_patch` plus a smaller surface. |
-| `Cursor` | closed — paraphrase | Least researched surface, and the flakiest control (`cursor-agent -p` has reported hangs). Closed binary, so implementation confounds are opaque. Schedule last on those grounds, not on legal ones. |
-| `ClaudeCode` | closed — paraphrase | Largest surface gap. `MultiEdit` needs decomposition; `TodoWrite` maps onto nb's existing todo tool; `Task` / `Skill` / `NotebookEdit` are fake-backed. Result formatting (line-prefixed reads, edit acknowledgments) is the high-value part. |
+| `Cursor` | closed — paraphrase | **Deferred indefinitely** (2026-08-14) — see below. Least researched surface, and the flakiest control (`cursor-agent -p` has reported hangs). Closed binary, so implementation confounds are opaque. |
+| `ClaudeCode` | closed — paraphrase | **Built** (step 6). `MultiEdit` turned out to be retired upstream, so the decomposition this row predicted was never needed; `TodoWrite` maps onto nb's todo tool; `Task` / `Skill` / `NotebookEdit` are declared stubs that announce themselves. Result formatting (line-prefixed reads, edit acknowledgments) is the high-value part and is nb's already. |
 
 ## Sourcing the preambles
 
@@ -433,6 +434,16 @@ which makes that the costume to be most careful with, not least.
 **Practical hygiene:** do not pull suspect prompt text into a working context at all.
 Text that gets read gets paraphrased-from, and paraphrasing from the thing you were
 avoiding copying is how it ends up in the repo anyway.
+
+**And the case this project has that most do not:** nb's costumes are largely written by
+an assistant that is itself running inside one of the target harnesses, with that
+harness's real system prompt in its context. Transcribing it would be the most direct
+copy available, not the most legitimate — the fact that the text is *right there* makes
+it a worse source, not a better one. `ClaudeCodeHarness` was written without it, and the
+prompt file's header says so, because a claim of independent authorship that nobody can
+check is worth less than one that is written down and can be argued with. The tool
+*surface* is a different matter: schemas observed first-hand are interface facts, and
+that half is reproduced exactly.
 
 ### Calibrating against the real prompt
 
@@ -643,7 +654,8 @@ now:
    tests by an xunit collection.
 6. `CodexHarness` (also Apache-2.0, also vendorable), then `ClaudeCode`, then `Cursor`.
    Ordering is by prompt licence and surface-research cost. Building a control rig is
-   optional at any point and gates nothing.
+   optional at any point and gates nothing. **Codex and ClaudeCode are done; Cursor is
+   deferred indefinitely — this step is closed at three costumes.**
 
    **Codex done** — `nb.Core/Harness/CodexHarness.cs`, four tools: `shell_command`,
    `apply_patch`, `update_plan`, `view_image`. Schemas verified against `openai/codex`
@@ -697,6 +709,51 @@ now:
      real harness. Approval and the trust sandbox are untouched. This is the first case
      of a costume needing to relax an nb safety mechanism, and the general shape (the
      mechanism is coupled to nb's *tool set*, not to safety as such) will recur.
+   **Claude Code done** — `nb.Core/Harness/ClaudeCodeHarness.cs`. Eleven advertised
+   tools, `CLAUDE.md` in a `<system-reminder>` wrapper, and the widest gap between the
+   provenance of its two halves.
+
+   **The surface is exact; the prompt is authored.** Names, parameter spellings, enum
+   values and Grep's ripgrep-shaped flags are interface facts, reproduced as-is. The
+   prompt is an nb-authored facsimile, because Claude Code's is closed and there is a
+   takedown precedent. Three sources were ruled out and the file's header records all
+   three, including the one this project had uniquely available and did not use:
+   transcription by an assistant that is itself running as Claude Code, with the real
+   prompt in its context. That is the most direct copy of the three, not the most
+   legitimate. Writing to *observed behaviour* stays the method.
+
+   **Corrections to this plan, found by building it:**
+
+   - **`MultiEdit` is gone from Claude Code.** The table below still lists decomposing it
+     as the hard part; it is not, because `Edit` absorbed `replace_all` and `MultiEdit`
+     was retired upstream. The costume does not advertise it, and a test asserts so.
+   - **Not every tier-2 tool should be faked.** `BashOutput` / `KillShell` exist on the
+     real surface, but nb's bash has no background mode, so a model that starts a
+     background command and then polls forever is *worse off* than one that never
+     backgrounds. They are omitted and declared. Presence is not unconditionally the
+     right call — the test is whether the model can get stuck in the gap.
+   - **A stub must announce itself.** `Task`, `Skill` and `NotebookEdit` are declared and
+     return an explicit "not implemented, nothing ran, do not retry". Returning a
+     plausible fake would put a fabricated result into the transcript and make the run
+     silently meaningless, which is precisely the unfalsifiable-placebo failure this plan
+     exists to avoid.
+   **Cursor deferred indefinitely** (2026-08-14). Not cancelled and not blocked — there
+   is nothing stopping it being written, and the class would slot in beside the other
+   three unchanged. It is simply not worth building next. Three costumes cover the
+   harnesses this project actually compares against; Cursor is the least-researched
+   surface, behind a closed binary whose implementation confounds are opaque, with the
+   flakiest control of the four. Its marginal value is below **result formatting**, which
+   is unbuilt for *all three existing costumes* and which this plan ranks second in what
+   a harness owns. Fixing that improves three costumes at once; adding Cursor improves
+   none of them.
+
+   Revisit if someone actually needs to test something in a Cursor-shaped environment.
+   That is a real reason and it would move this straight back up.
+
+   - **`tools` cannot filter a tool nb has no name for.** The three stubs have no
+     canonical counterpart, so they ride the surface as a group: present by default, gone
+     under `tools none`. Finer control would mean growing nb's vocabulary with names for
+     tools nb does not have, which is the wrong trade. Declared.
 7. Deprecate `EditToolStyle` once `CodexHarness` exists.
 
    **Architectural half done** (with step 6, because Codex forced it). `NbRuntime` now

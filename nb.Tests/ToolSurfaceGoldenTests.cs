@@ -95,6 +95,11 @@ public class ToolSurfaceGoldenTests : IDisposable
     public Task Surface_CodexHarnessIgnoresEditToolStyle() =>
         AssertGolden("codex", ToolSurface.All, applyPatchStyle: true, harness: CodexHarness.HarnessName);
 
+    /// <summary>The claude-code costume: PascalCase names and file_path throughout.</summary>
+    [Fact]
+    public Task Surface_ClaudeCodeHarness() =>
+        AssertGolden("claude-code", ToolSurface.All, harness: ClaudeCodeHarness.HarnessName);
+
     // ---- harness ----
 
     private async Task AssertGolden(string name, ToolSurface surface, bool applyPatchStyle = false, bool noBash = false, string? harness = null)

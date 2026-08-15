@@ -152,7 +152,10 @@ public sealed class CodexHarness : NbHarness
                 return HandleApplyPatchToolCall(callId, Str(arguments, "input"));
 
             case "update_plan":
-                return HandleTodoWriteToolCall(callId, PlanAsTodoChanges(arguments));
+                // update_plan replaces the plan; nb's todo list merges. The base class
+                // owns the conversion, since Claude Code's TodoWrite needs the same one.
+                return HandleTodoWriteToolCall(callId,
+                    AsWholeListReplacement(ParseChecklist(arguments, "plan", "step")));
 
             case "view_image" when ReadFile != null:
                 return HandleReadFileToolCall(callId, Str(arguments, "path"), null, null);
@@ -162,56 +165,4 @@ public sealed class CodexHarness : NbHarness
         }
     }
 
-    /// <summary>
-    /// Codex sends the whole plan on every call and the new list replaces the old one;
-    /// nb's todo list merges by content and keeps what it is not told about. Cancelling
-    /// the steps the new plan dropped is what makes a replace out of a merge, and it is
-    /// the harness's job — the decomposition of a costume tool into canonical operations
-    /// belongs in the costume, not in a new nb-level primitive.
-    /// </summary>
-    private IDictionary<string, object?> PlanAsTodoChanges(IDictionary<string, object?>? arguments)
-    {
-        var steps = ParsePlan(arguments);
-        var kept = steps.Select(s => s.Content).ToHashSet(StringComparer.Ordinal);
-        var changes = Todos.GetAll()
-            .Where(t => !kept.Contains(t.Content))
-            .Select(t => new TodoChange(t.Content, "cancelled"))
-            .Concat(steps)
-            .ToList();
-
-        return new Dictionary<string, object?>
-        {
-            ["changes"] = System.Text.Json.JsonSerializer.Serialize(changes),
-        };
-    }
-
-    private static List<TodoChange> ParsePlan(IDictionary<string, object?>? arguments)
-    {
-        var plan = new List<TodoChange>();
-        if (arguments is null || !arguments.TryGetValue("plan", out var raw) || raw is null)
-            return plan;
-
-        try
-        {
-            var json = raw is System.Text.Json.JsonElement je ? je.GetRawText() : raw.ToString();
-            if (string.IsNullOrWhiteSpace(json)) return plan;
-
-            using var doc = System.Text.Json.JsonDocument.Parse(json!);
-            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return plan;
-
-            foreach (var item in doc.RootElement.EnumerateArray())
-            {
-                if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
-                var step = item.TryGetProperty("step", out var s) ? s.GetString() : null;
-                if (string.IsNullOrWhiteSpace(step)) continue;
-                var status = item.TryGetProperty("status", out var st) ? st.GetString() : null;
-                plan.Add(new TodoChange(step!, status ?? "pending"));
-            }
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            // Leave the plan empty; todo_write reports "no changes submitted".
-        }
-        return plan;
-    }
 }
