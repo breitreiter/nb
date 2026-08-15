@@ -25,12 +25,22 @@ internal sealed class NbRuntime : IDisposable
     public ConversationManager Conversation { get; }
     public McpManager Mcp { get; }
 
-    private NbRuntime(IConfiguration config, ProviderManager providers, McpManager mcp, ConversationManager conversation)
+    /// <summary>
+    /// Non-fatal problems found while assembling the run — deprecated configuration, so
+    /// far. Distinct from the evaluator's warnings, which are about the program; these are
+    /// about the environment the program was handed. Both end up on the same
+    /// <c>RunResult.Warnings</c> list, because a caller does not care which layer noticed.
+    /// </summary>
+    public IReadOnlyList<string> StartupWarnings { get; }
+
+    private NbRuntime(IConfiguration config, ProviderManager providers, McpManager mcp,
+        ConversationManager conversation, IReadOnlyList<string> startupWarnings)
     {
         _config = config;
         _providers = providers;
         Mcp = mcp;
         Conversation = conversation;
+        StartupWarnings = startupWarnings;
     }
 
     // The client factory the evaluator uses for mid-stream provider/model swaps —
@@ -44,6 +54,8 @@ internal sealed class NbRuntime : IDisposable
 
     public static async Task<NbRuntime> BuildAsync(IConfiguration config, NbOptions options)
     {
+        var startupWarnings = new List<string>();
+
         ShellEnvironment shell;
         try { shell = ShellEnvironment.Detect(); }
         catch (InvalidOperationException ex) { throw new NbStartupException(ex.Message); }
@@ -84,7 +96,17 @@ internal sealed class NbRuntime : IDisposable
 
             var providerConfig = config.GetSection("ChatProviders").GetChildren()
                 .FirstOrDefault(c => string.Equals(c["Name"], config["ActiveProvider"], StringComparison.OrdinalIgnoreCase));
-            applyPatchStyle = string.Equals(providerConfig?["EditToolStyle"], "ApplyPatch", StringComparison.OrdinalIgnoreCase);
+
+            // DEPRECATED (2026-08-15). EditToolStyle is a proto-harness: it predates the
+            // idea, and says a fraction of what `harness codex` says properly. It still
+            // works and still means what it meant — the deprecation is a warning and a
+            // documented replacement, not a behaviour change — because it is documented
+            // config that is presumably in use. See plans/harness-emulation.md, step 7.
+            var editToolStyle = providerConfig?["EditToolStyle"];
+            applyPatchStyle = string.Equals(editToolStyle, "ApplyPatch", StringComparison.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(editToolStyle))
+                startupWarnings.Add(EditToolStyleDeprecation(providerConfig!["Name"], editToolStyle, applyPatchStyle));
         }
 
         var trust = options.Trust || string.Equals(config["Trust"], "true", StringComparison.OrdinalIgnoreCase);
@@ -133,7 +155,24 @@ internal sealed class NbRuntime : IDisposable
             doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget,
             wallClockBudgetMs: wallBudgetMs);
 
-        return new NbRuntime(config, providers, mcp, conversation);
+        return new NbRuntime(config, providers, mcp, conversation, startupWarnings);
+    }
+
+    /// <summary>
+    /// The deprecation notice, naming the entry so it is findable in a layered config, and
+    /// pointing at the directive that replaces it. `harness codex` is the replacement for
+    /// <c>ApplyPatch</c> because apply_patch *is* the Codex edit surface, and the costume
+    /// brings the rest of that surface with it rather than a fragment of it.
+    /// </summary>
+    private static string EditToolStyleDeprecation(string? entryName, string value, bool applyPatch)
+    {
+        var where = string.IsNullOrEmpty(entryName) ? "the active provider entry" : $"provider entry '{entryName}'";
+        var replacement = applyPatch
+            ? "use the program directive `harness codex` instead, which advertises apply_patch as part of the whole Codex surface"
+            : "it is already the default and can simply be removed";
+
+        return $"EditToolStyle is deprecated (set to '{value}' on {where}) — {replacement}. "
+             + "It still works and still means what it meant; it will be removed in a future version.";
     }
 
     // Build the approval policy from the Approval config block + the run's approve

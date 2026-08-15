@@ -74,6 +74,59 @@ public class DirectiveShapeTests
             new TranscriptEvent[] { new BudgetEvent { Key = key, Value = value } }));
     }
 
+    // ---- `tools` vocabulary (plans/harness-emulation.md, "Vocabulary") ----
+
+    [Fact]
+    public void CanonicalToolNames_AreAccepted()
+    {
+        Assert.Empty(Program.CheckDirectiveShape(new TranscriptEvent[]
+        {
+            new ToolsEvent { Reset = true, Add = new[] { "read_file", "edit_file" } },
+            new ToolsEvent { Remove = new[] { "bash", "todo" } },
+        }));
+    }
+
+    /// <summary>
+    /// The decided rule: `tools` speaks nb's canonical names under every costume, because
+    /// it states what the run may do rather than what the model is shown. A wire name is
+    /// therefore an error — and it used to be worse than an error, it was nothing at all.
+    /// </summary>
+    [Theory]
+    [InlineData("Edit")]          // claude-code's wire name for edit_file
+    [InlineData("shell_command")] // codex's for bash
+    [InlineData("run_shell_command")]
+    public void ACostumesWireName_IsAnErrorAndSaysWhy(string wireName)
+    {
+        var errors = Program.CheckDirectiveShape(
+            new TranscriptEvent[] { new ToolsEvent { Remove = new[] { wireName } } });
+
+        var error = Assert.Single(errors);
+        Assert.Contains($"unknown tool '{wireName}'", error);
+        Assert.Contains("canonical", error);
+        Assert.Contains("edit_file", error);  // the valid set is listed, not just asserted
+    }
+
+    /// <summary>
+    /// The reason this check exists at all. An unknown name folded into the allow-set and
+    /// did nothing, so a program that believed it had removed a tool still exposed it —
+    /// silent for as long as the directive has existed, and found by asking the vocabulary
+    /// question rather than by anything failing.
+    /// </summary>
+    [Fact]
+    public void ATypo_IsAnError_RatherThanASilentNoOp()
+    {
+        Assert.Single(Program.CheckDirectiveShape(
+            new TranscriptEvent[] { new ToolsEvent { Remove = new[] { "edit_flie" } } }));
+    }
+
+    /// <summary>MCP names cannot be checked this way — they depend on what connected.</summary>
+    [Fact]
+    public void McpServerNames_AreNotSubjectToTheNativeCheck()
+    {
+        Assert.Empty(Program.CheckDirectiveShape(
+            new TranscriptEvent[] { new McpEvent { Add = new[] { "figma" } } }));
+    }
+
     [Fact]
     public void ErrorsAccumulateAcrossDirectives()
     {

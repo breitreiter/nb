@@ -382,11 +382,17 @@ share one:
 
 Omit `Provider` and it defaults to `Name`.
 
-`EditToolStyle` (per entry) selects the file-edit surface: `EditReplace` (default)
-advertises `edit_file` + `write_file`; `ApplyPatch` advertises `apply_patch` instead.
-They're mutually exclusive — GPT-family models confuse the two when both are present.
-A program that names a `harness` overrides this, advertising whatever that harness's
-target has.
+**`EditToolStyle` is deprecated** (per entry). It selects the file-edit surface:
+`EditReplace` (default) advertises `edit_file` + `write_file`; `ApplyPatch` advertises
+`apply_patch` instead. They're mutually exclusive — GPT-family models confuse the two
+when both are present.
+
+It still works, and setting it prints a warning. Use the `harness codex` program
+directive instead: `apply_patch` *is* the Codex edit surface, and the costume brings the
+rest of that surface — the shell-only file access, the plan tool, `AGENTS.md`, the
+environment block — rather than one field's worth of it. If you set `EditReplace`, just
+remove the field; that's the default. A program that names a `harness` already overrides
+this either way, advertising whatever that harness's target has.
 
 ### Which Azure provider do I want?
 

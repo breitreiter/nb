@@ -185,6 +185,12 @@ apply to the cleared set.
   +read_file` allows just that one. `todo` is a steering aid (a task-tracking tool
   plus a pending-todos nudge for models prone to abandoning work); `tools -todo`
   removes it, which also silences the nudge (no todos can be created without it).
+  These names are **canonical under every `harness`** — a costume changes the names the
+  *model* sees, not the names a program writes. Under `harness claude-code` the model is
+  offered `Edit`, but the program still writes `tools -edit_file`, and the transcript
+  records the wire name `Edit`. Writing a costume's wire name is an error, not a no-op,
+  so the mismatch surfaces at `--validate` time rather than as a tool you thought you had
+  removed.
 - **`mcp`** — MCP servers. Baseline **strict-empty**: a program exposes no MCP tools
   unless it names servers. `mcp +figma` exposes that server's tools (as `figma_*`).
   MCP tools are exposed under the composite name `{server}_{tool}`. Naming a server

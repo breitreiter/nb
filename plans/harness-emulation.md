@@ -310,18 +310,57 @@ default.
 
 ### Vocabulary
 
-Programs speak the costume's names. Under `ClaudeCodeHarness` a program writes
-`tools -Edit`, not `tools -edit_file` — because under that costume there genuinely is
-no `edit_file`; there is `Edit` and `MultiEdit` and no clean mapping back.
+**Decided 2026-08-15: programs speak nb's canonical names under every costume.** This
+*reverses* what this section originally proposed, and the reversal is the interesting
+part, so the original argument is kept below.
 
-Canonical identities survive *internally* for approval, `TrustSandbox` and
-`FileReadTracker`, which must not learn that costumes exist. `ToolSurface.AllowsNative`
-(`Transcript/ToolSurface.cs:21`) currently compares against canonical strings and will
-need to resolve through the harness's vocabulary.
+> ~~Programs speak the costume's names. Under `ClaudeCodeHarness` a program writes
+> `tools -Edit`, not `tools -edit_file` — because under that costume there genuinely is
+> no `edit_file`; there is `Edit` and `MultiEdit` and no clean mapping back.~~
 
-This is the invasive part of the change and the one most worth deciding deliberately;
-it is what the dialects plan avoided by keeping everything canonical, at the cost of
-programs whose text disagrees with their own transcripts.
+That argument is about what the *model* sees, and it is correct about that. It is the
+wrong frame for `tools`, which is a statement about what the run is permitted to do.
+`tools -edit_file` means "this run may not edit files" — true under every costume,
+including one where the capability is spelled `Edit`. The safety layers next door
+(approval, `TrustSandbox`, `FileReadTracker`) already speak canonical for exactly this
+reason, and `tools` belongs with them rather than with the wire.
+
+Three things settled it, in descending weight:
+
+1. **Costume names destroy the one-line diff, which is the whole reason `harness` is a
+   program directive.** The experiment worth running is one model across two harnesses,
+   expressed as two files differing in one line. If `tools` spoke wire names, changing
+   `harness qwen-code` to `harness claude-code` would also mean rewriting every `tools`
+   line — and the two files would no longer be comparable in the way the design set out
+   to make them.
+2. **It would make the fold order-dependent on a config directive.** `harness` may
+   legally appear anywhere, including after a `tools` line. Folding wire names requires
+   knowing the costume at fold time, so `tools -Edit` before `harness claude-code` would
+   mean something different from the same two lines reversed. Canonical folding has no
+   such hazard, and inventing one to gain nothing is a bad trade.
+3. **The mapping is not total, in both directions.** Codex advertises no read tool at
+   all, yet `read_file` is what backs its `view_image` — so `tools -read_file` is
+   meaningful under `codex` and unspeakable in its vocabulary. In the other direction,
+   Claude Code's `Task`, `Skill` and `NotebookEdit` have no canonical name, so a user
+   writing wire names would reasonably expect `tools -Task` to work, and it cannot.
+
+**What this costs, and what was done about it.** The complaint the original argument
+raised is real and survives the decision: a program says `edit_file` while its own
+transcript says `Edit`. That is now a documented property rather than a surprise, and
+two things make it findable instead of silent:
+
+- **An unknown `tools` name is an error.** It used to fold into the allow-set and do
+  nothing — a program that believed it had removed a tool still exposed it, and nothing
+  said so. `tools -Edit` now fails with a message that names the canonical set and states
+  the rule. Typos were silently ignored for as long as this feature has existed; the
+  vocabulary question is what exposed it.
+- **`--resolve` reports `harness=`.** The inspector was printing canonical tool names
+  without mentioning the costume that would rename them on the wire.
+
+Not built, deliberately: an alias table mapping `Edit` → `edit_file` to sharpen the error
+message. It would be a second, diagnostic-only copy of knowledge that lives in each
+costume's dispatch, i.e. the rename table this plan opens by rejecting — and it would rot
+against the costumes without anything failing.
 
 ## Compliance with `rules/model-policy-in-prompt-layers.md`
 
@@ -527,7 +566,7 @@ sixfold.
   `CodexHarness` subsumes it. Deprecate rather than leave a second, weaker way to say a
   fraction of the same thing — but only once `CodexHarness` lands, and with a
   deprecation window, since it is documented in `CLAUDE.md` and `appsettings.example.json`
-  and is presumably in use.
+  and is presumably in use. **Deprecated 2026-08-15; still honored, warns on use — step 7.**
 
 ## Future door: runtime-loaded harnesses
 
@@ -754,7 +793,33 @@ now:
      canonical counterpart, so they ride the surface as a group: present by default, gone
      under `tools none`. Finer control would mean growing nb's vocabulary with names for
      tools nb does not have, which is the wrong trade. Declared.
-7. Deprecate `EditToolStyle` once `CodexHarness` exists.
+7. **Deprecate `EditToolStyle` once `CodexHarness` exists. Done** (2026-08-15), in two
+   halves that landed apart.
+
+   The **architectural half** shipped with step 6, because Codex forced it: `NbRuntime`
+   builds every edit tool and `EditToolStyle` survives only as `NbHarness.ApplyPatchStyle`,
+   which picks which pair nb's *own* surface advertises. Costumes ignore it.
+
+   The **user-facing half** is this one, and the operative decision is that deprecating is
+   not removing. The field is documented in `CLAUDE.md`, `README.md` and
+   `appsettings.example.json` and is presumably in use, so behaviour is unchanged and the
+   only new thing is a warning naming the entry it was set on and the directive that
+   replaces it. `ApplyPatch` is told to use `harness codex`; `EditReplace` is told to just
+   delete the field, since telling that user to adopt a costume would be answering a
+   question they did not ask. Removed from `appsettings.example.json` outright — an
+   example file should not teach a deprecated field, which is a different bar from
+   breaking a config that already sets one.
+
+   This needed a **startup-warning channel**, which nb did not have: `NbRuntime` had no way
+   to report a non-fatal problem, only `NbStartupException`. `NbRuntime.StartupWarnings`
+   now carries them, the facade seeds `RunResult.Warnings` from it, and the REPL prints
+   them. Worth having independently of this deprecation — "the config is deprecated /
+   misspelled / ignored" is a whole class of thing that previously had nowhere to go, and
+   the absence of a channel is why a config field with a known replacement could sit
+   documented and unflagged for as long as it did.
+
+   Not done, deliberately: no removal date. A window measured in releases is honest;
+   inventing a date for a tool with one known downstream consumer is theatre.
 
 8. **Result formatting.** Ranked second in *What a harness owns* and unbuilt through
    steps 4–6, which meant three costumes were reshaping only the action half of the loop.
@@ -867,9 +932,10 @@ now:
 
 ## Open questions
 
-- **Vocabulary is the live one.** Programs speaking costume names is the coherent
-  choice but touches `ToolSurface`, the `tools` directive docs, and every fixture.
-  Worth confirming before step 3.
+- ~~**Vocabulary is the live one.**~~ **Closed 2026-08-15: canonical names, reversing the
+  proposal.** See *Vocabulary* for the argument and for what the decision costs. `ToolSurface`
+  was not touched, which is itself part of the answer — the invasive change turned out to be
+  the wrong one.
 - **How much result-formatting fidelity is actually load-bearing?** Ranked second here
   on reasoning, not measurement. Still unmeasured, but no longer un*measurable*: step 8
   left the three costumes at three different fidelities — `codex` exact, `claude-code`

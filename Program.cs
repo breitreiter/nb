@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using nb.Providers;
+using nb.Harness;
 using nb.MCP;
 using nb.Shell;
 using nb.Transcript;
@@ -252,6 +253,8 @@ public class Program
         using (runtime)
         {
             await runtime.Mcp.ConnectAllAsync();
+            foreach (var warning in runtime.StartupWarnings)
+                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]{Markup.Escape(warning)}[/]");
             foreach (var (name, error) in runtime.Mcp.FailedServers)
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP server '{name}' failed to start: {Markup.Escape(error)}[/]");
             var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory);
@@ -487,17 +490,39 @@ public class Program
                 case BudgetEvent b when b.Value <= 0:
                     errors.Add($"invalid budget value '{b.Value}' for '{b.Key}'. Use a positive integer.");
                     break;
+
+                // `tools` takes nb's canonical names under every harness — see the
+                // Vocabulary decision in plans/harness-emulation.md. Unchecked, an
+                // unknown name folded into the allow-set and did nothing at all: a
+                // program that believed it had removed a tool still exposed it, and
+                // nothing said so. A typo and a costume's wire name fail the same way.
+                case ToolsEvent t:
+                    foreach (var name in t.Add.Concat(t.Remove))
+                        if (!ConversationManager.NativeToolNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                            errors.Add(UnknownNativeTool(name));
+                    break;
             }
         }
 
         return errors;
     }
 
+    /// <summary>
+    /// The teaching error for a `tools` name nb does not have. Most of these will be
+    /// typos, but the interesting case is a costume's wire name — someone who has read a
+    /// transcript full of `Edit` and reasonably assumed that is what a program writes.
+    /// </summary>
+    private static string UnknownNativeTool(string name) =>
+        $"unknown tool '{name}' in a `tools` directive. `tools` names nb's canonical tools under "
+        + "every harness — a costume changes the names the model sees, not the names a program "
+        + $"writes. Valid: {string.Join(", ", ConversationManager.NativeToolNames)}.";
+
     // --resolve: walk the directives without invoking, printing the effective
     // envelope at each run point (the ordering inspector for anywhere-config).
     private static void ResolveProgram(IReadOnlyList<TranscriptEvent> program)
     {
         string provider = "(default)", model = "(default)", output = _outputMode;
+        var harness = HarnessRegistry.Default;
         var surfaceDirectives = new List<SurfaceDirectiveEvent>();
         string approvalDefault = "prompt", sandbox = "none";
         int bashRules = 0, mcpRules = 0;
@@ -511,6 +536,10 @@ public class Program
             {
                 case ProviderEvent p: provider = p.Name; break;
                 case ModelEvent m: model = m.Name; break;
+                // A costume changes the whole advertised surface, so an inspector that
+                // omits it prints canonical tool names without saying they will reach the
+                // model under other ones.
+                case HarnessEvent h: harness = h.Name; break;
                 case SurfaceDirectiveEvent sd: surfaceDirectives.Add(sd); break;
                 case ApprovalEvent { Key: "default" } a: approvalDefault = a.Value; break;
                 case ApprovalEvent { Key: "sandbox" } a: sandbox = a.Value; break;
@@ -530,13 +559,13 @@ public class Program
                         ? "all"
                         : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
                     var budgetStr = $"tokens:{(tokenBudget?.ToString() ?? "-")} tool_calls:{(toolCallBudget?.ToString() ?? "-")} wall_ms:{(wallBudget?.ToString() ?? "-")}";
-                    Console.WriteLine($"run {run}: provider={provider} model={model} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
+                    Console.WriteLine($"run {run}: provider={provider} model={model} harness={harness} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
                     break;
             }
         }
 
         if (run == 0)
-            Console.WriteLine($"no runs. provider={provider} model={model} output={output}");
+            Console.WriteLine($"no runs. provider={provider} model={model} harness={harness} output={output}");
     }
 
     // First non-blank, non-comment line starting with '{' => JSONL bytecode.

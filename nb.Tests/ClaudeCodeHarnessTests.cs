@@ -99,6 +99,12 @@ public class ClaudeCodeHarnessTests : IDisposable
             Assert.True(props.TryGetProperty(p, out _), $"Grep is missing {p}");
     }
 
+    /// <summary>
+    /// The settled vocabulary rule (plans/harness-emulation.md, "Vocabulary", decided
+    /// 2026-08-15): a program writes `tools -edit_file` even under a costume that
+    /// advertises `Edit`, because the directive states what the run may do rather than
+    /// what the model is shown. Writing `Edit` is now a validation error, not a no-op.
+    /// </summary>
     [Fact]
     public void ToolsDirective_FiltersInCanonicalVocabulary()
     {
