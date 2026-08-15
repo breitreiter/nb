@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.AI;
+using nb.Shell;
 
 namespace nb.Transcript;
 
@@ -21,7 +22,13 @@ namespace nb.Transcript;
 /// </summary>
 public static class TranscriptMapper
 {
-    public static List<TranscriptEvent> FromHistory(IEnumerable<ChatMessage> history)
+    /// <param name="approvals">
+    /// Optional live-instrumented approval dispositions, keyed by call id. History does not
+    /// carry them (see the type remarks), so they arrive by the same route as usage: passed
+    /// in from the run rather than recovered from the messages. Omit it and the mapping is
+    /// exactly what it was before — core events, no enrichment.
+    /// </param>
+    public static List<TranscriptEvent> FromHistory(IEnumerable<ChatMessage> history, ApprovalLedger? approvals = null)
     {
         var events = new List<TranscriptEvent>();
         int turn = 0;
@@ -48,13 +55,21 @@ public static class TranscriptMapper
                 if (!string.IsNullOrEmpty(text))
                     events.Add(new AssistantTextEvent { Turn = turn, Text = text });
                 foreach (var call in msg.Contents.OfType<FunctionCallContent>())
+                {
+                    string? verdict = null, approvalReason = null;
+                    if (approvals is not null && approvals.TryGet(call.CallId, out var v, out var r))
+                        (verdict, approvalReason) = (v, r);
+
                     events.Add(new ToolCallEvent
                     {
                         Turn = turn,
                         Id = call.CallId,
                         Name = call.Name,
                         Arguments = ToJsonObject(call.Arguments),
+                        Approved = verdict,
+                        ApprovalReason = approvalReason,
                     });
+                }
             }
             else
             {
@@ -71,7 +86,7 @@ public static class TranscriptMapper
     /// from the emitted events; usage is passed in from the live response (it is
     /// not in history).
     /// </summary>
-    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null)
+    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0)
     {
         // "turns" = assistant rounds: distinct turns carrying an assistant message.
         // (Counting distinct turns rather than the max keeps the number meaningful
@@ -82,7 +97,15 @@ public static class TranscriptMapper
             .Distinct()
             .Count();
         int toolCalls = events.OfType<ToolCallEvent>().Count();
-        return new ResultEvent { ExitReason = exitReason, Usage = usage, Turns = turns, ToolCalls = toolCalls, Harness = harness };
+        return new ResultEvent
+        {
+            ExitReason = exitReason,
+            Usage = usage,
+            Turns = turns,
+            ToolCalls = toolCalls,
+            Harness = harness,
+            Denied = deniedCount > 0 ? deniedCount : null,
+        };
     }
 
     /// <summary>The model's final prose: the last non-empty assistant-text event's

@@ -57,7 +57,7 @@ public static class Nb
             var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory, warnings);
             await evaluator.EvaluateAsync(program, cancellationToken);
 
-            var events = TranscriptMapper.FromHistory(runtime.Conversation.History);
+            var events = TranscriptMapper.FromHistory(runtime.Conversation.History, runtime.Conversation.Approvals);
             var estimated = runtime.Conversation.UsageIsEstimated;
             UsageInfo? usage = runtime.Conversation.TotalUsage is { } u
                 ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total, Estimated = estimated }
@@ -75,6 +75,7 @@ public static class Nb
                 ExitReason = reason,
                 ExitCode = ExitReasons.ToExitCode(reason),
                 Harness = evaluator.Harness == HarnessRegistry.Default ? null : evaluator.Harness,
+                Denied = runtime.Conversation.Approvals.DeniedCount,
                 Warnings = warnings,
             };
         }

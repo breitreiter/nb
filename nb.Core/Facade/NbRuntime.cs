@@ -196,6 +196,9 @@ internal sealed class NbRuntime : IDisposable
         // Approval.Search in config, or the `approval search allow` directive.
         if (string.Equals(config["Approval:Search"], "true", StringComparison.OrdinalIgnoreCase))
             policy.SetSearchAllowed(true);
+        // Approval.Fetch in config, or the `approval fetch allow` directive.
+        if (string.Equals(config["Approval:Fetch"], "true", StringComparison.OrdinalIgnoreCase))
+            policy.SetFetchAllowed(true);
 
         var sandboxValue = config["Approval:Sandbox"];
         if (!string.IsNullOrEmpty(sandboxValue))

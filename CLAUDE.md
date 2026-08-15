@@ -2,15 +2,15 @@
 
 ## Project Overview
 NotaBene (nb) - A C# tool that evaluates **conversation-programs**: ordered directive
-documents (provider/model/tool-surface/approval/fabricated-history/prompt) that nb runs
-statelessly. Not a chat client. Consumable as a CLI (`nb <program-file>` / stdin) or an
-in-process library (`nb.Core` → `Nb.RunAsync`). Pluggable AI providers, MCP integration.
+documents (provider/model/harness/tool-surface/approval/fabricated-history/prompt) that
+nb runs statelessly. Consumable as a CLI (`nb <program-file>` / stdin) or an in-process
+library (`nb.Core` → `Nb.RunAsync`). Pluggable AI providers, MCP integration.
 
 ## Key Technologies
 - **Language**: C# (.NET)
 - **UI Framework**: Spectre.Console for terminal UI
 - **AI Integration**: Microsoft.Extensions.AI with pluggable provider architecture
-- **Architecture**: a stateless conversation-program evaluator (nb.Core engine + a thin CLI Exe), pluggable provider plugins, MCP integration. No persistent history, no chat mode.
+- **Architecture**: a stateless conversation-program evaluator (nb.Core engine + a thin CLI Exe), pluggable provider plugins, MCP integration
 
 ## Important Documentation Links
 - [Microsoft.Extensions.AI Documentation](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)
@@ -36,14 +36,15 @@ echo 'run MOCK:response=hi' | ./nb - --output jsonl
 Note: `dotnet run` from project root won't work - provider DLLs are discovered relative to the executable.
 
 ## Execution Modes
-nb runs a **conversation-program** — there is no bare-prompt/chat mode:
+nb runs a **conversation-program**, two ways:
 
 1. **File / stdin** — `nb <program-file>`, `nb -`, or piped stdin runs a program and
    exits. Stateless; continuity is explicit via `--seed`. Default output is jsonl.
+   The positional argument is a file path, never a prompt.
 
 2. **REPL** (`nb` on a TTY, no input) — a live interpreter of the *same source syntax*:
-   each entered line is a program directive; `run` invokes. Not a chat loop, no
-   slash-commands, no persona. Ctrl-D exits. Also the authoring/debug surface.
+   each entered line is a program directive; `run` invokes. Ctrl-D exits. The
+   authoring/debug surface.
 
 Full grammar/semantics: `docs/conversation-program-cli.md`; library API:
 `docs/conversation-program-api.md`.
@@ -65,6 +66,7 @@ CLI Exe (repo root):
 - `ProviderManager.cs` - AI provider discovery/loading (plugin architecture; injectable providers dir)
 - `ProgramEvaluator.cs` - Evaluates a conversation-program (the TranscriptEvent stream)
 - `Transcript/` - The wire schema (events, serializer, mapper, loader, program parser)
+- `Harness/` - The advertised tool surface. `NbHarness` (nb's own surface + the tool-execution capabilities), `HarnessRegistry` (the closed set of costume names), and one subclass per costume (`QwenCodeHarness`, `CodexHarness`, `ClaudeCodeHarness`). A costume swaps names, schemas, result strings and prompt furniture; the tools behind it are the same instances. Preambles are deployed data files in `nb.Core/prompts/harness/*.md`, not embedded resources. Design: `plans/harness-emulation.md`
 - `MCP/` - `McpManager` (client lifecycle, layered mcp.json), `FakeToolManager`
 - `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust sandbox, bwrap)
 - `Utilities/` - `ConfigurationService` (layered config), `UIColors`, markdown rendering
@@ -73,10 +75,6 @@ Other:
 - `Providers/` - External AI provider plugin projects (Anthropic, AzureOpenAI, …) + `nb.Providers.Abstractions` (the `IChatClientProvider` interface)
 - `providers/` (in `bin/`) - Deployed provider plugin DLLs, loaded at runtime via `AssemblyLoadContext`
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
-
-## Custom Commands
-None. There are no slash-commands (the chat REPL + `CommandProcessor` were removed).
-The REPL takes program directives, not commands; Ctrl-D exits.
 
 ## Development Notes
 - The REPL parses each entered line with `ProgramParser` and feeds it to a long-lived
@@ -124,32 +122,29 @@ The REPL takes program directives, not commands; Ctrl-D exits.
 - **Usage** - Configure in `mcp.json` with dotnet run command pointing to the project
 
 ## Bash Tool (Shell Integration)
-Native tool that gives the model shell access with custom approval UX.
+Native tool that gives the model shell access under a declarative approval policy.
 
 **Files:**
 - `nb.Core/Shell/ShellEnvironment.cs` - Detects OS, shell, architecture, available tools at startup
 - `nb.Core/Shell/BashTool.cs` - Executes commands with timeout, output truncation (sandwich strategy)
 - `nb.Core/Shell/CommandClassifier.cs` - Classifies commands (read/write/delete/run) for approval display
-- `nb.Core/Shell/ApprovalPatterns.cs` - Handles --approve flag patterns for automated testing
+- `nb.Core/Shell/ApprovalPatterns.cs` - Glob matching for bash auto-approve patterns, fed by `approval bash` directives, `Approval.Bash` in config, and `NbOptions.ApprovePatterns` for library hosts
 
 **Features:**
 - Environment context injected into system prompt (OS, shell, available tools, cwd)
-- Custom approval UX showing classified commands (e.g., "read: /etc/hosts" vs "run: yarn install")
+- Command classification shown on the console (e.g., "read: /etc/hosts" vs "run: yarn install") — an observation channel for a human reading the run, not an approval prompt
 - Dangerous command detection with warnings (sudo, rm -rf, etc.)
 - Output sandwich truncation for large outputs (head + tail + stats)
-- Pre-approval via `--approve` flag for scripting/testing
 
-**Usage:**
+**Usage:** approval is declarative, not a flag. A program says `approval bash git *`;
+config says `Approval.Bash`. There is no `--approve` and no bare-prompt invocation:
+
 ```bash
-# Interactive - prompts for approval
-./nb "list the files here"
-
-# Pre-approve commands for automation
-./nb --approve "ls" --approve "cat *" "analyze the project structure"
+printf 'approval bash ls *\nrun list the files here\n' | ./nb -
 ```
 
 **Two-directory model:**
-- `launchDirectory` - where nb started, where history lives (immutable)
+- `launchDirectory` - where nb started (immutable)
 - `shellCwd` - where commands execute, can change via `set_cwd` tool
 
 ## Native File Tools
@@ -157,8 +152,8 @@ Cross-platform file tools that don't require shell access. All read-only tools a
 
 **Files:**
 - `nb.Core/Shell/ReadFileTool.cs` - Read file contents (text with line numbers, PDF text extraction, image base64 for vision)
-- `nb.Core/Shell/WriteFileTool.cs` - Create or overwrite files (requires approval unless --trust)
-- `nb.Core/Shell/EditFileTool.cs` - Targeted string replacement in files (requires approval unless --trust)
+- `nb.Core/Shell/WriteFileTool.cs` - Create or overwrite files (requires approval unless trusted)
+- `nb.Core/Shell/EditFileTool.cs` - Targeted string replacement in files (requires approval unless trusted)
 - `nb.Core/Shell/FindFilesTool.cs` - Glob-based file discovery using `Microsoft.Extensions.FileSystemGlobbing`
 - `nb.Core/Shell/GrepTool.cs` - Regex content search across files (supports content and files_with_matches output modes)
 - `nb.Core/Shell/ListDirTool.cs` - Lightweight directory listing (files and subdirectories)
@@ -170,10 +165,10 @@ No files are skipped by name. nb is stateless per-directory — it writes no
 conversation history, lock, or kit state — so there is nothing of its own for
 discovery to filter out. See `bugs/nb_State_Files_Leak_Into_Discovery.md`.
 
-## Trust Mode (`--trust`)
+## Trust Mode
 Auto-approves file tools and non-dangerous bash commands **within the working directory sandbox**.
 
-**Activation:** `--trust` CLI flag or `"Trust": true` in appsettings.json
+**Activation:** `"Trust": true` in appsettings.json, or `NbOptions.Trust` for library hosts. There is no `--trust` flag — trust is a posture, set in config, not per-invocation. Note that `approval default deny` suppresses it (see `ApprovalPolicy.DecideBash`)
 
 **Path sandboxing:** Only auto-approves operations targeting:
 - The shell cwd and subdirectories
@@ -184,8 +179,9 @@ Auto-approves file tools and non-dangerous bash commands **within the working di
 - `bash` commands classified as non-dangerous with paths in sandbox
 - `bash` Run commands with no extractable path (e.g. `dotnet build`, `git status`)
 
-**What still prompts:**
-- Dangerous bash commands (rm -rf, sudo, etc.) — always prompt
+**What trust does NOT auto-approve** (these are denied unless something else allows them —
+nothing prompts):
+- Dangerous bash commands (rm -rf, sudo, etc.) — never auto-approved by trust
 - File operations targeting paths outside the sandbox
 - MCP tools (use their own `alwaysAllow` mechanism)
 
@@ -213,7 +209,6 @@ Auto-approves file tools and non-dangerous bash commands **within the working di
 ## Architecture Notes
 - **Microsoft.Extensions.AI Integration**: Uses modern AI abstractions with IChatClient interface for provider independence
 - **Provider Abstraction**: LLM interactions isolated through pluggable provider system for easy swapping between AI services
-- **Refactored Structure**: Commands (`CommandProcessor`) separated for maintainability
 - **Safety Mechanisms**: Max tool calls per message, parameter validation, graceful error handling
 - **Clean Type System**: Uses Microsoft.Extensions.AI types (ChatMessage, ChatOptions, ChatResponse) throughout
 
@@ -239,7 +234,7 @@ The application uses an array-based provider configuration schema:
 ```
 - `ActiveProvider` - Selects which `ChatProviders` entry to use, by its `Name`
 - `ChatProviders` - Array of provider configurations
-- `Name` - Free-form label for the entry. This is what `ActiveProvider` and `/provider` select by, and what per-entry lookups (`MaxContextTokens`, `Temperature`, `EditToolStyle`, prompt files) key off
+- `Name` - Free-form label for the entry. This is what `ActiveProvider` and the `provider` directive select by, and what per-entry lookups (`MaxContextTokens`, `Temperature`, `EditToolStyle`, prompt files) key off
 - `Provider` (optional) - Name of the provider implementation backing the entry. Defaults to `Name`. Set it when several entries share one implementation — e.g. two `LocalLlm` servers on different ports:
   ```jsonc
   { "Name": "LocalCoder", "Provider": "LocalLlm", "Endpoint": "…:8081/v1", "Model": "qwen3-coder-next" },

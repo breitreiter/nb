@@ -39,7 +39,8 @@ public sealed class ApprovalPolicy
     private ApprovalDefault _default;
     private SandboxMode _sandbox;                            // Approval.Sandbox + `approval sandbox`
     private bool _sandboxNet;                                // bwrap-net opts network back in
-    private bool _searchAllowed;                             // Approval.Search + `--approve search_web`
+    private bool _searchAllowed;                             // Approval.Search + `approval search allow`
+    private bool _fetchAllowed;                              // Approval.Fetch  + `approval fetch allow`
 
     public ApprovalPolicy(bool trust, ApprovalPatterns bashPatterns, Func<string, bool> mcpAlwaysAllowed,
         IEnumerable<string>? mcpGlobs = null, ApprovalDefault @default = ApprovalDefault.Prompt)
@@ -121,8 +122,16 @@ public sealed class ApprovalPolicy
     public ApprovalDecision DecidePath(bool inSandbox) =>
         inSandbox ? ApprovalDecision.Allow : NonMatch;
 
-    /// <summary>fetch_url never auto-approves in v1 — it falls straight to <see cref="Default"/>.</summary>
-    public ApprovalDecision DecideFetch() => NonMatch;
+    /// <summary>
+    /// fetch_url auto-approves only when explicitly allow-listed (<c>Approval.Fetch</c> or
+    /// the <c>approval fetch allow</c> directive), else falls to <see cref="Default"/>.
+    /// Like search it is a single capability with no argument worth pattern-matching. It
+    /// needs its own key rather than riding on <c>search</c>: reaching an arbitrary URL and
+    /// running a web search are different grants, and a program allowing one should not
+    /// silently acquire the other.
+    /// </summary>
+    public ApprovalDecision DecideFetch() =>
+        _fetchAllowed ? ApprovalDecision.Allow : NonMatch;
 
     /// <summary>
     /// search_web auto-approves only when explicitly allow-listed (<c>Approval.Search</c>
@@ -135,6 +144,8 @@ public sealed class ApprovalPolicy
         _searchAllowed ? ApprovalDecision.Allow : NonMatch;
 
     public void SetSearchAllowed(bool allowed) => _searchAllowed = allowed;
+
+    public void SetFetchAllowed(bool allowed) => _fetchAllowed = allowed;
 
     // Commands that are always safe to run without approval.
     // Matched against the first token of the command (before pipes/args).

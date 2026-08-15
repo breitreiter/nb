@@ -124,7 +124,7 @@ fabricating multi-event rounds; null for run-level events).
 - `SystemEvent`, `UserEvent`, `AssistantTextEvent` — `{ Turn, Text }`.
 
 **Tool round** (author these to replay a past tool exchange as premise):
-- `ToolCallEvent` — `{ Turn, string Id, string Name, JsonObject? Arguments, string? Approved }`.
+- `ToolCallEvent` — `{ Turn, string Id, string Name, JsonObject? Arguments, string? Approved, string? ApprovalReason }`.
 - `ToolResultEvent` — `{ Turn, string Id, string Output }`. `Output` is the exact
   model-facing string. Every call needs a matching result (same `Id`) in the same
   program before a `Run` consumes it, or the program is rejected (§7).
@@ -143,8 +143,9 @@ fabricating multi-event rounds; null for run-level events).
   - `mcp` baseline is **strict-empty** for a program: `new McpEvent { Add = ["figma"] }`
     exposes that server's tools (advertised as `figma_*`).
 - `ApprovalEvent { string Key, string Value }` — `Key` ∈ `bash` (auto-approve a
-  command pattern), `mcp` (an allow glob vs `{server}_{tool}`), `default`
-  (`prompt`|`deny`), `sandbox` (`none`|`bwrap`|`bwrap-net`).
+  command pattern), `mcp` (an allow glob vs `{server}_{tool}`), `search`
+  (`allow`|`prompt`, gates `search_web`), `fetch` (`allow`|`prompt`, gates `fetch_url`),
+  `default` (`prompt`|`deny`), `sandbox` (`none`|`bwrap`|`bwrap-net`).
 - `LoopEvent { bool Enabled, int Threshold }` — doom-loop detector. `Enabled=false`
   is `loop off`; otherwise `Threshold` (>= 2) repetitions trip a soft nudge. On by default.
 - `BudgetEvent { string Key, long Value }` — `Key` in `tokens` (session-cumulative
@@ -154,7 +155,7 @@ fabricating multi-event rounds; null for run-level events).
 
 **Output-only enrichment** (present in `RunResult.Events`, ignored if you replay
 them as input): `ThinkingEvent`, `AssistantJsonEvent`, `ResultEvent` (the run
-trailer — see `RunResult` instead), and the `Approved`/`Result` fields.
+trailer — see `RunResult` instead), and the `Approved`/`ApprovalReason`/`Result` fields.
 
 Example — a fabricated tool round plus tool-surface control, via `.Add()`:
 ```csharp
@@ -231,10 +232,12 @@ install's `bin/.../providers`). If no provider can be loaded/created, `RunAsync`
 throws `NbStartupException`. A provider that fails to load emits a diagnostic to
 `DiagnosticsWriter`.
 
-**Approval, headless-style.** In-process there's no TTY, so an unmatched tool call
-is denied (not prompted). Grant what a run needs via `ApprovePatterns`, `Trust`,
-or `ApprovalEvent`s in the program; `ApprovalEvent{Key="default",Value="deny"}`
-plus explicit allows is the deterministic posture.
+**Approval.** An unmatched tool call is denied, never prompted — not because there is no
+TTY in-process, but because nb does not collect authorization mid-run in any mode. Grant
+what a run needs via `ApprovePatterns`, `Trust`, or `ApprovalEvent`s in the program;
+`ApprovalEvent{Key="default",Value="deny"}` plus explicit allows is the deterministic
+posture. `RunResult.Denied` reports how many calls were refused, mirroring `denied` on the
+transcript trailer.
 
 ---
 
@@ -248,6 +251,8 @@ public sealed record RunResult
     public UsageInfo? Usage   { get; init; }    // { Input, Output, Total, Estimated }, summed across runs
     public string  ExitReason { get; init; }    // "ok" | "provider_error" | "max_tool_calls" | ...
     public int     ExitCode   { get; init; }    // 0 | 2 | 3 | 4
+    public string? Harness    { get; init; }    // the costume worn, null for nb's own
+    public int     Denied     { get; init; }    // tool calls the approval policy refused
     public IReadOnlyList<string> Warnings { get; init; } // non-fatal evaluator warnings
 }
 ```

@@ -75,8 +75,24 @@ public sealed record ToolCallEvent : TranscriptEvent
     /// <summary>Call arguments with original JSON types preserved (numbers stay numbers, bools stay bools).</summary>
     public JsonObject? Arguments { get; init; }
 
-    /// <summary>Enrichment: how the call was approved (auto | preapproved | prompted | rejected). Ignored on seed-load.</summary>
+    /// <summary>
+    /// Enrichment: whether the call was authorized — <c>allow</c> or <c>deny</c>. Ignored on
+    /// seed-load. Instrumented live (history does not carry it) and passed into the mapper,
+    /// the same route <see cref="UsageInfo"/> takes to the trailer.
+    ///
+    /// A refusal is the load-bearing observation here: once nothing prompts, a denial is the
+    /// only non-allow outcome, and a transcript that does not record it cannot be compared
+    /// against one that does. See plans/approval-without-prompts.md.
+    /// </summary>
     public string? Approved { get; init; }
+
+    /// <summary>
+    /// Enrichment: which rung of the approval ladder decided <see cref="Approved"/> —
+    /// <c>pre-approved</c>, <c>safe</c>, <c>trust</c>, <c>default-deny</c>, <c>no-match</c>.
+    /// Ignored on seed-load. Separate from the verdict because "allowed by the safe list"
+    /// and "allowed because the run was trusted" are different experiments.
+    /// </summary>
+    public string? ApprovalReason { get; init; }
 }
 
 public sealed record ToolResultEvent : TranscriptEvent
@@ -227,6 +243,16 @@ public sealed record ResultEvent : TranscriptEvent
     /// be interpreted without it.
     /// </summary>
     public string? Harness { get; init; }
+
+    /// <summary>
+    /// How many tool calls were refused. Omitted when zero, so a run that hit no denials
+    /// keeps a trailer byte-identical to before this field existed.
+    ///
+    /// The run-level counterpart to <see cref="ToolCallEvent.Approved"/>: a reader
+    /// scanning trailers across a corpus can see that a run was fighting its authorization
+    /// envelope without replaying it call by call.
+    /// </summary>
+    public int? Denied { get; init; }
 }
 
 /// <summary>Token usage on the run-level <see cref="ResultEvent"/> trailer.</summary>

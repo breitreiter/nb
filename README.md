@@ -24,10 +24,12 @@ $ nb triage.nb --output porcelain
 bug
 ```
 
-**nb is not a chat client and not a coding harness.** There is no bare-prompt mode,
-no chat loop, no persona, no persisted history, no slash-commands. If you want an
-interactive assistant, use one — nb's job is to make a *scripted* unit of LLM work
-reproducible, inspectable, and cheap to run a thousand times.
+A run is exactly what its document says: the history it fabricates, the persona it
+writes, the tools it declares. Nothing is injected, and nothing carries over from the
+last invocation, which is what makes a scripted unit of LLM work cheap to run a
+thousand times and easy to inspect afterwards. A program can also put the run in
+another agent's costume with `harness` (see [Harness costumes](#harness-costumes)), to
+measure a model through the surface it was trained against.
 
 Full reference: [`docs/conversation-program-cli.md`](docs/conversation-program-cli.md)
 (CLI/subprocess) and [`docs/conversation-program-api.md`](docs/conversation-program-api.md)
@@ -45,12 +47,15 @@ Full reference: [`docs/conversation-program-cli.md`](docs/conversation-program-c
   fabricate a prior tool round the model believes it already made, or define
   `fake-tools.yaml` entries so "destructive" tools return canned results instead of
   doing anything.
+- **Harness comparison** — run one model through `harness codex` and `harness
+  claude-code` and diff the transcripts. `harness` is a program directive, so the
+  experiment lives in two files in a directory instead of a config edit between runs.
 - **A subroutine inside a bigger agent** — call `Nb.RunAsync` in-process and get a
   typed result, or spawn `nb` as a subprocess and parse stdout.
 
-The shell and file tools are still here, but their role has changed: they are a
-**tool surface you hand the model under test**, governed by declarative approval
-policy and an optional sandbox — not an interactive coding assistant.
+The shell and file tools are a **tool surface you hand the model under test** — shaped
+per program by `tools` and `mcp`, governed by declarative approval policy, and
+optionally confined to a bubblewrap sandbox.
 
 ## Prerequisites
 
@@ -119,8 +124,9 @@ echo 'run summarize this' | nb -     # a one-off program on stdin
 nb                                   # (on a TTY, no input) the program REPL
 ```
 
-There is **no bare-prompt mode** — `nb "some text"` is read as a program *file* named
-"some text". To run a quick prompt, wrap it: `echo 'run some text' | nb -`.
+The positional argument is a program **file**, so `nb "some text"` goes looking for a
+file named "some text". To run a one-off prompt, wrap it in a `run`:
+`echo 'run some text' | nb -`.
 
 **Stateless + explicit continuity.** nb reads and writes no history file, so parallel
 runs just work. Carry continuity with `--seed`, which prepends a captured transcript
@@ -148,7 +154,7 @@ nb flow.nb 2>/dev/null | jq -r 'select(.type=="assistant_text").text'
 
 Color is disabled automatically when stdout is redirected or `NO_COLOR` is set. Exit
 codes are meaningful: `0` success, `2` provider error, `3` turn aborted (tool-call
-budget or repeated failures), `4` approval denied — so a harness can classify failures
+budget or repeated failures), `4` approval denied — so a caller can classify failures
 without parsing text.
 
 The program format and the transcript format are the **same schema**: `--output jsonl`
@@ -158,8 +164,8 @@ emits it and `--seed` loads it.
 
 Each line is `<verb> <content>`:
 
-- **Config directives** (`provider`, `model`, `mcp`, `tools`, `approval`) set the
-  envelope going forward.
+- **Config directives** (`provider`, `model`, `harness`, `mcp`, `tools`, `approval`,
+  `loop`, `budget`) set the envelope going forward.
 - **Turn directives** (`system`, `user`, `assistant`) append messages.
 - **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a
   `user` turn followed by `run`).
@@ -180,8 +186,9 @@ A trailing `\` continues content onto the next line, `#` lines are comments, and
 program file — so shared context and shared directives compose without a flag).
 
 A program is **never given a default persona**. It gets exactly the `system`
-directives it writes, and nothing if it writes none — which is what an eval harness
-wants, and the main reason results here don't drift when nb changes.
+directives it writes, and nothing if it writes none — which is what an eval wants, and
+the main reason results here don't drift when nb changes. The sole exception is
+explicit: a `harness` directive brings its costume's prompt with it.
 
 ### Fabricated history
 
@@ -206,25 +213,105 @@ mcp +figma         # expose the figma MCP server's tools
 ```
 
 Native tools are **all-on** by default (`bash`, `read_file`, `write_file`,
-`edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`, `fetch_url`); a `tools`
-directive filters them. MCP servers are **strict-empty**: a program exposes no MCP
-tools unless it names servers with `mcp +server`. `edit_file`/`write_file` enforce a
-read-before-edit guard; `read_file` handles text (with line numbers), PDF text
-extraction, and images as base64 for vision-capable models.
+`edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`, `fetch_url`,
+`search_web`, `todo`); a `tools` directive filters them. MCP servers are
+**strict-empty**: a program exposes no MCP tools unless it names servers with
+`mcp +server`. `edit_file`/`write_file` enforce a read-before-edit guard; `read_file`
+handles text (with line numbers), PDF text extraction, and images as base64 for
+vision-capable models. `search_web` records search intent as an observable in the
+transcript; `todo` is a steering aid (a task list plus a nudge for models prone to
+abandoning work), and `tools -todo` removes it along with the nudge.
+
+Those names are **canonical under every harness**. A costume changes the names the
+*model* sees, not the names a program writes: under `harness claude-code` the model is
+offered `Edit`, but the program still says `tools -edit_file` — because `tools` states
+what the run may do, not what the model is shown. Writing a costume's wire name is an
+error rather than a silent no-op, so `--validate` catches it instead of handing you a
+tool you thought you had removed.
+
+### Harness costumes
+
+`harness <name>` selects the harness a run wears — its tool surface, its result
+formatting, and its prompt. It defaults to `nb` (nb's own surface); the registered
+costumes are `qwen-code`, `codex`, and `claude-code`. An unknown name is a parse error.
+A run that quietly fell back to nb's surface while the program said `codex` would
+produce comparative numbers that mean nothing.
+
+```
+harness codex
+run refactor the parser in src/ and run the tests
+```
+
+A costume swaps what is *advertised*, never what is behind it: the same bash and file
+tools, under the target's names and schemas. Under `codex` the model sees
+`shell_command`, `apply_patch`, `update_plan`, and `view_image`; under `claude-code` it
+sees `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `TodoWrite`, `WebFetch`,
+`WebSearch`, and stubs for `Task`/`Skill`/`NotebookEdit`; under `qwen-code`,
+`run_shell_command`, `edit`, `glob`, `grep_search`, and friends.
+
+Naming a harness opts into the **whole** costume. A program that asks to imitate
+another agent, and is then told it should *also* have requested the prompt, has been
+failed by the tool. So a costume brings:
+
+- its **prompt preamble** (Codex's is its own text, vendored under Apache-2.0; the
+  qwen-code and claude-code preambles are nb-authored facsimiles that occupy the same
+  channels in original prose, not transcriptions of closed text);
+- the **project instruction files** its target reads — `AGENTS.md` under `codex`,
+  `CLAUDE.md` under `claude-code` — collected from the repo root down to the working
+  directory, in that harness's own wrapper;
+- its **environment block** — cwd, shell or platform, date, git state — in the target's
+  layout. (`qwen-code` sends none, deliberately.)
+
+Everything injected lands in the transcript as ordinary `system` messages, so the wire
+record is complete and a `--seed` replay reproduces it exactly even after the costume
+changes. The trade is that a costume reads files and the clock, so a named-harness run
+is reproducible **from its transcript, not from the program alone**. The same program
+in two directories sends different text, because the harness being imitated does the
+same.
+
+Each costume also **reports what it knowingly does not reproduce**, as run warnings, so
+a surprising result arrives with a suspect list attached: ignored arguments, stubbed
+tools, result strings written from observed behaviour, and the parts of the target's
+surface (sub-agents, skills, background shells, plugins) that are out of scope. Worth
+reading before you draw a conclusion from a costumed run. The costume set is closed and
+in-tree; design notes in [`plans/harness-emulation.md`](plans/harness-emulation.md).
+
+### Loop and budget guards
+
+Run-level ceilings, layered onto config, governing every run after them:
+
+```
+loop 5                  # doom-loop threshold: nudge after 5 repeated tool-call sequences ('loop off' disables)
+budget tokens 200000    # session-cumulative token ceiling; abort with exit_reason token_budget
+budget tool_calls 40    # per-turn tool-call cap for subsequent runs
+budget wall_ms 120000   # session wall-clock ceiling; cancels the in-flight call
+```
+
+The doom-loop detector is a *soft* guard — it injects a `<system_reminder>` and the run
+continues (on by default, threshold 3). The budgets are *hard* ceilings that abort with
+exit 3, which is what bounds a runaway loop or a hung provider. All are additive: a
+program that names none behaves as before.
 
 ### Approval policy
 
-Approval is a **declarative policy**, not an interactive prompt — a program run is
-headless, and an unmatched tool call is denied rather than asked about. Set it with
-`approval` directives, or the `Approval` block (`Bash`/`McpTools`/`Default`/`Sandbox`)
+Approval is a **declarative policy**, never an interactive prompt — an unmatched tool
+call is denied rather than asked about, in every mode including the REPL. nb does not
+stop mid-run to collect authorization; a program states what it is allowed to do. Set it
+with `approval` directives, or the `Approval` block (`Bash`/`McpTools`/`Default`/`Sandbox`)
 in config:
 
 ```
 approval bash git status   # auto-approve bash commands matching this pattern
 approval mcp weather/*     # auto-approve MCP tools matching this glob ('/' aliases the '_' in weather_current)
-approval default deny      # refuse any unmatched call outright (instead of prompting)
+approval search allow      # auto-approve search_web (most runs need this, see below)
+approval fetch allow       # auto-approve fetch_url (separate grant from search)
+approval default deny      # honour the explicit allow-list and nothing else
 approval sandbox bwrap     # run the bash child under a bubblewrap sandbox (Linux)
 ```
+
+Any run that means to search needs `approval search allow`. An unapproved tool can never
+execute, so without it every `search_web` call reads as a denial. (The search intent is
+recorded in the transcript either way.)
 
 The allow-lists are what let a scripted run auto-approve exactly the tools it needs.
 Some commands are always safe: build tools (`dotnet build`, `cargo build`, `make`,
@@ -246,7 +333,7 @@ hard-fails the run.
 
 ```bash
 nb --validate flow.nb    # parse + check (unknown provider, bad approval directive); exit 1 on error
-nb --resolve  flow.nb    # print the effective envelope — provider, model, tool surface, policy — at each run point
+nb --resolve  flow.nb    # print the effective envelope — provider, model, harness, tool surface, policy — at each run point
 ```
 
 `--validate` is cheap enough to run over a whole eval corpus in CI before spending
@@ -254,9 +341,9 @@ tokens on it.
 
 ### Command-line flags
 
-Flags vary how a program runs; they never replace or duplicate a program verb. Trust,
-no-tools, bash auto-approve, provider, and model are program concerns
-(`approval`/`tools`/`provider`/`model` directives, or config), not flags.
+Flags vary how a program is delivered and inspected; they never duplicate a program
+verb. Which model, which tools, and what's allowed belong to the program
+(`provider`/`model`/`tools`/`approval`) or to config.
 
 | Flag | Description |
 |------|-------------|
@@ -274,9 +361,9 @@ The program itself is the positional argument (`nb flow.nb`) or stdin (`nb -`).
 ## The REPL
 
 `nb` on a TTY with no input starts a live interpreter of the **same source syntax**:
-each entered line is a directive, `run` invokes, Ctrl-D exits. It is the
-authoring/debugging surface for programs — not a chat loop, and there are no
-slash-commands.
+each entered line is a directive, `run` invokes, Ctrl-D exits. It is the authoring and
+debugging surface — the fastest way to build an envelope up line by line and watch what
+it does before committing it to a file.
 
 ## Testing affordances
 

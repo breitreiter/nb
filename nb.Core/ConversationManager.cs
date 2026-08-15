@@ -113,7 +113,7 @@ public class ConversationManager
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
         _harness = harness;
-        _harness.Configure(approvalPolicy, verbose);
+        _harness.Configure(approvalPolicy, verbose, Approvals);
         _currentProviderName = providerName;
         _verbose = verbose;
         _maxToolCalls = trustMode ? Math.Max(maxToolCalls, 50) : maxToolCalls;
@@ -171,13 +171,21 @@ public class ConversationManager
     public NbHarness Harness => _harness;
 
     /// <summary>
+    /// Approval verdicts recorded during the run, for the transcript's <c>approved</c> field
+    /// and the trailer's denial count. Lives here rather than on the harness because a
+    /// <c>harness</c> directive swaps the costume mid-run and the record must outlive it —
+    /// the same reason usage is accumulated here.
+    /// </summary>
+    public ApprovalLedger Approvals { get; } = new();
+
+    /// <summary>
     /// Swap the harness whose surface subsequent runs advertise (the <c>harness</c>
     /// directive). The tool instances behind it do not change — a costume swaps what is
     /// advertised, never what is implemented.
     /// </summary>
     public void SetHarness(NbHarness harness)
     {
-        harness.Configure(_harness.ApprovalPolicy, _verbose);
+        harness.Configure(_harness.ApprovalPolicy, _verbose, Approvals);
         _harness = harness;
     }
 

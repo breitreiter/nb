@@ -186,6 +186,15 @@ public sealed class ProgramEvaluator
                 else
                     _warnings.Add($"approval search '{ap.Value}' unknown (allow | prompt) — ignored");
                 break;
+            case "fetch":
+                // Same shape as search: a single capability, granted as a flag.
+                if (ap.Value.Equals("allow", StringComparison.OrdinalIgnoreCase))
+                    policy.SetFetchAllowed(true);
+                else if (ap.Value.Equals("prompt", StringComparison.OrdinalIgnoreCase))
+                    policy.SetFetchAllowed(false);
+                else
+                    _warnings.Add($"approval fetch '{ap.Value}' unknown (allow | prompt) — ignored");
+                break;
             case "sandbox":
                 // Requested-but-unavailable hard-fails the run (ratified), like a bad
                 // config Sandbox value — caught by RunProgramAsync → exit 1.

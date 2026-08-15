@@ -188,7 +188,7 @@ public static class ProgramParser
         var trimmed = content.Trim();
         var sp = trimmed.IndexOf(' ');
         if (sp < 0)
-            throw new ProgramParseException($"line {lineNo}: 'approval' needs '<key> <value>' (bash | mcp | search | default | sandbox) — got '{trimmed}'.");
+            throw new ProgramParseException($"line {lineNo}: 'approval' needs '<key> <value>' (bash | mcp | search | fetch | default | sandbox) — got '{trimmed}'.");
         var value = trimmed[(sp + 1)..].Trim();
         if (value.Length == 0)
             throw new ProgramParseException($"line {lineNo}: 'approval {trimmed[..sp]}' needs a value.");

@@ -324,7 +324,7 @@ public class Program
     // Emit a facade RunResult in the resolved mode.
     private static void EmitResult(RunResult result, string mode)
     {
-        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness);
+        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied);
         if (mode == "porcelain") EmitPorcelain(result.Events, trailer);
         else EmitJsonl(result.Events, trailer);
     }
@@ -469,14 +469,17 @@ public class Program
         {
             switch (ev)
             {
-                case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "search" or "default" or "sandbox"):
-                    errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, search, default, sandbox.");
+                case ApprovalEvent a when a.Key is not ("bash" or "mcp" or "search" or "fetch" or "default" or "sandbox"):
+                    errors.Add($"invalid approval key '{a.Key}'. Valid: bash, mcp, search, fetch, default, sandbox.");
                     break;
                 case ApprovalEvent { Key: "default" } a when a.Value is not ("prompt" or "deny"):
                     errors.Add($"invalid approval default '{a.Value}'. Valid: prompt, deny.");
                     break;
                 case ApprovalEvent { Key: "search" } a when a.Value is not ("allow" or "prompt"):
                     errors.Add($"invalid approval search '{a.Value}'. Valid: allow, prompt.");
+                    break;
+                case ApprovalEvent { Key: "fetch" } a when a.Value is not ("allow" or "prompt"):
+                    errors.Add($"invalid approval fetch '{a.Value}'. Valid: allow, prompt.");
                     break;
                 case ApprovalEvent { Key: "sandbox" } a when !BwrapSandbox.TryParse(a.Value, out _, out _):
                     errors.Add($"invalid approval sandbox '{a.Value}'. Valid: none, bwrap, bwrap-net.");

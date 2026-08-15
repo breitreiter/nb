@@ -72,6 +72,7 @@ public static class TranscriptSerializer
                 w.WriteString("name", tc.Name);
                 if (tc.Arguments is not null) { w.WritePropertyName("arguments"); tc.Arguments.WriteTo(w); }
                 if (tc.Approved is not null) w.WriteString("approved", tc.Approved);
+                if (tc.ApprovalReason is not null) w.WriteString("approval_reason", tc.ApprovalReason);
                 break;
             case ToolResultEvent tr:
                 w.WriteString("id", tr.Id);
@@ -178,6 +179,7 @@ public static class TranscriptSerializer
         if (r.ToolCalls is { } calls) w.WriteNumber("tool_calls", calls);
         if (r.DurationMs is { } d) w.WriteNumber("duration_ms", d);
         if (r.Harness is { } h) w.WriteString("harness", h);
+        if (r.Denied is { } denied) w.WriteNumber("denied", denied);
     }
 
     // ---- Reading ----
@@ -245,6 +247,7 @@ public static class TranscriptSerializer
                     Name = RequireString(root, "name", lineNumber, type),
                     Arguments = ReadObject(root, "arguments"),
                     Approved = GetString(root, "approved"),
+                    ApprovalReason = GetString(root, "approval_reason"),
                 };
             case "tool_result":
                 return new ToolResultEvent
@@ -286,6 +289,7 @@ public static class TranscriptSerializer
                     ToolCalls = GetInt(root, "tool_calls"),
                     DurationMs = GetLong(root, "duration_ms"),
                     Harness = GetString(root, "harness"),
+                    Denied = GetInt(root, "denied"),
                 };
             default:
                 warnings?.Add($"line {lineNumber}: unknown event type \"{type}\" — skipped");

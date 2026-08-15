@@ -324,11 +324,19 @@ public class NbHarness
     /// Trust is not passed separately: it reaches tool calls through
     /// <see cref="ApprovalPolicy"/>, which owns the whole auto-approve ladder.
     /// </summary>
-    public void Configure(ApprovalPolicy approvalPolicy, bool verbose)
+    public void Configure(ApprovalPolicy approvalPolicy, bool verbose, ApprovalLedger? approvals = null)
     {
         _approvalPolicy = approvalPolicy;
         _verbose = verbose;
+        _approvals = approvals;
     }
+
+    /// <summary>
+    /// Where approval verdicts are recorded for the transcript. Null in contexts that emit
+    /// no transcript (tests constructing a bare harness). Owned by the run, not the costume,
+    /// so it survives a <c>harness</c> directive swapping the surface mid-run.
+    /// </summary>
+    private ApprovalLedger? _approvals;
 
     /// <summary>
     /// Assemble the native tools this harness advertises, filtered by the surface a
@@ -517,7 +525,7 @@ public class NbHarness
     {
         var fullReadPath = ReadFile!.ResolvePath(path);
         if (!ApproveReadPath("Read", fullReadPath, ReadFile.GetCwd()))
-            return ToolOutcome.Fail(callId, "Error: User rejected read_file. Path is outside working directory.");
+            return RecordRejected(callId, ToolOutcome.Fail(callId, "Error: User rejected read_file. Path is outside working directory."));
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• reading {Markup.Escape(path)}[/]");
 
@@ -551,7 +559,7 @@ public class NbHarness
     {
         var fullFindPath = FindFiles!.ResolvePath(path);
         if (!ApproveReadPath("Find", fullFindPath, FindFiles.GetCwd()))
-            return ToolOutcome.Fail(callId, "Error: User rejected find_files. Path is outside working directory.");
+            return RecordRejected(callId, ToolOutcome.Fail(callId, "Error: User rejected find_files. Path is outside working directory."));
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• find_files: {Markup.Escape(pattern)}[/]");
 
@@ -566,7 +574,7 @@ public class NbHarness
     {
         var fullGrepPath = Grep!.ResolvePath(path);
         if (!ApproveReadPath("Grep", fullGrepPath, Grep.GetCwd()))
-            return ToolOutcome.Fail(callId, "Error: User rejected grep. Path is outside working directory.");
+            return RecordRejected(callId, ToolOutcome.Fail(callId, "Error: User rejected grep. Path is outside working directory."));
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• grep: {Markup.Escape(pattern)}{(filePattern != null ? $" ({Markup.Escape(filePattern)})" : "")}[/]");
 
@@ -580,7 +588,7 @@ public class NbHarness
     {
         var fullListPath = ListDir!.ResolvePath(path);
         if (!ApproveReadPath("List", fullListPath, ListDir.GetCwd()))
-            return ToolOutcome.Fail(callId, "Error: User rejected list_dir. Path is outside working directory.");
+            return RecordRejected(callId, ToolOutcome.Fail(callId, "Error: User rejected list_dir. Path is outside working directory."));
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• list_dir: {Markup.Escape(path ?? ".")}[/]");
 
@@ -683,23 +691,73 @@ public class NbHarness
     public static bool NonInteractive => Console.IsInputRedirected;
 
 
-    private static ToolOutcome DenyNonInteractive(string callId, string what)
+    /// <summary>
+    /// The one refusal, written for two readers.
+    ///
+    /// *The model* gets a terminal refusal: what was refused, which rule refused it, and
+    /// that retrying is pointless because nothing in the run will change. nb is the
+    /// **terminal** refusal class — not <c>escalatable</c> (Codex, where a retry with
+    /// elevated permission is a real move) and not <c>human-in-loop</c> (Claude Code,
+    /// which tells the model to stop and wait for a person). Nobody is going to say yes
+    /// mid-run, so a refusal that implies otherwise buys wasted turns. Naming the
+    /// deciding rule follows qwen-code, which puts its matching deny rule in the string
+    /// the model reads.
+    ///
+    /// *The human* gets the same refusal plus the line that would have authorized it —
+    /// the half that did not exist before. A directive is pasteable into the program;
+    /// where no directive can grant the thing, say so plainly rather than inventing one.
+    ///
+    /// <c>virtual</c> because the three emulated harnesses genuinely disagree about
+    /// refusal class, and that difference moves model behaviour
+    /// (plans/approval-without-prompts.md step 6).
+    /// </summary>
+    /// <param name="tool">What was refused, as the human sees it — "bash (run)", "write_file → /etc/motd".</param>
+    /// <param name="rung">The <see cref="ApprovalLedger"/> rung that decided it; also selects the explanation.</param>
+    /// <param name="remedy">
+    /// How to authorize it. An <c>approval …</c> line is offered as pasteable; anything
+    /// else is printed as guidance. Never name a directive that does not exist — the
+    /// grammar is <c>bash | mcp | search | default | sandbox</c>, and there is no
+    /// <c>approval path</c>.
+    /// </param>
+    protected virtual ToolOutcome Deny(string callId, string tool, string rung, string remedy)
     {
-        Console.Error.WriteLine($"[nb] denied: {what} needs approval, but stdin is not a TTY and nothing pre-approved it.");
+        _approvals?.RecordDeny(callId, rung);
+
+        var because = rung == ApprovalLedger.DefaultDeny
+            ? "the approval policy default is deny, and no allow-rule matched"
+            : "nothing in the approval policy allows it";
+
+        var pasteable = remedy.StartsWith("approval ", StringComparison.Ordinal);
+        Console.Error.WriteLine($"[nb] denied: {tool} — {because}.");
+        Console.Error.WriteLine(pasteable ? $"       authorize with: {remedy}" : $"       {remedy}");
+
         return ToolOutcome.Fail(callId,
-            $"Error: {what} requires approval, but this is a non-interactive session (stdin is not a TTY) " +
-            "and no pre-approval (--approve/--trust) matched. Permission denied — do not retry; try a different approach.");
+            $"Error: {tool} was denied — {because}. This will not succeed on retry; nothing in this run " +
+            $"will grant it. {(pasteable ? $"It would require this directive in the program: {remedy}." : remedy)} " +
+            "Continue with what you are authorized to do, or report that the operation is not permitted.");
     }
 
-    // The approval policy's default is deny: this call matched no allow-rule, so it
-    // is refused without a prompt (even interactively). Distinct from the non-TTY
-    // deny — it's a deliberate lockdown, not a missing terminal.
-    private static ToolOutcome DenyByPolicy(string callId, string what)
+    /// <summary>The <c>approval bash</c> line that would have allowed this command, keyed to its program.</summary>
+    private static string BashRemedy(string command)
     {
-        Console.Error.WriteLine($"[nb] denied: {what} — approval policy default is deny and nothing allow-listed it.");
-        return ToolOutcome.Fail(callId,
-            $"Error: {what} was denied by the approval policy (default: deny) and no allow-rule matched. " +
-            "Permission denied — do not retry; try a different approach.");
+        var program = command.TrimStart().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return string.IsNullOrEmpty(program) ? "approval bash <pattern>" : $"approval bash {program} *";
+    }
+
+    /// <summary>
+    /// A path outside the working directory. There is deliberately no remedy directive
+    /// here: no <c>approval</c> key widens the path sandbox, and <c>"Trust": true</c>
+    /// only reaches cwd + system temp. Saying so is the honest answer.
+    /// </summary>
+    private const string OutsideCwdRemedy =
+        "No approval directive grants paths outside the working directory. Work within it, " +
+        "or start nb from a directory that contains the target.";
+
+    /// <summary>Record a user-facing rejection (a keypress said no). Removed with the prompts in step 3.</summary>
+    private ToolOutcome RecordRejected(string callId, ToolOutcome outcome)
+    {
+        _approvals?.RecordDeny(callId, "rejected");
+        return outcome;
     }
 
     public async Task<ToolOutcome> HandleBashToolCall(string callId, string command, string description)
@@ -715,6 +773,7 @@ public class NbHarness
             var (decision, approveReason) = _approvalPolicy.DecideBash(command, classified, cwd, Bash != null);
             if (decision == ApprovalDecision.Allow)
             {
+                _approvals?.RecordAllow(callId, approveReason ?? ApprovalLedger.Safe);
                 var display = Markup.Escape(classified.DisplayText);
                 var line = approveReason switch
                 {
@@ -728,7 +787,7 @@ public class NbHarness
 
             // Policy default is deny: refuse without prompting (even interactively).
             if (decision == ApprovalDecision.Deny)
-                return DenyByPolicy(callId, $"bash ({classified.Category})");
+                return Deny(callId, $"bash ({classified.Category}): {classified.DisplayText}", ApprovalLedger.DefaultDeny, BashRemedy(command));
 
             // Show model's description of intent (if provided)
             if (!string.IsNullOrWhiteSpace(description))
@@ -750,7 +809,7 @@ public class NbHarness
             }
 
             if (NonInteractive)
-                return DenyNonInteractive(callId, $"bash ({classified.Category})");
+                return Deny(callId, $"bash ({classified.Category}): {classified.DisplayText}", ApprovalLedger.NoMatch, BashRemedy(command));
 
             // Default based on danger level
             var defaultYes = !classified.IsDangerous;
@@ -782,7 +841,7 @@ public class NbHarness
                         : $"Error: User rejected this command. Reason: {reason}";
 
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Command rejected[/]");
-                    return ToolOutcome.Fail(callId, rejectionMessage);
+                    return RecordRejected(callId, ToolOutcome.Fail(callId, rejectionMessage));
                 }
                 else if (key == '?')
                 {
@@ -891,9 +950,9 @@ public class NbHarness
             }
 
             if (_approvalPolicy.Default == ApprovalDefault.Deny)
-                return Task.FromResult(DenyByPolicy(callId, "write_file (path outside working directory)"));
+                return Task.FromResult(Deny(callId, $"write_file → {path}", ApprovalLedger.DefaultDeny, OutsideCwdRemedy));
             if (NonInteractive)
-                return Task.FromResult(DenyNonInteractive(callId, "write_file"));
+                return Task.FromResult(Deny(callId, $"write_file → {path}", ApprovalLedger.NoMatch, OutsideCwdRemedy));
 
             // Show approval prompt
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Write:[/] {Markup.Escape(fullPath)}");
@@ -915,7 +974,7 @@ public class NbHarness
                 {
                     // Rejected (default is No for writes)
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Write rejected[/]");
-                    return Task.FromResult(ToolOutcome.Fail(callId, "Error: User rejected file write. Permission denied."));
+                    return Task.FromResult(RecordRejected(callId, ToolOutcome.Fail(callId, "Error: User rejected file write. Permission denied.")));
                 }
                 else if (key == '?')
                 {
@@ -962,12 +1021,12 @@ public class NbHarness
         {
             var decision = _approvalPolicy.DecideSearch();
             if (decision == ApprovalDecision.Deny)
-                return DenyByPolicy(callId, "search_web");
+                return Deny(callId, "search_web", ApprovalLedger.DefaultDeny, "approval search allow");
 
             if (decision != ApprovalDecision.Allow)
             {
                 if (NonInteractive)
-                    return DenyNonInteractive(callId, "search_web");
+                    return Deny(callId, "search_web", ApprovalLedger.NoMatch, "approval search allow");
 
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Search:[/] {Markup.Escape(query)}");
                 AnsiConsole.MarkupLine(SearchWeb!.HasBackend
@@ -995,7 +1054,7 @@ public class NbHarness
                             ? "Error: User rejected search_web. Permission denied."
                             : $"Error: User rejected search_web. Reason: {reason}";
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Search rejected[/]");
-                        return ToolOutcome.Fail(callId, rejectionMessage);
+                        return RecordRejected(callId, ToolOutcome.Fail(callId, rejectionMessage));
                     }
                     else if (key == 'y' || key == 'Y')
                     {
@@ -1030,9 +1089,9 @@ public class NbHarness
         try
         {
             if (_approvalPolicy.Default == ApprovalDefault.Deny)
-                return DenyByPolicy(callId, "fetch_url");
+                return Deny(callId, "fetch_url", ApprovalLedger.DefaultDeny, "approval fetch allow");
             if (NonInteractive)
-                return DenyNonInteractive(callId, "fetch_url");
+                return Deny(callId, "fetch_url", ApprovalLedger.NoMatch, "approval fetch allow");
 
             // Show approval prompt — network fetches always require explicit approval
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Fetch:[/] {Markup.Escape(url)}");
@@ -1060,7 +1119,7 @@ public class NbHarness
                         ? "Error: User rejected fetch_url. Permission denied."
                         : $"Error: User rejected fetch_url. Reason: {reason}";
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Fetch rejected[/]");
-                    return ToolOutcome.Fail(callId, rejectionMessage);
+                    return RecordRejected(callId, ToolOutcome.Fail(callId, rejectionMessage));
                 }
                 else if (key == 'y' || key == 'Y')
                 {
@@ -1136,9 +1195,9 @@ public class NbHarness
             }
 
             if (_approvalPolicy.Default == ApprovalDefault.Deny)
-                return DenyByPolicy(callId, "edit_file (path outside working directory)");
+                return Deny(callId, $"edit_file → {path}", ApprovalLedger.DefaultDeny, OutsideCwdRemedy);
             if (NonInteractive)
-                return DenyNonInteractive(callId, "edit_file");
+                return Deny(callId, $"edit_file → {path}", ApprovalLedger.NoMatch, OutsideCwdRemedy);
 
             // Show approval prompt with diff preview
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Edit:[/] {Markup.Escape(fullPath)}");
@@ -1165,7 +1224,7 @@ public class NbHarness
                 if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
                 {
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Edit rejected[/]");
-                    return ToolOutcome.Fail(callId, "Error: User rejected file edit. Permission denied.");
+                    return RecordRejected(callId, ToolOutcome.Fail(callId, "Error: User rejected file edit. Permission denied."));
                 }
                 else if (key == 'y' || key == 'Y')
                 {
@@ -1268,9 +1327,9 @@ public class NbHarness
         }
 
         if (_approvalPolicy.Default == ApprovalDefault.Deny)
-            return DenyByPolicy(callId, "apply_patch (path outside working directory)");
+            return Deny(callId, "apply_patch (path outside working directory)", ApprovalLedger.DefaultDeny, OutsideCwdRemedy);
         if (NonInteractive)
-            return DenyNonInteractive(callId, "apply_patch (path outside working directory)");
+            return Deny(callId, "apply_patch (path outside working directory)", ApprovalLedger.NoMatch, OutsideCwdRemedy);
 
         // Flush any pending input
         while (Console.KeyAvailable) Console.ReadKey(intercept: true);
@@ -1284,7 +1343,7 @@ public class NbHarness
             if (key == 'n' || key == 'N' || key == '\r' || key == '\n')
             {
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Patch rejected[/]");
-                return ToolOutcome.Fail(callId, "Error: User rejected apply_patch. Permission denied.");
+                return RecordRejected(callId, ToolOutcome.Fail(callId, "Error: User rejected apply_patch. Permission denied."));
             }
             else if (key == 'y' || key == 'Y')
             {

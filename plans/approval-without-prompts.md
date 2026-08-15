@@ -4,7 +4,7 @@ title: Approval without prompts — refusals the model can read
 created: 2026-08-15
 updated: 2026-08-15
 status: current
-state: proposed
+state: accepted
 touches:
   files:
     - nb.Core/Harness/NbHarness.cs
@@ -100,10 +100,17 @@ After:
 
 ```
 > run write a hello script to /etc/motd
-[nb] denied: write_file → /etc/motd is outside the working directory.
-     Authorize with: approval path /etc          (or --trust for cwd + temp)
-✗ write_file denied
+[nb] denied: write_file → /etc/motd — nothing in the approval policy allows it.
+       No approval directive grants paths outside the working directory. Work within
+       it, or start nb from a directory that contains the target.
 ```
+
+> **Corrected 2026-08-15 during step 2.** This example originally offered
+> `approval path /etc` (and `--trust`). Neither exists: the approval grammar is
+> `bash | mcp | search | fetch | default | sandbox`, and trust is config-only. Naming a
+> directive that cannot grant the thing is the exact defect this plan's step 2 exists to
+> fix, so the example now shows the honest refusal. If a path-widening directive is
+> wanted, that is its own piece of work — this plan does not deliver one.
 
 and what the model receives:
 
@@ -193,6 +200,18 @@ still renders.
    emulation, deliberately deferred: no `virtual` until there is a second implementation.
    This plan's only obligation is to put the helper somewhere that *can* become virtual —
    a static on `NbHarness`, not a free function elsewhere.
+
+   ~~Keep that answer~~ **REVERSED 2026-08-15** by the step 6 capture. The deferral rested
+   on there being no second implementation; there are three, and they disagree — `claude-code`
+   is human-in-loop, `codex` is escalatable, `qwen-code` is terminal. That is exactly the
+   "second implementation" the no-`virtual` rule was waiting for, and it arrived as evidence
+   rather than speculation. Make the refusal helper `virtual` on `NbHarness` and override it
+   per costume.
+
+   The rule itself is unchanged and was applied correctly — the abstraction is justified by
+   an observed difference, not by anticipated flexibility. Note that keeping one shared
+   string is not the neutral choice here: it would ship nb's own refusal class under every
+   costume and erase a difference that moves model behaviour.
 3. **Does the rejection-reason prompt have a replacement?** DECIDED 2026-08-15: **not
    now** — accept the loss. A human typing prose into a live denial to steer the model is
    chat-client behaviour, and it is the one part of the prompt loop that was a genuine
@@ -232,7 +251,22 @@ still renders.
    proceed" from "the model kept failing at its task" is the whole reason the constant was
    written, and that distinction gets *more* useful under this plan, not less.
 
+   DECIDED 2026-08-15: **implement it.** A run whose terminal failure was a denial exits
+   `4`. A denial the model recovered from exits `0`, with the denial visible in the trailer
+   per `approval-is-not-a-boundary` item 0 — which is the prerequisite below, and the reason
+   "recovered" is expressible at all. Both published specs keep their promise unchanged.
+   Resolves `bugs/Approval_Denied_Exit_Code_Is_Unreachable.md`.
+
 ## Steps
+
+**Prerequisite (decided 2026-08-15): `approval-is-not-a-boundary` item 0 lands first** —
+emit `approved` on `tool_call` (`allow`/`deny` plus the reason label) and count denials in
+the `result` trailer. Not a nicety: this plan makes denial the only non-allow outcome, so
+without item 0 refusals become load-bearing and transcript-invisible at the same time —
+the legibility gap this plan exists to close, relocated rather than fixed. It is also what
+makes "denied but recovered" observable, which open question 4's exit-code rule depends on.
+That plan flags item 0 as additive and independently valuable, so taking it first costs
+nothing even if the rest of it is never built.
 
 1. **Docs first** (the corpus outvotes the decision otherwise). `docs/conversation-program-cli.md`:
    make "never hangs" unconditional, drop the headless qualifier from the denial rules.
@@ -240,15 +274,110 @@ still renders.
 2. **The denial helper.** One method, two audiences, actionable human text. Land it
    *alongside* the existing prompts, used by the already-non-interactive paths, so its
    message wording gets reviewed before the deletion depends on it.
+
+   Two defects in the current strings the helper must not inherit (found 2026-08-15):
+   - **They assert a user who does not exist.** Seven read `Error: User rejected this
+     command. Permission denied.` After this plan there is no user and no keypress — the
+     refusal comes from policy. This is not a wording nit: it puts nb in the
+     *human-in-loop* refusal class (see step 6) when the plan is deliberately moving it to
+     *terminal*, and a model that believes a person declined may stop to address them.
+   - **They name flags that do not exist.** `NbHarness.cs:691` tells the model no
+     pre-approval `(--approve/--trust)` matched. Neither flag is in the codebase; trust is
+     config-only and there is no `--approve`. Stale model-visible text that gestures at
+     authorization without naming a real one — exactly what the human-facing half is
+     supposed to fix.
 3. **Delete the seven prompt blocks**, keeping classification and display. `ApprovalDecision`
    collapses to `Allow`/`Deny`; `NonInteractive` and its uses go.
 4. **Tests** — the coverage that never existed: an unmatched call denies identically with
    stdin a pipe and a TTY; the denial names the authorizing directive; `approval default
    deny` and standard-ladder denials produce distinguishable messages; a denied run's exit
    code matches the documented one.
-5. **Golden masters.** Denial strings are model-visible, so the tool-surface goldens may
-   need a denial companion. Decide whether refusals belong in a golden file — they are
-   observation-channel text, which argues yes.
+5. **Golden masters.** Denial strings are model-visible, so the tool-surface goldens need a
+   denial companion. Settled by the step 6 capture: refusals are per-costume
+   model-visible text, which is precisely what the goldens exist to pin. One denial golden
+   per costume, covering both denial reasons.
+6. **Capture what real harnesses say when they refuse.** The blank spot in the emulation
+   corpus, and the fact that decides open question 2.
+
+   *Why it is missing.* Every other model-visible result string carries provenance in
+   `plans/harness-emulation.md` — shell output, write/edit results, environment context and
+   project-instruction discovery are each marked **verified** (read against `openai/codex`,
+   `codex-rs/core/src/agents_md.rs`) or **observed** (first-hand capture), and each has a
+   `virtual` formatter that costumes override. Refusals have none: no provenance note
+   anywhere in `plans/`, `bugs/` or `imp/`, no override, all seven strings hard-coded in
+   `NbHarness`. The one acknowledgement is `CodexHarness.Omissions` (`CodexHarness.cs:128`),
+   which records the approval surface as *deliberately skipped* because mapping nb's model
+   onto Codex's permission-profile vocabulary "would mean inventing enum spellings."
+
+   *The fidelity bar is deliberately low.* The goal is not simulation. It is that a problem
+   you hit in nb is one you would also hit in Claude Code or Codex. A refusal string is
+   short and does one job, so a plausible example found in docs, an issue thread or a blog
+   post is enough, and a stale one is fine — six months does not change what "permission
+   denied" means to a model. This is unlike tool *schemas*, where the model must match
+   names and parameters syntactically and a stale capture yields malformed calls. Do not
+   spend real effort chasing byte fidelity here.
+
+   *The one axis worth getting right* is not wording but what the refusal implies about the
+   next move. Three classes, which produce measurably different trajectories:
+   - **terminal** — will not succeed on retry; route around it. (What this plan makes nb.)
+   - **escalatable** — retry with elevated permission. A model reading this burns turns
+     retrying, which is a distinct and visible transcript shape.
+   - **human-in-loop** — a person declined; ask them. (What nb's current strings wrongly
+     signal — see step 2.)
+
+   *Captured 2026-08-15.* Better sourcing than the low bar asked for — two of the three read
+   from source rather than inferred. **The three costumes diverge across all three classes.**
+
+   - **`claude-code` — observed.** Verbatim, quoted consistently across
+     `anthropics/claude-code` issues #40156, #29238, #29499:
+
+     > The user doesn't want to proceed with this tool use. The tool use was rejected. STOP
+     > what you are doing and wait for the user to tell you how to proceed
+
+     **human-in-loop**, and unusually strong about it — an explicit stop-and-wait
+     instruction. Issue #40156 is a report that the model *ignores* it and retries the
+     denied call, so the behavioural pull of this string is itself contested.
+
+   - **`codex` — verified.** Sandbox failure surfaces as `command failed; retry without
+     sandbox?`, and the model re-issues the call with `with_escalated_permissions=true`
+     (`codex-rs/core/src/tools/orchestrator.rs`,
+     `codex-rs/core/src/tools/runtimes/shell/unix_escalation.rs`; issues #19162, #18079).
+     **escalatable** — and the retry is a first-class parameter on the tool call, not just a
+     tone in the prose. Under `approval_policy=never` the denial simply fails back to the
+     model.
+
+   - **`qwen-code` — verified.** Read from
+     `packages/core/src/core/coreToolScheduler.ts` (`ToolErrorType.EXECUTION_DENIED`):
+
+     > Qwen Code requires permission to use "{tool}", but that permission was declined.
+     > Matching deny rule: "{rule}".
+
+     with a distinct non-interactive variant: `…but that permission was declined
+     (non-interactive mode cannot prompt for confirmation).` **terminal.**
+
+   *Three things this changes.*
+
+   1. **Question 2 is answered, and answered the other way.** The costumes do not agree —
+      they occupy all three classes. Refusal class is a real emulation fact, not shared
+      furniture, so the refusal helper earns a `virtual` and per-costume overrides. Keeping
+      one shared string would silently give every costume nb's own class and erase a
+      difference that demonstrably moves model behaviour.
+   2. **nb currently ships the `claude-code` refusal for every costume.** `Error: User
+      rejected this command. Permission denied.` is the human-in-loop class in all three
+      costumes — accidentally right under `harness claude-code`, wrong under `codex` and
+      `qwen-code`, and wrong for bare nb once this plan lands. Step 2's fix and this
+      override are the same work.
+   3. **Naming the authorizing rule belongs in the model-facing half too.** `qwen-code`
+      puts `Matching deny rule: "{rule}"` in the string the *model* reads, not just the
+      human's console line. This plan currently assigns that job only to stderr. A real
+      harness does both, and it costs nothing — a model told which rule blocked it can
+      report the blocker accurately instead of guessing.
+
+   Land the three rows in the `harness-emulation.md` provenance table under the existing
+   verified/observed convention, and note that `CodexHarness.Omissions` (`CodexHarness.cs:128`)
+   can drop its approval-surface caveat for refusals specifically — the escalation
+   vocabulary is now sourced, even though the permission-*profile* enum spellings it
+   actually refers to remain out of scope.
 
 ## Done test
 

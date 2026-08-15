@@ -86,9 +86,10 @@ clean, parseable stdout.
 | `4` | `approval_denied` — a tool needed approval and policy denied it. |
 
 The fine-grained reason also rides on the transcript's `result` trailer
-(`exit_reason`). Runs are headless (no TTY on the program path), so an unmatched tool
-call is **denied** rather than prompted — grant what a run needs with `approval`
-directives or config allow-lists.
+(`exit_reason`). An unmatched tool call is **denied**, never prompted — grant what a run
+needs with `approval` directives or config allow-lists. This does not depend on whether
+stdin is a TTY: nb never asks for authorization mid-run, at the REPL or anywhere else.
+Authorization is something a program *states*, not something a run stops to collect.
 
 **Throttling.** A provider rate-limit rejection is retried with exponential backoff
 and jitter before it becomes an outcome, so a single 429 doesn't discard an agentic
@@ -210,8 +211,9 @@ subsequent runs.
 | --- | --- | --- |
 | `bash` | a command pattern | Auto-approve bash commands matching it (glob-ish). Matched against the **whole command string**, not the invocation inside it: `approval bash go *` allows `go mod tidy` but *not* `cd /work && go mod tidy`, since a rule matching anywhere in the line would be trivially escapable. Write the pattern against the line the model will actually send (`approval bash cd * && go *`), or allow the bare program and expect simple invocations. |
 | `mcp` | an allow glob | Auto-approve MCP tools matching it (matched against `{server}_{tool}`; `/` aliases `_`, so `weather/*` matches `weather_current`). |
-| `search` | `allow` \| `prompt` | Auto-approve `search_web`. Needed for headless runs: nb's primary mode is non-interactive, where an unapproved tool can never execute — the search intent is still recorded either way, but without this every headless run reads as a denial. (`Approval.Search` in config does the same.) |
-| `default` | `prompt` \| `deny` | What an unmatched call does — prompt (default) or refuse outright. |
+| `search` | `allow` \| `prompt` | Auto-approve `search_web`. Needed by any run that means to search: an unapproved tool can never execute, so without this the search intent is recorded but the call reads as a denial. The `prompt` spelling is historical and means "not auto-approved" — nothing prompts. (`Approval.Search` in config does the same.) |
+| `fetch` | `allow` \| `prompt` | Auto-approve `fetch_url`. Separate from `search` on purpose: reaching an arbitrary URL and running a web search are different grants, and allowing one should not silently confer the other. (`Approval.Fetch` in config does the same.) |
+| `default` | `prompt` \| `deny` | Which auto-approve ladder an unmatched call runs. `prompt` (the default) tries explicit patterns, then the built-in safe-command list, then trust + sandbox; `deny` honours the explicit allow-list and nothing else. A call that survives either ladder unmatched is refused — the names are permissiveness tiers, not dispositions, and neither one asks. |
 | `sandbox` | `none` \| `bwrap` \| `bwrap-net` | Run the bash child under a bubblewrap sandbox (Linux). `bwrap` = fs read-only, cwd + a fresh `/tmp` writable, secret dirs masked, no network; `bwrap-net` allows network. Requesting bwrap where it isn't available hard-fails (exit 1). |
 
 `approval default deny` plus explicit `approval bash`/`approval mcp` allows = a run
@@ -224,7 +226,7 @@ it, bash has two implicit grants that a first-time reader will not expect: a bui
 safe-command list (`ls`, `pwd`, `git status`, but also `make`, `npx`, `go build`,
 `dotnet run` — build commands, i.e. arbitrary code), and `--trust`, which auto-approves
 any non-dangerous command in the sandbox. Both are suppressed by `default deny`, so
-denial means denial; under `prompt` they still apply and run without asking.
+denial means denial; under `prompt` they still apply and the command simply runs.
 
 ### 5.4 Loop & budget directives — `loop` and `budget`
 
@@ -354,7 +356,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `system` | `text` \| `content` | System-role message. |
 | `user` | `text` \| `content` | User-role message. |
 | `assistant_text` | `text` \| `content` | Assistant prose. |
-| `tool_call` | `id`, `name`, `arguments` (JSON obj, types preserved), `approved`? | A tool invocation. `id` is the join key. |
+| `tool_call` | `id`, `name`, `arguments` (JSON obj, types preserved), `approved`?, `approval_reason`? | A tool invocation. `id` is the join key. `approved` is `allow`/`deny`; `approval_reason` names the ladder rung that decided it (`pre-approved`, `safe`, `trust`, `default-deny`, `no-match`). |
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
 | `run` | `prompt`? | Invocation directive. On output, a past run appears as the `assistant_text` it produced. |
 | `provider` / `model` | `name` | Config directive. |
@@ -365,7 +367,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `budget` | `key`, `value` | Resource-budget directive (`tokens` \| `tool_calls` \| `wall_ms`). |
 
 **Enrichment events** (emitted on output, **ignored on seed-load**): `thinking`
-(`text`), `assistant_json` (`value`), and the `approved`/`result` fields.
+(`text`), `assistant_json` (`value`), and the `approved`/`approval_reason`/`result` fields.
 
 **The `result` trailer** (one per run, `turn: null`):
 
@@ -452,9 +454,10 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
 - **Malformed fabricated round** (unpaired call/result, non-monotonic turns) → exit 1.
 - **Tool call outside the advertised surface** → refused as "not found" (native tools
   are all-on; MCP is strict-empty until `mcp +server`).
-- **Headless + unmatched approval** → denied (never hangs); the model gets a
+- **Unmatched approval** → denied (**never hangs**, in any mode); the model gets a
   structured denial it can route around, and the turn still completes (exit 0) unless
-  policy forces otherwise.
+  policy forces otherwise. A run whose terminal failure *was* the denial exits `4`
+  (`approval_denied`).
 - **`budget tokens` overshoot:** the ceiling is checked after each model round-trip, so
   a run can exceed it by up to one round-trip before aborting (`token_budget`, exit 3) —
   it can't preempt a generation in flight. `budget wall_ms`, by contrast, cancels the

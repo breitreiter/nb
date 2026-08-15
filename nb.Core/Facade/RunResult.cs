@@ -32,6 +32,13 @@ public sealed record RunResult
     /// </summary>
     public string? Harness { get; init; }
 
+    /// <summary>
+    /// How many tool calls the approval policy refused. Mirrors <c>denied</c> on the
+    /// transcript trailer. A library host branching on this does not have to walk
+    /// <see cref="Events"/> to learn the run was fighting its authorization envelope.
+    /// </summary>
+    public int Denied { get; init; }
+
     /// <summary>Non-fatal evaluator warnings (unknown directive value, unbuildable client, …).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }
