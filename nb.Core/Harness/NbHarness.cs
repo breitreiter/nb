@@ -67,6 +67,22 @@ public class NbHarness
         _todoTool = new TodoTool(_todos);
     }
 
+    /// <summary>
+    /// Wear the same tools as an existing harness. Costumes are built this way so the
+    /// ten-tool list is spelled out in one place instead of at every construction site —
+    /// they are all the same nullable types, so a mis-ordered positional argument would
+    /// compile.
+    ///
+    /// <see cref="ApplyPatchStyle"/> is deliberately not carried across: it selects which
+    /// edit surface *nb's own* harness advertises, and a costume advertises whatever its
+    /// target has.
+    /// </summary>
+    protected NbHarness(NbHarness source)
+        : this(source.Bash, source.ReadFile, source.WriteFile, source.EditFile, source.FindFiles,
+               source.Grep, source.ListDir, source.FetchUrl, source.SearchWeb, source.ApplyPatch)
+    {
+    }
+
     // Null only when not wired: --nobash nulls the lot. Every edit tool is built
     // otherwise, so a costume never inherits a hole from provider config.
     public BashTool? Bash { get; }
@@ -178,10 +194,14 @@ public class NbHarness
     /// orders and neither is a default the other can live with.
     /// </summary>
     public virtual IReadOnlyList<string> LeadingContext() =>
-        new[] { Preamble, ProjectInstructions(), EnvironmentContext() }
-            .Where(t => !string.IsNullOrEmpty(t))
-            .Select(t => t!)
-            .ToList();
+        Compose(Preamble, ProjectInstructions(), EnvironmentContext());
+
+    /// <summary>
+    /// Drop the parts a costume does not supply and materialise the rest, so an override
+    /// of <see cref="LeadingContext"/> reads as nothing but its ordering decision.
+    /// </summary>
+    protected static IReadOnlyList<string> Compose(params string?[] parts) =>
+        parts.Where(p => !string.IsNullOrEmpty(p)).Select(p => p!).ToList();
 
     /// <summary>Whether the working directory sits inside a git repository — furniture every costume reports.</summary>
     protected bool InGitRepository()
@@ -536,18 +556,8 @@ public class NbHarness
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• find_files: {Markup.Escape(pattern)}[/]");
 
         var findResult = FindFiles.FindFiles(pattern, path, maxResults);
-        string resultString;
-        if (findResult.Success)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {findResult.Files.Length} files ({findResult.TotalMatches} total)[/]");
-            resultString = findResult.Output ?? "";
-        }
-        else
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(findResult.Error ?? "Unknown error")}[/]");
-            resultString = $"Error: {findResult.Error}";
-        }
-        return findResult.Success ? ToolOutcome.Ok(callId, resultString) : ToolOutcome.Fail(callId, resultString);
+        return ReportReadResult(callId, findResult.Success, findResult.Output, findResult.Error,
+            () => $"{findResult.Files.Length} files ({findResult.TotalMatches} total)");
     }
 
     /// <summary>Regex search across files. Auto-approves inside the cwd sandbox, prompts outside it.</summary>
@@ -561,18 +571,8 @@ public class NbHarness
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• grep: {Markup.Escape(pattern)}{(filePattern != null ? $" ({Markup.Escape(filePattern)})" : "")}[/]");
 
         var grepResult = Grep.Grep(pattern, path, filePattern, caseInsensitive, maxResults, outputMode);
-        string resultString;
-        if (grepResult.Success)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {grepResult.Matches.Length} matches ({grepResult.TotalMatches} total)[/]");
-            resultString = grepResult.Output ?? "";
-        }
-        else
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(grepResult.Error ?? "Unknown error")}[/]");
-            resultString = $"Error: {grepResult.Error}";
-        }
-        return grepResult.Success ? ToolOutcome.Ok(callId, resultString) : ToolOutcome.Fail(callId, resultString);
+        return ReportReadResult(callId, grepResult.Success, grepResult.Output, grepResult.Error,
+            () => $"{grepResult.Matches.Length} matches ({grepResult.TotalMatches} total)");
     }
 
     /// <summary>List a directory. Auto-approves inside the cwd sandbox, prompts outside it.</summary>
@@ -585,19 +585,30 @@ public class NbHarness
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• list_dir: {Markup.Escape(path ?? ".")}[/]");
 
         var listResult = ListDir.ListDir(path);
-        string resultString;
-        if (listResult.Success)
+        return ReportReadResult(callId, listResult.Success, listResult.Output, listResult.Error,
+            () => $"{listResult.Output?.Split('\n').Length ?? 0} entries");
+    }
+
+    /// <summary>
+    /// Render a read-side tool's outcome and turn it into a <see cref="ToolOutcome"/>.
+    /// find_files, grep and list_dir differ only in the count they report, so the
+    /// success/failure branch lives here once rather than three times.
+    ///
+    /// <paramref name="summary"/> is deferred because it reads result fields that only
+    /// carry meaning on success — evaluating it eagerly would run them on the error path
+    /// too, for a string that is then thrown away.
+    /// </summary>
+    private static ToolOutcome ReportReadResult(
+        string callId, bool success, string? output, string? error, Func<string> summary)
+    {
+        if (success)
         {
-            var entryCount = listResult.Output?.Split('\n').Length ?? 0;
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {entryCount} entries[/]");
-            resultString = listResult.Output ?? "";
+            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  → {summary()}[/]");
+            return ToolOutcome.Ok(callId, output ?? "");
         }
-        else
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(listResult.Error ?? "Unknown error")}[/]");
-            resultString = $"Error: {listResult.Error}";
-        }
-        return listResult.Success ? ToolOutcome.Ok(callId, resultString) : ToolOutcome.Fail(callId, resultString);
+
+        AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]  → {Markup.Escape(error ?? "Unknown error")}[/]");
+        return ToolOutcome.Fail(callId, $"Error: {error}");
     }
 
     /// <summary>Record todo changes. Always auto-approves.</summary>
@@ -622,15 +633,11 @@ public class NbHarness
         IDictionary<string, object?>? args, string arrayKey, string textField)
     {
         var items = new List<TodoChange>();
-        if (args is null || !args.TryGetValue(arrayKey, out var raw) || raw is null)
-            return items;
+        if (TodoArgumentJson(args, arrayKey) is not { } json) return items;
 
         try
         {
-            var json = raw is JsonElement je ? je.GetRawText() : raw.ToString();
-            if (string.IsNullOrWhiteSpace(json)) return items;
-
-            using var doc = JsonDocument.Parse(json!);
+            using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.ValueKind != JsonValueKind.Array) return items;
 
             foreach (var item in doc.RootElement.EnumerateArray())
@@ -1385,6 +1392,21 @@ public class NbHarness
         }
     }
 
+    private static readonly JsonSerializerOptions _todoJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    /// <summary>
+    /// Pull a todo argument out as raw JSON, however the provider delivered it — a
+    /// <see cref="JsonElement"/> from a structured tool call, or a string from one that
+    /// sent the array pre-serialised. Null when the key is absent or carries nothing to
+    /// parse, which both callers treat as "no changes submitted".
+    /// </summary>
+    private static string? TodoArgumentJson(IDictionary<string, object?>? args, string key)
+    {
+        if (args is null || !args.TryGetValue(key, out var raw) || raw is null) return null;
+        var json = raw is JsonElement je ? je.GetRawText() : raw.ToString();
+        return string.IsNullOrWhiteSpace(json) ? null : json;
+    }
+
     /// <summary>
     /// Unpack nb's own <c>todo_write</c> argument shape: a <c>changes</c> array of
     /// content/status pairs, already incremental. Costumes whose target sends a whole
@@ -1393,18 +1415,11 @@ public class NbHarness
     public static List<TodoChange> ParseTodoChanges(IDictionary<string, object?>? args)
     {
         var changes = new List<TodoChange>();
-        if (args == null || !args.TryGetValue("changes", out var raw) || raw == null)
-            return changes;
+        if (TodoArgumentJson(args, "changes") is not { } json) return changes;
 
         try
         {
-            var json = raw is JsonElement je ? je.GetRawText() : raw.ToString();
-            if (string.IsNullOrWhiteSpace(json)) return changes;
-
-            var parsed = JsonSerializer.Deserialize<List<TodoChange>>(json!, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-            });
+            var parsed = JsonSerializer.Deserialize<List<TodoChange>>(json, _todoJsonOptions);
             if (parsed != null) changes.AddRange(parsed);
         }
         catch

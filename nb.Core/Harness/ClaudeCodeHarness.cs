@@ -34,6 +34,9 @@ public sealed class ClaudeCodeHarness : NbHarness
     {
     }
 
+    /// <summary>Wear ClaudeCodeHarness's surface over an existing harness's tools.</summary>
+    public ClaudeCodeHarness(NbHarness source) : base(source) { }
+
     public override string Name => HarnessName;
 
     public override string? Preamble => _preamble;
@@ -101,10 +104,7 @@ public sealed class ClaudeCodeHarness : NbHarness
     /// ordering belongs to the costume.
     /// </summary>
     public override IReadOnlyList<string> LeadingContext() =>
-        new[] { Preamble, EnvironmentContext(), ProjectInstructions() }
-            .Where(t => !string.IsNullOrEmpty(t))
-            .Select(t => t!)
-            .ToList();
+        Compose(Preamble, EnvironmentContext(), ProjectInstructions());
 
     public override IReadOnlyList<string> Omissions
     {

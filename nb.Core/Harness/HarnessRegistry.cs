@@ -28,22 +28,13 @@ public static class HarnessRegistry
     public static NbHarness Create(string name, NbHarness baseHarness)
     {
         if (string.Equals(name, QwenCodeHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
-            return new QwenCodeHarness(
-                baseHarness.Bash, baseHarness.ReadFile, baseHarness.WriteFile, baseHarness.EditFile,
-                baseHarness.FindFiles, baseHarness.Grep, baseHarness.ListDir, baseHarness.FetchUrl,
-                baseHarness.SearchWeb, baseHarness.ApplyPatch);
+            return new QwenCodeHarness(baseHarness);
 
         if (string.Equals(name, CodexHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
-            return new CodexHarness(
-                baseHarness.Bash, baseHarness.ReadFile, baseHarness.WriteFile, baseHarness.EditFile,
-                baseHarness.FindFiles, baseHarness.Grep, baseHarness.ListDir, baseHarness.FetchUrl,
-                baseHarness.SearchWeb, baseHarness.ApplyPatch);
+            return new CodexHarness(baseHarness);
 
         if (string.Equals(name, ClaudeCodeHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
-            return new ClaudeCodeHarness(
-                baseHarness.Bash, baseHarness.ReadFile, baseHarness.WriteFile, baseHarness.EditFile,
-                baseHarness.FindFiles, baseHarness.Grep, baseHarness.ListDir, baseHarness.FetchUrl,
-                baseHarness.SearchWeb, baseHarness.ApplyPatch);
+            return new ClaudeCodeHarness(baseHarness);
 
         return baseHarness;
     }

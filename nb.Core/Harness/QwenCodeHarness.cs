@@ -30,6 +30,9 @@ public sealed class QwenCodeHarness : NbHarness
     {
     }
 
+    /// <summary>Wear QwenCodeHarness's surface over an existing harness's tools.</summary>
+    public QwenCodeHarness(NbHarness source) : base(source) { }
+
     public override string Name => HarnessName;
 
     /// <summary>
@@ -64,7 +67,7 @@ public sealed class QwenCodeHarness : NbHarness
         "tool descriptions: nb's own prose, with corrected parameter names. qwen-code's descriptions are Apache-2.0 and vendorable, and are not vendored.",
         "environment block: none. qwen-code injects one; its shape was not researched, and an invented block is worse than an absent one because the model reads it as fact. The consequence is concrete — expect the model to open by running pwd, since nothing has told it where it is.",
         "result formatting: nb's own strings, unchanged — the exit-code footer on run_shell_command, the edit and write acknowledgments. The codex and claude-code costumes reshape theirs; this one does not, because qwen-code's exact result text was not researched and guessing at it would be worse than saying so.",
-        "run_shell_command: is_background and directory are accepted and ignored — nb's bash runs foreground in the shell cwd. timeout is converted from qwen's milliseconds to nb's seconds.",
+        "run_shell_command: is_background, directory and timeout are all accepted and ignored — nb's bash runs foreground in the shell cwd, under its own configured timeout. qwen-code's timeout is in milliseconds and nb's is in seconds, but nothing converts between them because the shared bash capability takes no timeout at all; see bugs/Bash_Advertises_A_Timeout_It_Ignores.md.",
         "web_fetch: qwen-code runs a model over the fetched page and answers the prompt; nb's fetch_url returns the content. The prompt and format arguments are accepted and ignored.",
         "list_directory: ignore and file_filtering_options are not offered.",
         "surface size: qwen-code advertises ~46 tools (agent, skill, plan mode, cron, sub-sessions, …). This costume covers the file/shell/search core only.",
@@ -146,19 +149,6 @@ public sealed class QwenCodeHarness : NbHarness
         return tools;
     }
 
-    private static object? MillisecondsToSeconds(object? value)
-    {
-        var ms = value switch
-        {
-            null => (double?)null,
-            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Number } je => je.GetDouble(),
-            IConvertible c => Convert.ToDouble(c),
-            _ => null,
-        };
-        if (ms is null) return value;
-        return Math.Max(1, (int)Math.Round(ms.Value / 1000.0));
-    }
-
     private static AIFunction Declare(string name, string? description, SchemaBuilder schema) =>
         new DeclaredFunction(name, description ?? "", schema.Build());
 
@@ -167,8 +157,7 @@ public sealed class QwenCodeHarness : NbHarness
     ///
     /// This replaces what used to be three translation tables and a generic argument
     /// rewriter. The adaptation is now ordinary typed code in the costume that owns it:
-    /// file_path becomes a path argument by being passed as one, and qwen's
-    /// millisecond timeout becomes nb's seconds with arithmetic instead of a special
+    /// file_path becomes a path argument by being passed as one, rather than a special
     /// case buried in a rename loop.
     /// </summary>
     protected override async Task<ToolOutcome?> DispatchAsync(
@@ -177,8 +166,8 @@ public sealed class QwenCodeHarness : NbHarness
         switch (name)
         {
             case "run_shell_command" when Bash != null:
-                // is_background and directory are accepted and ignored; nb's bash runs
-                // foreground in the shell cwd. timeout is milliseconds here, seconds there.
+                // is_background, directory and timeout are accepted and ignored; nb's bash
+                // runs foreground in the shell cwd under its own configured timeout.
                 return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"));
 
             case "read_file" when ReadFile != null:

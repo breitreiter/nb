@@ -38,6 +38,13 @@ public sealed class CodexHarness : NbHarness
         Files.RequireReadBeforeEdit = false;
     }
 
+    /// <summary>Wear Codex's surface over an existing harness's tools.</summary>
+    public CodexHarness(NbHarness source) : base(source)
+    {
+        // Same reason as the constructor above.
+        Files.RequireReadBeforeEdit = false;
+    }
+
     public override string Name => HarnessName;
 
     public override string? Preamble => _preamble;
