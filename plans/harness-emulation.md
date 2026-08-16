@@ -865,6 +865,58 @@ now:
    The config field itself is still there and still documented; deprecating it is a
    user-facing change with a window, and is what remains of this step.
 
+8b. **Refusal formatting.** The channel step 8 missed, built 2026-08-15 as step 6 of
+   `plans/approval-without-prompts.md`. Until that plan, an approval refusal was mostly a
+   keypress prompt and only incidentally text; once nothing prompts, the refusal is the
+   *only* thing a blocked model reads, which makes it observation-channel content by the
+   same argument that made `FormatShellResult` costume-owned in `25db11f`.
+
+   **The three targets do not agree, and the disagreement is behavioural rather than
+   cosmetic** — this is the one result string where the wording changes what the model
+   does next, not just how the transcript reads:
+
+   - **`codex` — verified.** Sandbox denial surfaces as a failure the model may retry with
+     elevated permission (`codex-rs/core/src/tools/orchestrator.rs`,
+     `codex-rs/core/src/tools/runtimes/shell/unix_escalation.rs`; issues #19162, #18079).
+     **escalatable.** Deliberately partial: real Codex carries the retry as
+     `with_escalated_permissions=true` on the call, and this costume's `shell_command`
+     schema does not declare it, so the refusal carries the escalation *shape* without
+     naming an argument the model cannot send. Instructing it to would manufacture a
+     malformed call — the same defect as naming an approval directive that does not exist.
+     Pinned by a test.
+   - **`claude-code` — observed.** Verbatim and consistent across `anthropics/claude-code`
+     issues #40156, #29238, #29499: *"The user doesn't want to proceed with this tool use.
+     … STOP what you are doing and wait for the user to tell you how to proceed."*
+     **human-in-loop**, and unusually forceful — it instructs a halt rather than reporting
+     a refusal. Reproducing that under nb means the model waits for someone who is not
+     there, which is the intended fidelity: a run that stalls on absent approval is exactly
+     the class of problem this scheme exists to surface. Issue #40156 reports the model
+     ignoring the instruction and retrying, so its pull is contested upstream too.
+   - **`qwen-code` — verified.** Read from `packages/core/src/core/coreToolScheduler.ts`
+     (`ToolErrorType.EXECUTION_DENIED`), including the non-interactive variant.
+     **terminal** — the same class as nb's own, which makes it the closest thing to a
+     control in the set. It is also the source of the "name the deciding rule in the string
+     the *model* reads" convention that nb's own refusal adopted.
+
+   Unlike step 8, **no costume here declines to guess**: all three had a real source, two
+   read from Apache-2.0 code and one observed. That is a better provenance floor than any
+   other channel in this scheme has managed.
+
+   **The seam is narrower than step 8's on purpose.** `Deny` is *not* virtual — it records
+   the ledger verdict and prints the operator's stderr line, obligations no costume should
+   be able to drop, and an override of the whole method would silently drop both. Only
+   `RefusalText` is virtual. The human-facing half stays nb's own in every costume: the
+   console is nb's observation channel, and an operator needs the truth about nb's policy
+   regardless of which costume is worn.
+
+   **A separate defect fell out of building this.** The step 5 denial goldens showed every
+   refusal naming nb's *canonical* tool rather than the name the model called — a
+   claude-code run calling `Write` was told `write_file` was denied. Fixed here with
+   `NbHarness.ToolLabel`/`ToolName`, fed by a wire name recorded in `InvokeAsync`. Worth
+   noting as a pattern: it is the same shape as the pending-todos reminder naming a tool
+   the costume does not advertise (still open, `TODO.md`), so that class of leak is not
+   yet exhausted.
+
 9. **The environment block.** The other half of context furniture, and the last unbuilt
    channel from *What a harness owns*.
 

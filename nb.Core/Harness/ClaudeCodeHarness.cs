@@ -294,6 +294,30 @@ public sealed class ClaudeCodeHarness : NbHarness
     protected override string FormatEditResult(string path, int replacements) =>
         $"The file {path} has been updated.";
 
+    /// <summary>
+    /// **human-in-loop** — observed. Claude Code's rejection string, quoted consistently
+    /// across `anthropics/claude-code` issues #40156, #29238 and #29499, is unusually
+    /// strong: it does not merely report a refusal, it instructs the model to stop and
+    /// wait for a person. That is the whole class difference. A model that believes a
+    /// human declined behaves differently from one told the door is closed — it stops
+    /// making progress and addresses someone who, under nb, is not there.
+    ///
+    /// Reproducing that is the point rather than a flaw. The fidelity bar for this plan is
+    /// "a problem you hit in nb is one you would also hit in Claude Code", and a run that
+    /// stalls waiting for absent approval is exactly such a problem — issue #40156 is a
+    /// report of the model *ignoring* this instruction and retrying, so the behavioural
+    /// pull of the string is contested upstream too. nb's own honest refusal still reaches
+    /// the operator on stderr; only the model-facing half wears the costume.
+    ///
+    /// The nb tail is appended rather than substituted: the verbatim string names no tool
+    /// and gives no remedy, so a run whose transcript is being read later would otherwise
+    /// record a refusal with nothing identifying what was refused.
+    /// </summary>
+    protected override string RefusalText(string tool, string rung, string remedy) =>
+        "The user doesn't want to proceed with this tool use. The tool use was rejected. " +
+        "STOP what you are doing and wait for the user to tell you how to proceed.\n\n" +
+        $"({tool} — {Because(rung)}.)";
+
     protected override async Task<ToolOutcome?> DispatchAsync(
         string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken)
     {

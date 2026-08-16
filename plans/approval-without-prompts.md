@@ -4,9 +4,13 @@ title: Approval without prompts — refusals the model can read
 created: 2026-08-15
 updated: 2026-08-15
 status: current
-state: accepted
+state: shipped
 touches:
   files:
+    - nb.Core/Harness/ClaudeCodeHarness.cs
+    - nb.Core/Harness/CodexHarness.cs
+    - nb.Core/Harness/QwenCodeHarness.cs
+    - plans/harness-emulation.md
     - nb.Tests/DenialGoldenTests.cs
     - nb.Core/ToolErrorTracker.cs
     - nb.Tests/ApprovalDenialTests.cs
@@ -462,6 +466,40 @@ nothing even if the rest of it is never built.
    can drop its approval-surface caveat for refusals specifically — the escalation
    vocabulary is now sourced, even though the permission-*profile* enum spellings it
    actually refers to remain out of scope.
+
+   *Done 2026-08-15.* 563 tests green. `RefusalText` is the virtual; `Deny` is **not**,
+   because recording the ledger verdict and printing the operator's stderr line are
+   obligations no costume should be able to drop, and overriding the whole method would
+   silently drop both. The human-facing half stays nb's own under every costume — the
+   console is nb's observation channel, and an operator needs the truth about nb's policy
+   regardless of the costume worn. All four classes are pinned by the goldens *and* by a
+   direct test, since a refusal class is a behavioural claim and a refactor collapsing
+   them back to one string would still look tidy.
+
+   Three notes on what the build changed about the plan:
+
+   - **Codex's escalation is deliberately partial.** Real Codex carries the retry as
+     `with_escalated_permissions=true` on the tool call; this costume's `shell_command`
+     schema does not declare it. So the refusal carries the escalation *shape* without
+     naming an argument the model cannot send — instructing it to would manufacture a
+     malformed call, which is the same defect as naming an approval directive that does
+     not exist. Asserted negatively in `DenialGoldenTests`. The `CodexHarness.Omissions`
+     entry was therefore **added, not dropped**: the refusal *class* is now sourced, but
+     the gap between "shaped like escalation" and "can actually escalate" is real and
+     wants declaring. nb has no mid-run elevation to grant — authorization is fixed by
+     the program before the run — so this is a permanent property of the costume, not a
+     to-do.
+   - **The wire-name fix landed here, as step 5 predicted.** `InvokeAsync` records the
+     name the model called; `ToolLabel(canonical)` and `ToolName` surface it.
+     `denial.nb.txt` is byte-identical across the change, which is the sanity signal: under
+     nb's own surface the wire name *is* the canonical name, so the fix is a no-op exactly
+     where it should be.
+   - **qwen's template needed a bare tool name, not a label.** The other three costumes
+     interpolate a detail-bearing label (`bash (Read): /etc/passwd`); qwen's real string
+     quotes a tool name on its own, and a whole label inside those quotes read as
+     nonsense. Hence `ToolName` alongside `ToolLabel`. Outside a dispatch — the MCP denial
+     path, which refuses on behalf of a tool the harness never dispatched — it falls back
+     to a generic phrase rather than inventing one.
 
 ## Done test
 

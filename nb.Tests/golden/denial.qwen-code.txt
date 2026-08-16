@@ -2,16 +2,16 @@
 --- ledger
 deny / no-match
 --- model
-Error: bash (Read): /etc/passwd was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
+Qwen Code requires permission to use "run_shell_command", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "no-match". Refused: run_shell_command (Read): /etc/passwd. Granting it would require: approval bash cat *.
 --- human (stderr)
-[nb] denied: bash (Read): /etc/passwd — nothing in the approval policy allows it.
+[nb] denied: run_shell_command (Read): /etc/passwd — nothing in the approval policy allows it.
        authorize with: approval bash cat *
 
 === ladder-miss / write-outside-cwd / write_file
 --- ledger
 deny / no-match
 --- model
-Error: write_file → /etc/motd was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+Qwen Code requires permission to use "write_file", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "no-match". Refused: write_file → /etc/motd. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
 --- human (stderr)
 [nb] denied: write_file → /etc/motd — nothing in the approval policy allows it.
        No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
@@ -20,16 +20,16 @@ Error: write_file → /etc/motd was denied — nothing in the approval policy al
 --- ledger
 deny / no-match
 --- model
-Error: fetch_url: https://example.com/data.json was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval fetch allow. Continue with what you are authorized to do, or report that the operation is not permitted.
+Qwen Code requires permission to use "web_fetch", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "no-match". Refused: web_fetch: https://example.com/data.json. Granting it would require: approval fetch allow.
 --- human (stderr)
-[nb] denied: fetch_url: https://example.com/data.json — nothing in the approval policy allows it.
+[nb] denied: web_fetch: https://example.com/data.json — nothing in the approval policy allows it.
        authorize with: approval fetch allow
 
 === ladder-miss / read-outside-cwd / read_file
 --- ledger
 deny / no-match
 --- model
-Error: read_file → /etc/hostname was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+Qwen Code requires permission to use "read_file", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "no-match". Refused: read_file → /etc/hostname. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
 --- human (stderr)
 [nb] denied: read_file → /etc/hostname — nothing in the approval policy allows it.
        No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
@@ -38,16 +38,16 @@ Error: read_file → /etc/hostname was denied — nothing in the approval policy
 --- ledger
 deny / default-deny
 --- model
-Error: bash (Read): /etc/passwd was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
+Qwen Code requires permission to use "run_shell_command", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "default-deny". Refused: run_shell_command (Read): /etc/passwd. Granting it would require: approval bash cat *.
 --- human (stderr)
-[nb] denied: bash (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.
+[nb] denied: run_shell_command (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.
        authorize with: approval bash cat *
 
 === default-deny / write-outside-cwd / write_file
 --- ledger
 deny / default-deny
 --- model
-Error: write_file → /etc/motd was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+Qwen Code requires permission to use "write_file", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "default-deny". Refused: write_file → /etc/motd. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
 --- human (stderr)
 [nb] denied: write_file → /etc/motd — the approval policy default is deny, and no allow-rule matched.
        No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
@@ -56,16 +56,16 @@ Error: write_file → /etc/motd was denied — the approval policy default is de
 --- ledger
 deny / default-deny
 --- model
-Error: fetch_url: https://example.com/data.json was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval fetch allow. Continue with what you are authorized to do, or report that the operation is not permitted.
+Qwen Code requires permission to use "web_fetch", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "default-deny". Refused: web_fetch: https://example.com/data.json. Granting it would require: approval fetch allow.
 --- human (stderr)
-[nb] denied: fetch_url: https://example.com/data.json — the approval policy default is deny, and no allow-rule matched.
+[nb] denied: web_fetch: https://example.com/data.json — the approval policy default is deny, and no allow-rule matched.
        authorize with: approval fetch allow
 
 === default-deny / read-outside-cwd / read_file
 --- ledger
 deny / default-deny
 --- model
-Error: read_file → /etc/hostname was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target. Continue with what you are authorized to do, or report that the operation is not permitted.
+Qwen Code requires permission to use "read_file", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "default-deny". Refused: read_file → /etc/hostname. No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.
 --- human (stderr)
 [nb] denied: read_file → /etc/hostname — the approval policy default is deny, and no allow-rule matched.
        No approval directive grants paths outside the working directory. Work within it, or start nb from a directory that contains the target.

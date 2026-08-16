@@ -382,10 +382,48 @@ public class NbHarness
     public async Task<ToolOutcome?> InvokeAsync(
         string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken = default)
     {
-        var outcome = await DispatchAsync(name, callId, arguments, cancellationToken);
-        if (outcome is { } o) LogToolCall(name, arguments, DescribeForLog(o));
-        return outcome;
+        _wireName = name;
+        try
+        {
+            var outcome = await DispatchAsync(name, callId, arguments, cancellationToken);
+            if (outcome is { } o) LogToolCall(name, arguments, DescribeForLog(o));
+            return outcome;
+        }
+        finally
+        {
+            _wireName = null;
+        }
     }
+
+    /// <summary>
+    /// The name the model called this round, or null outside a dispatch. Set here rather
+    /// than threaded through every capability method because the capabilities are shared
+    /// across costumes and deliberately know nothing about wire vocabulary — see
+    /// <see cref="ToolLabel"/> for the one place that difference has to surface.
+    /// </summary>
+    private string? _wireName;
+
+    /// <summary>
+    /// What to call a tool when talking to the model: the name it actually used, falling
+    /// back to nb's canonical name outside a dispatch (direct capability calls in tests).
+    ///
+    /// A refusal is the only thing a blocked model reads, so naming a tool its costume
+    /// never advertised is worse than merely untidy — it invites a retry under the name
+    /// the model does know. Found 2026-08-15 by the step 5 denial goldens, which showed
+    /// a claude-code run calling <c>Write</c> being told <c>write_file</c> was denied.
+    /// </summary>
+    protected string ToolLabel(string canonical) => _wireName ?? canonical;
+
+    /// <summary>
+    /// The bare name the model called, with no detail attached — for refusal templates
+    /// that quote a tool name on its own (qwen-code's does) and would read wrongly with a
+    /// whole label like <c>bash (Read): /etc/passwd</c> inside the quotes.
+    ///
+    /// Falls back to a generic phrase outside a dispatch, which is the MCP denial path in
+    /// <c>ConversationManager</c>: it refuses on behalf of a tool the harness never
+    /// dispatched, so there is no wire name to report. The detail label still names it.
+    /// </summary>
+    protected string ToolName => _wireName ?? "the tool";
 
     private static string DescribeForLog(ToolOutcome outcome) => outcome.Content.Result switch
     {
@@ -525,7 +563,7 @@ public class NbHarness
     {
         var fullReadPath = ReadFile!.ResolvePath(path);
         if (!ApproveReadPath("Read", fullReadPath, ReadFile.GetCwd()))
-            return Deny(callId, $"read_file → {path}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"{ToolLabel("read_file")} → {path}", DenyRung, OutsideCwdRemedy);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• reading {Markup.Escape(path)}[/]");
 
@@ -559,7 +597,7 @@ public class NbHarness
     {
         var fullFindPath = FindFiles!.ResolvePath(path);
         if (!ApproveReadPath("Find", fullFindPath, FindFiles.GetCwd()))
-            return Deny(callId, $"find_files → {path ?? "."}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"{ToolLabel("find_files")} → {path ?? "."}", DenyRung, OutsideCwdRemedy);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• find_files: {Markup.Escape(pattern)}[/]");
 
@@ -574,7 +612,7 @@ public class NbHarness
     {
         var fullGrepPath = Grep!.ResolvePath(path);
         if (!ApproveReadPath("Grep", fullGrepPath, Grep.GetCwd()))
-            return Deny(callId, $"grep → {path ?? "."}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"{ToolLabel("grep")} → {path ?? "."}", DenyRung, OutsideCwdRemedy);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• grep: {Markup.Escape(pattern)}{(filePattern != null ? $" ({Markup.Escape(filePattern)})" : "")}[/]");
 
@@ -588,7 +626,7 @@ public class NbHarness
     {
         var fullListPath = ListDir!.ResolvePath(path);
         if (!ApproveReadPath("List", fullListPath, ListDir.GetCwd()))
-            return Deny(callId, $"list_dir → {path ?? "."}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"{ToolLabel("list_dir")} → {path ?? "."}", DenyRung, OutsideCwdRemedy);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• list_dir: {Markup.Escape(path ?? ".")}[/]");
 
@@ -703,24 +741,21 @@ public class NbHarness
     /// <summary>
     /// The one refusal, written for two readers.
     ///
-    /// *The model* gets a terminal refusal: what was refused, which rule refused it, and
-    /// that retrying is pointless because nothing in the run will change. nb is the
-    /// **terminal** refusal class — not <c>escalatable</c> (Codex, where a retry with
-    /// elevated permission is a real move) and not <c>human-in-loop</c> (Claude Code,
-    /// which tells the model to stop and wait for a person). Nobody is going to say yes
-    /// mid-run, so a refusal that implies otherwise buys wasted turns. Naming the
-    /// deciding rule follows qwen-code, which puts its matching deny rule in the string
-    /// the model reads.
+    /// *The human* gets the refusal plus the line that would have authorized it — the half
+    /// that did not exist before. A directive is pasteable into the program; where no
+    /// directive can grant the thing, say so plainly rather than inventing one. This half
+    /// is nb's own and stays here: the console is nb's observation channel, not the
+    /// emulated harness's, and an operator reading a run needs the truth about *nb's*
+    /// policy regardless of which costume is being worn.
     ///
-    /// *The human* gets the same refusal plus the line that would have authorized it —
-    /// the half that did not exist before. A directive is pasteable into the program;
-    /// where no directive can grant the thing, say so plainly rather than inventing one.
+    /// *The model* gets <see cref="RefusalText"/>, which costumes override.
     ///
-    /// <c>virtual</c> because the three emulated harnesses genuinely disagree about
-    /// refusal class, and that difference moves model behaviour
-    /// (plans/approval-without-prompts.md step 6).
+    /// Deliberately not virtual — recording the ledger verdict and printing the operator's
+    /// line are obligations no costume should be able to drop, and a costume that
+    /// overrode this whole method would silently drop both. Overriding only the text makes
+    /// the seam exactly as wide as the thing that actually differs.
     /// </summary>
-    /// <param name="tool">What was refused, as the human sees it — "bash (run)", "write_file → /etc/motd".</param>
+    /// <param name="tool">What was refused, as the reader sees it — "bash (run)", "write_file → /etc/motd".</param>
     /// <param name="rung">The <see cref="ApprovalLedger"/> rung that decided it; also selects the explanation.</param>
     /// <param name="remedy">
     /// How to authorize it. An <c>approval …</c> line is offered as pasteable; anything
@@ -728,23 +763,42 @@ public class NbHarness
     /// grammar is <c>bash | mcp | search | fetch | default | sandbox</c>, and there is no
     /// <c>approval path</c>.
     /// </param>
-    public virtual ToolOutcome Deny(string callId, string tool, string rung, string remedy)
+    public ToolOutcome Deny(string callId, string tool, string rung, string remedy)
     {
         _approvals?.RecordDeny(callId, rung);
 
-        var because = rung == ApprovalLedger.DefaultDeny
-            ? "the approval policy default is deny, and no allow-rule matched"
-            : "nothing in the approval policy allows it";
-
-        var pasteable = remedy.StartsWith("approval ", StringComparison.Ordinal);
-        Console.Error.WriteLine($"[nb] denied: {tool} — {because}.");
+        var pasteable = IsDirective(remedy);
+        Console.Error.WriteLine($"[nb] denied: {tool} — {Because(rung)}.");
         Console.Error.WriteLine(pasteable ? $"       authorize with: {remedy}" : $"       {remedy}");
 
-        return ToolOutcome.Fail(callId,
-            $"Error: {tool} was denied — {because}. This will not succeed on retry; nothing in this run " +
-            $"will grant it. {(pasteable ? $"It would require this directive in the program: {remedy}." : remedy)} " +
-            "Continue with what you are authorized to do, or report that the operation is not permitted.");
+        return ToolOutcome.Fail(callId, RefusalText(tool, rung, remedy));
     }
+
+    /// <summary>Why the call was refused, in nb's own terms. Shared by both audiences.</summary>
+    protected static string Because(string rung) => rung == ApprovalLedger.DefaultDeny
+        ? "the approval policy default is deny, and no allow-rule matched"
+        : "nothing in the approval policy allows it";
+
+    /// <summary>Whether a remedy is a pasteable <c>approval …</c> line rather than prose guidance.</summary>
+    protected static bool IsDirective(string remedy) => remedy.StartsWith("approval ", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The refusal the model reads. nb's own is **terminal**: what was refused, which rule
+    /// refused it, and that retrying is pointless because nothing in the run will change.
+    /// Nobody is going to say yes mid-run, so a refusal implying otherwise buys wasted
+    /// turns. Naming the deciding rule follows qwen-code, which puts its matching deny
+    /// rule in the string the model reads.
+    ///
+    /// <c>virtual</c> because the three emulated harnesses do not agree on what a refusal
+    /// implies about the next move, and that disagreement moves model behaviour — codex
+    /// retries with elevated permission, claude-code stops and waits for a person, qwen
+    /// gives up. Handing every costume nb's class would erase a real difference
+    /// (plans/approval-without-prompts.md step 6).
+    /// </summary>
+    protected virtual string RefusalText(string tool, string rung, string remedy) =>
+        $"Error: {tool} was denied — {Because(rung)}. This will not succeed on retry; nothing in this run " +
+        $"will grant it. {(IsDirective(remedy) ? $"It would require this directive in the program: {remedy}." : remedy)} " +
+        "Continue with what you are authorized to do, or report that the operation is not permitted.";
 
     /// <summary>The <c>approval bash</c> line that would have allowed this command, keyed to its program.</summary>
     private static string BashRemedy(string command)
@@ -801,7 +855,7 @@ public class NbHarness
             if (classified.IsDangerous && classified.DangerReason != null)
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: {classified.DangerReason}[/]");
 
-            return Deny(callId, $"bash ({classified.Category}): {classified.DisplayText}",
+            return Deny(callId, $"{ToolLabel("bash")} ({classified.Category}): {classified.DisplayText}",
                 DenyRung, BashRemedy(command));
         }
         catch (Exception ex)
@@ -900,7 +954,7 @@ public class NbHarness
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Write:[/] {Markup.Escape(fullPath)}");
             AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {lineCount} lines, {byteCount} bytes[/]");
 
-            return Task.FromResult(Deny(callId, $"write_file → {path}", DenyRung, OutsideCwdRemedy));
+            return Task.FromResult(Deny(callId, $"{ToolLabel("write_file")} → {path}", DenyRung, OutsideCwdRemedy));
         }
         catch (Exception ex)
         {
@@ -914,7 +968,7 @@ public class NbHarness
         try
         {
             if (_approvalPolicy.DecideSearch() != ApprovalDecision.Allow)
-                return Deny(callId, $"search_web: {query}", DenyRung, "approval search allow");
+                return Deny(callId, $"{ToolLabel("search_web")}: {query}", DenyRung, "approval search allow");
 
             var result = await SearchWeb!.SearchAsync(query);
 
@@ -940,7 +994,7 @@ public class NbHarness
         try
         {
             if (_approvalPolicy.DecideFetch() != ApprovalDecision.Allow)
-                return Deny(callId, $"fetch_url: {url}", DenyRung, "approval fetch allow");
+                return Deny(callId, $"{ToolLabel("fetch_url")}: {url}", DenyRung, "approval fetch allow");
 
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Fetch:[/] {Markup.Escape(url)}");
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: outbound network request[/]");
@@ -1022,7 +1076,7 @@ public class NbHarness
             if (replaceAll)
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  (replace all occurrences)[/]");
 
-            return Deny(callId, $"edit_file → {path}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"{ToolLabel("edit_file")} → {path}", DenyRung, OutsideCwdRemedy);
         }
         catch (Exception ex)
         {
@@ -1104,7 +1158,7 @@ public class NbHarness
 
         // At least one path leaves the sandbox. RenderPatchSummary above already showed the
         // whole patch, so the human can see exactly which files put it out of bounds.
-        return Deny(callId, "apply_patch (path outside working directory)", DenyRung, OutsideCwdRemedy);
+        return Deny(callId, $"{ToolLabel("apply_patch")} (path outside working directory)", DenyRung, OutsideCwdRemedy);
     }
 
     private static void RenderPatchSummary(PatchPreview preview)

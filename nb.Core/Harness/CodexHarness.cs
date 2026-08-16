@@ -126,6 +126,7 @@ public sealed class CodexHarness : NbHarness
         "apply_patch: declared as a JSON function taking an input string. Codex declares it as a freeform tool with a lark grammar, so the model emits a bare patch rather than an argument object. nb has no freeform tool channel. The patch format itself is identical.",
         "AGENTS.md: loaded from the project root down to the cwd, in Codex's own <INSTRUCTIONS> wrapper, but sent as a system message where Codex sends a user-role fragment. Not reproduced: user-level instructions from ~/.codex, and Codex's re-check when the model works outside the cwd — its prompt tells the model to look for those itself, which this costume's shell can do.",
         "environment context: the <environment_context> block carries cwd, shell, current_date and timezone in Codex's verified layout, but not its <network> or <filesystem> elements — mapping nb's approval model and trust sandbox onto Codex's permission-profile vocabulary would mean inventing enum spellings, which is worse than a missing element. Approval-policy instructions are not appended to the prompt either, so the prompt's references to a \"Sandbox and approvals\" section still point at nothing.",
+        "escalated execution: refusals are shaped as Codex's escalatable sandbox failure (verified from codex-rs/core/src/tools/runtimes/shell/unix_escalation.rs), but shell_command does not declare with_escalated_permissions, so a model cannot actually request escalation the way it can under Codex. nb has no mid-run elevation to grant: authorization is fixed by the program before the run. The refusal names the approval directive that would have allowed it instead — a real remedy for the operator rather than a parameter the model would emit and have rejected.",
         "shell_command: workdir and timeout_ms are accepted and ignored — nb's bash runs in the shell cwd on its own configured timeout.",
         "view_image: detail is accepted and ignored. A path that is not an image comes back as text rather than as an error.",
         "update_plan: mapped onto nb's todo list. Codex replaces the plan wholesale; this reproduces that by cancelling steps the new plan drops, but nb renders the list its own way rather than as Codex's plan widget.",
@@ -221,6 +222,31 @@ public sealed class CodexHarness : NbHarness
         IEnumerable<string> Paths(FileOpKind kind) =>
             preview.Files.Where(f => f.Kind == kind).Select(f => f.FinalPath);
     }
+
+    /// <summary>
+    /// **escalatable** — verified. Codex surfaces a blocked command as a sandbox failure
+    /// offering a retry (`command failed; retry without sandbox?`), and the model re-issues
+    /// the call asking for elevated permission
+    /// (`codex-rs/core/src/tools/orchestrator.rs`,
+    /// `codex-rs/core/src/tools/runtimes/shell/unix_escalation.rs`; issues #19162, #18079).
+    /// The retry is a real move there, which makes this a distinct transcript shape: the
+    /// model spends turns escalating rather than routing around.
+    ///
+    /// **What is deliberately not reproduced: the escalation parameter.** Codex's retry
+    /// rides `with_escalated_permissions=true` on the tool call, and this costume's
+    /// `shell_command` schema does not declare it — so instructing the model to set it
+    /// would manufacture a malformed call. That is the same defect as naming an approval
+    /// directive that does not exist, which step 2 of the prompt-removal plan existed to
+    /// fix. So the refusal carries the escalation *shape* (a sandbox-denied failure the
+    /// model may reasonably retry against) without naming a parameter it cannot send.
+    /// Under `approval_policy=never` real Codex also just fails back to the model, which
+    /// is the case this most resembles.
+    /// </summary>
+    protected override string RefusalText(string tool, string rung, string remedy) =>
+        $"{tool} — command failed in sandbox: {Because(rung)}. " +
+        (IsDirective(remedy)
+            ? $"Escalated execution requires this directive in the program: {remedy}."
+            : remedy);
 
     protected override async Task<ToolOutcome?> DispatchAsync(
         string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken)

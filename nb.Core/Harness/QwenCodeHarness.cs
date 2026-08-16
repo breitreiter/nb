@@ -206,4 +206,25 @@ public sealed class QwenCodeHarness : NbHarness
                 return null;
         }
     }
+
+    /// <summary>
+    /// **terminal** — verified, read from `packages/core/src/core/coreToolScheduler.ts`
+    /// (`ToolErrorType.EXECUTION_DENIED`). qwen-code names the tool and the rule that
+    /// blocked it, and its non-interactive variant says outright that nothing can prompt.
+    ///
+    /// This is the one costume whose class already matches nb's, which makes it the
+    /// closest thing to a control in the set — where claude-code and codex change what the
+    /// model does next, this changes only the wording. Worth keeping distinct anyway: it
+    /// is the source of the "name the deciding rule in the string the *model* reads"
+    /// convention that nb's own refusal adopted, so a future divergence between the two
+    /// should be visible rather than hidden behind a shared default.
+    ///
+    /// nb has no rule *names*, so the ledger rung stands in — it is what actually decided,
+    /// and it is the same token the transcript records in `approval_reason`.
+    /// </summary>
+    protected override string RefusalText(string tool, string rung, string remedy) =>
+        $"Qwen Code requires permission to use \"{ToolName}\", but that permission was declined " +
+        $"(non-interactive mode cannot prompt for confirmation). Matching deny rule: \"{rung}\". " +
+        $"Refused: {tool}. " +
+        (IsDirective(remedy) ? $"Granting it would require: {remedy}." : remedy);
 }

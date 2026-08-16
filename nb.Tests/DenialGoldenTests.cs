@@ -106,6 +106,55 @@ public class DenialGoldenTests : IDisposable
     [Fact]
     public Task Denials_QwenCode() => AssertGolden("qwen-code", QwenCodeHarness.HarnessName, QwenCodeCases);
 
+    /// <summary>
+    /// The costumes must not converge. The goldens would catch it, but only as a diff a
+    /// reviewer has to interpret — this states the invariant directly, because a refusal
+    /// class is a *behavioural* claim (retry / stop and wait / route around) and a
+    /// refactor that quietly restored one shared string would still look tidy.
+    /// </summary>
+    [Fact]
+    public async Task EachCostume_RefusesInItsOwnClass()
+    {
+        var shell = new Case("shell", "bash", new() { ["command"] = "cat /etc/passwd" });
+
+        var nb = (await Refuse(null, ApprovalDefault.Prompt, shell)).Model;
+        var claude = (await Refuse(ClaudeCodeHarness.HarnessName, ApprovalDefault.Prompt,
+            new Case("shell", "Bash", new() { ["command"] = "cat /etc/passwd" }))).Model;
+        var codex = (await Refuse(CodexHarness.HarnessName, ApprovalDefault.Prompt,
+            new Case("shell", "shell_command", new() { ["command"] = "cat /etc/passwd" }))).Model;
+        var qwen = (await Refuse(QwenCodeHarness.HarnessName, ApprovalDefault.Prompt,
+            new Case("shell", "run_shell_command", new() { ["command"] = "cat /etc/passwd" }))).Model;
+
+        Assert.Equal(4, new[] { nb, claude, codex, qwen }.Distinct().Count());
+
+        // The class marker each one is for, not merely "they differ".
+        Assert.Contains("will not succeed on retry", nb);          // terminal
+        Assert.Contains("wait for the user", claude);              // human-in-loop
+        Assert.Contains("failed in sandbox", codex);               // escalatable
+        Assert.Contains("permission was declined", qwen);          // terminal, qwen's words
+
+        // Codex must not tell the model to send an argument its schema never declared —
+        // the same defect as naming an approval directive that does not exist.
+        Assert.DoesNotContain("with_escalated_permissions", codex);
+    }
+
+    /// <summary>
+    /// A refusal naming a tool the costume never advertised invites a retry under the name
+    /// the model does know. Found by these goldens on their first run
+    /// (plans/approval-without-prompts.md step 5).
+    /// </summary>
+    [Fact]
+    public async Task Refusal_NamesTheToolTheModelCalled_NotNbsCanonicalOne()
+    {
+        var claude = await Refuse(ClaudeCodeHarness.HarnessName, ApprovalDefault.Prompt,
+            new Case("write", "Write", new() { ["file_path"] = "/etc/motd", ["content"] = "x" }));
+
+        Assert.Contains("Write", claude.Model);
+        Assert.DoesNotContain("write_file", claude.Model);
+        // The operator's line is nb's own channel and follows the same rule.
+        Assert.DoesNotContain("write_file", claude.Stderr);
+    }
+
     // ---- harness ----
 
     private async Task AssertGolden(string name, string? harness, Case[] cases)
