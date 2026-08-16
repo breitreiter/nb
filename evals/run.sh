@@ -151,18 +151,47 @@ run_prog_jsonl "exit reason: provider error tagged in trailer" \
     '.[-1].exit_reason' "provider_error" "run MOCK:throw"
 
 echo ""
-echo "--- Non-TTY approval ---"
+echo "--- Approval denial ---"
 echo ""
 
-# A tool needing approval, run headless (piped stdin, no TTY), is denied by policy
-# — not a thrown ReadKey. The turn completes (exit 0) and the model gets a
-# structured denial it can route around.
-run_prog_jsonl "non-tty approval: unapproved bash is denied, not hung" \
-    '[.[]|select(.type=="tool_result").output]|last|contains("non-interactive")' "true" \
+# A tool nothing authorized is denied by policy, and the denial is actionable: it
+# names the directive that would have allowed it. The turn completes (exit 0) and
+# the model gets something it can route around.
+run_prog_jsonl "approval: unapproved bash is denied, and names the granting directive" \
+    '[.[]|select(.type=="tool_result").output]|last|contains("approval bash touch")' "true" \
     "run MOCK:tool=bash touch approval_probe.txt"
 
-run_prog "non-tty approval: denied turn still exits 0" 0 \
+# The refusal must not mention interactivity. It used to: denial was reached via a
+# non-TTY check, so the same program behaved differently piped vs at a terminal
+# (plans/approval-without-prompts.md). Nothing prompts now, and a message that still
+# blamed the absence of a terminal would mean the coupling had come back.
+run_prog_jsonl "approval: the denial does not depend on stdin being a pipe" \
+    '[.[]|select(.type=="tool_result").output]|last|test("non-interactive|not a TTY|stdin")' "false" \
     "run MOCK:tool=bash touch approval_probe.txt"
+
+run_prog "approval: denied turn the model routes around still exits 0" 0 \
+    "run MOCK:tool=bash touch approval_probe.txt"
+
+# Exit 4 was documented in both published specs and produced by nothing until
+# 2026-08-15 (bugs/Approval_Denied_Exit_Code_Is_Unreachable.md). A turn the policy
+# blocked outright now reports it, so a caller can tell "not authorized" from "the
+# task is failing" — which is the whole reason the code exists.
+run_prog "exit code: a turn blocked entirely by approval exits 4" 4 \
+    "$(printf 'loop off\nrun MOCK:loop=bash touch approval_probe.txt')"
+
+run_prog_jsonl "exit reason: approval_denied tagged in trailer" \
+    '.[-1].exit_reason' "approval_denied" \
+    "$(printf 'loop off\nrun MOCK:loop=bash touch approval_probe.txt')"
+
+# The other half of that contract: repeated *genuine* tool failures stay exit 3. If
+# both collapsed to 4 the code would carry no information.
+run_prog "exit code: repeated genuine tool failure still exits 3" 3 \
+    "$(printf 'loop off\nbudget tool_calls 10\nrun MOCK:loop=read_file ./nonexistent-xyz.txt')"
+
+# Denials are counted in the trailer, so a run that recovered still shows it fought
+# its authorization envelope rather than reporting a clean success.
+run_prog_jsonl "approval: the result trailer counts denials" \
+    '.[-1].denied' "1" "run MOCK:tool=bash touch approval_probe.txt"
 
 rm -f "$NB_DIR/approval_probe.txt"
 
@@ -176,8 +205,8 @@ run_prog_jsonl "approval: Approval.Bash auto-approves a match headlessly" \
     '[.[]|select(.type=="tool_result").output]|last|startswith("Error")' "false" \
     "run MOCK:tool=bash cat /etc/hostname" --config "$FIX/appr-bash.json"
 
-run_prog_jsonl "approval: Default=deny denies via policy, not non-TTY" \
-    '[.[]|select(.type=="tool_result").output]|last|contains("default: deny")' "true" \
+run_prog_jsonl "approval: Default=deny denies with the default-deny reason" \
+    '[.[]|select(.type=="tool_result").output]|last|contains("the approval policy default is deny")' "true" \
     "run MOCK:tool=bash cat /etc/hostname" --config "$FIX/appr-deny.json"
 
 # The `approval` directive layers onto the policy in a program.
@@ -186,7 +215,7 @@ run_prog_jsonl "approval: 'approval bash' directive auto-approves in a program" 
     "$(cat "$FIX/prog-approval-bash.nb")"
 
 run_prog_jsonl "approval: 'approval default deny' directive denies via policy" \
-    '[.[]|select(.type=="tool_result").output]|last|contains("default: deny")' "true" \
+    '[.[]|select(.type=="tool_result").output]|last|contains("the approval policy default is deny")' "true" \
     "$(cat "$FIX/prog-approval-deny.nb")"
 
 run_prog_contains "approval: --validate rejects an unknown key" 1 "invalid approval key" \

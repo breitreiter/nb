@@ -34,6 +34,9 @@ echo 'run MOCK:response=hi' | ./nb - --output jsonl
 
 # Tests. Always build first — see the provider gotcha below.
 dotnet build && dotnet test --no-build
+
+# Integration evals. CI runs these too, so a green `dotnet test` is NOT enough.
+./evals/run.sh --skip-llm
 ```
 
 Note: `dotnet run` from project root won't work - provider DLLs are discovered relative to the executable.
@@ -44,6 +47,13 @@ Note: `dotnet run` from project root won't work - provider DLLs are discovered r
 `dotnet test` will not rebuild them. Edit a provider, run `dotnet test`, and the suite
 silently exercises the previous build — the failure looks like a broken test rather than
 a stale binary. Run `dotnet build` first whenever provider code changed.
+
+**⚠️ `evals/run.sh` is part of CI and `dotnet test` does not cover it.**
+`.github/workflows/test.yml` runs `dotnet build`, `dotnet test`, *then*
+`./evals/run.sh --skip-llm`. The evals drive the built binary end to end and assert on
+**model-visible strings** — refusal text, exit reasons, trailer fields — so any change to
+what nb says to a model can pass the unit suite and still break CI. Run both before
+calling a change done.
 
 ## Execution Modes
 nb runs a **conversation-program**, two ways:
