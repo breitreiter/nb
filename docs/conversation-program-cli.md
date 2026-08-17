@@ -95,10 +95,24 @@ Authorization is something a program *states*, not something a run stops to coll
 and jitter before it becomes an outcome, so a single 429 doesn't discard an agentic
 run's accumulated work. Streaming calls are only retried before the first update
 arrives — throttling happens at request admission, so this costs nothing in practice.
-Tune per `ChatProviders` entry with `MaxRetries` (default 5; `0` disables retry) and
-`RetryMaxDelaySeconds` (default 60). When the retries run out the run ends as
-`rate_limited` rather than `provider_error`: the distinction is the point — the same
-program re-run later may well succeed.
+Tune per `ChatProviders` entry with `MaxRetries` (default 10; `0` disables retry),
+`RetryMaxDelaySeconds` (a single backoff cap, default 60), and `RetryBudgetSeconds`
+(the total time one request may spend retrying, default 300). Retrying stops at
+whichever runs out first; the wall-clock budget is the one that matters, since a
+gateway-wide limit lasts minutes and an attempt ladder alone gives up in seconds.
+
+A throttle also **paces the requests that follow it** — retrying only the rejected call
+lets the next turn charge straight back into the same limit, so a long run rediscovers
+it turn after turn and pays for each rediscovery. The pace starts at a second, doubles
+per throttle up to `RetryMaxDelaySeconds`, and halves back toward zero as calls succeed.
+
+A rejection is recognized as throttling from its status *or* its prose, including the
+body of the HTTP response — some gateways signal wholesale capacity exhaustion as a
+`402` whose message says nothing, with the only evidence in the response body. A `402`
+that is genuinely about payment is not retried.
+
+When the budget runs out the run ends as `rate_limited` rather than `provider_error`:
+the distinction is the point — the same program re-run later may well succeed.
 
 ---
 
