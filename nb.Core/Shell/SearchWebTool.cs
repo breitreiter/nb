@@ -21,22 +21,47 @@ public class SearchWebTool
     private const int ResultCount = 5;   // fixed on purpose — result-count tuning is a non-goal
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 
+    /// <summary>Brave's own API root. Overridable so a gateway can front it — see <see cref="FromConfig"/>.</summary>
+    public const string DefaultEndpoint = "https://api.search.brave.com";
+
+    /// <summary>The header Brave authenticates with. A gateway in front of it usually wants its own.</summary>
+    public const string DefaultAuthHeader = "X-Subscription-Token";
+
     private static readonly HttpClient _http = CreateClient();
 
-    private readonly string? _braveApiKey;   // null => declared-only
+    private readonly string? _apiKey;   // null => declared-only
+    private readonly string _endpoint;
+    private readonly string _authHeader;
 
-    public SearchWebTool(string? braveApiKey = null) => _braveApiKey = braveApiKey;
+    public SearchWebTool(string? apiKey = null, string? endpoint = null, string? authHeader = null)
+    {
+        _apiKey = apiKey;
+        _endpoint = (string.IsNullOrWhiteSpace(endpoint) ? DefaultEndpoint : endpoint).TrimEnd('/');
+        _authHeader = string.IsNullOrWhiteSpace(authHeader) ? DefaultAuthHeader : authHeader;
+    }
 
     /// <summary>True when a live backend will actually be queried.</summary>
-    public bool HasBackend => !string.IsNullOrWhiteSpace(_braveApiKey);
+    public bool HasBackend => !string.IsNullOrWhiteSpace(_apiKey);
+
+    /// <summary>The base URL live queries go to — Brave's own root unless configured otherwise.</summary>
+    public string Endpoint => _endpoint;
+
+    /// <summary>The header the key is sent in.</summary>
+    public string AuthHeader => _authHeader;
 
     /// <summary>
     /// Build from the <c>Search</c> config block. Throws for a configured provider
     /// with no key rather than degrading to declared-only: a silent downgrade would
     /// make a run look like intent-capture when its author believed it was live, and
     /// the transcript would then mean something other than what its reader thinks.
+    ///
+    /// <paramref name="endpoint"/> and <paramref name="authHeader"/> exist because the
+    /// key that reaches nb is not always Brave's own: a local key-router or gateway can
+    /// hold the real subscription token and authenticate nb by some other header. The
+    /// dialect is still Brave's — same path, same response shape — so this stays one
+    /// backend (plans/web-search.md § "One live backend, badly"), pointed elsewhere.
     /// </summary>
-    public static SearchWebTool FromConfig(string? provider, string? apiKey)
+    public static SearchWebTool FromConfig(string? provider, string? apiKey, string? endpoint = null, string? authHeader = null)
     {
         if (string.IsNullOrWhiteSpace(provider) || provider.Equals("none", StringComparison.OrdinalIgnoreCase))
             return new SearchWebTool();
@@ -47,7 +72,14 @@ public class SearchWebTool
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new ArgumentException("Search.Provider is 'brave' but Search.ApiKey is empty. Supply a key, or set Provider to 'none' to declare search_web without a backend.");
 
-        return new SearchWebTool(apiKey);
+        if (!string.IsNullOrWhiteSpace(endpoint) &&
+            !(Uri.TryCreate(endpoint, UriKind.Absolute, out var parsed) &&
+              (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)))
+        {
+            throw new ArgumentException($"invalid Search.Endpoint '{endpoint}'. It must be an absolute http(s) base URL, e.g. {DefaultEndpoint}.");
+        }
+
+        return new SearchWebTool(apiKey, endpoint, authHeader);
     }
 
     private static HttpClient CreateClient()
@@ -96,13 +128,13 @@ public class SearchWebTool
 
         try
         {
-            var url = $"https://api.search.brave.com/res/v1/web/search?q={Uri.EscapeDataString(query)}&count={ResultCount}";
+            var url = $"{_endpoint}/res/v1/web/search?q={Uri.EscapeDataString(query)}&count={ResultCount}";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("X-Subscription-Token", _braveApiKey);
+            request.Headers.TryAddWithoutValidation(_authHeader, _apiKey);
 
             using var response = await _http.SendAsync(request);
             if (!response.IsSuccessStatusCode)
-                return new SearchWebResult(false, query, null, $"Brave Search returned {(int)response.StatusCode} {response.ReasonPhrase}");
+                return new SearchWebResult(false, query, null, $"Search returned {(int)response.StatusCode} {response.ReasonPhrase}");
 
             var json = await response.Content.ReadAsStringAsync();
             return new SearchWebResult(true, query, FormatBraveResults(json), null);

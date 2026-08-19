@@ -80,7 +80,7 @@ internal sealed class NbRuntime : IDisposable
             grep = new GrepTool(shell);
             listDir = new ListDirTool(shell);
             fetchUrl = new FetchUrlTool();
-            try { searchWeb = SearchWebTool.FromConfig(config["Search:Provider"], config["Search:ApiKey"]); }
+            try { searchWeb = SearchWebTool.FromConfig(config["Search:Provider"], config["Search:ApiKey"], config["Search:Endpoint"], config["Search:AuthHeader"]); }
             catch (ArgumentException ex) { throw new NbStartupException(ex.Message); }
 
             // Every edit tool is built; EditToolStyle decides only which of them nb's own

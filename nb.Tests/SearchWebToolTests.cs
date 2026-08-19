@@ -73,6 +73,34 @@ public class SearchWebToolTests
     }
 
     [Fact]
+    public void FromConfig_DefaultsToBravesOwnEndpointAndHeader()
+    {
+        var tool = SearchWebTool.FromConfig("brave", "k");
+
+        Assert.Equal("https://api.search.brave.com", tool.Endpoint);
+        Assert.Equal("X-Subscription-Token", tool.AuthHeader);
+    }
+
+    // A gateway fronting Brave holds the real subscription token and authenticates nb
+    // its own way — same dialect, different host and header.
+    [Fact]
+    public void FromConfig_HonorsEndpointAndAuthHeader()
+    {
+        var tool = SearchWebTool.FromConfig("brave", "Bearer tok", "http://router.local:8090/x/brave/", "Authorization");
+
+        Assert.Equal("http://router.local:8090/x/brave", tool.Endpoint);   // trailing slash trimmed
+        Assert.Equal("Authorization", tool.AuthHeader);
+        Assert.True(tool.HasBackend);
+    }
+
+    [Fact]
+    public void FromConfig_NonAbsoluteEndpoint_Throws()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => SearchWebTool.FromConfig("brave", "k", "router.local:8090"));
+        Assert.Contains("Search.Endpoint", ex.Message);
+    }
+
+    [Fact]
     public void CreateTool_IsNamedSearchWeb()
     {
         // Not `web_search`: that collides with a name providers bind to a built-in
