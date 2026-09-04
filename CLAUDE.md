@@ -55,6 +55,43 @@ a stale binary. Run `dotnet build` first whenever provider code changed.
 what nb says to a model can pass the unit suite and still break CI. Run both before
 calling a change done.
 
+## Fixing a bug: write the failing test first — when it's worth it
+
+For **bug fixes**, prefer writing the regression test before the fix, and *observe it
+fail*. Not as ceremony: for a bug, red is doing real work. It proves you reproduced the
+reported bug rather than something adjacent to it — a regression test that was green
+before the fix is testing nothing, and you won't find out until the bug is re-reported.
+This is already the repo's standard for a good fix; several reports state it as a claim
+(`bugs/Bash_Escapes_Dollar_Inside_Single_Quotes.md`: *"nine confirmed failing against the
+unfixed tool"*).
+
+What matters is **observed red**, not the ordering. Writing the test after the fix and
+then stashing the fix to watch it fail is equivalent, and is often better when the fix is
+what taught you where the assertion goes.
+
+**This is not a suicide pact.** Skip the test — or write it after, or not at all — when:
+
+- The behaviour isn't changing (a bug resolved as *accepted by design*, or closed on
+  *use case retired*). There is no red state to observe.
+- Reproducing it honestly is disproportionate (a runaway 20 MB/s producer, an OOM, a
+  real network partition). Test the new bounded behaviour instead, and say in the report
+  that it is not a reproduction.
+- It's a race. A genuinely red test for a concurrency bug is flaky by construction; a
+  serialising workaround plus a comment beats a test that fails 3% of the time
+  (`nb.Tests/ConsoleBoundCollection.cs`).
+- **You'd likely have to rewrite the test as you learn the fix.** A test you rewrite to
+  match what you built records a guess, not a fact, and it destroys the whole point of
+  writing it first. If the assertion isn't yet obvious, build first and test after.
+
+The rule of thumb: write the test first when it encodes an **observation** (this input
+produces this wrong output). Don't when it encodes a **guess** about an interface you're
+still designing. Bugs are usually the former, which is why this applies to fixes and not
+to new features.
+
+Best fits in this codebase: anything whose wrong behaviour is a **string a model or a
+human reads** — `approval_reason` values, refusal text, exit reasons, trailer fields.
+Cheap to assert, cheap to see red, and `evals/` already asserts on exactly those.
+
 ## Execution Modes
 nb runs a **conversation-program**, two ways:
 
