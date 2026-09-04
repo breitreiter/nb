@@ -290,7 +290,7 @@ public class Program
                         foreach (var ev in events)
                             await evaluator.EvaluateEventAsync(ev);
                     }
-                    catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or McpServerUnavailableException)
+                    catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or McpServerUnavailableException or ProviderUnavailableException)
                     {
                         Console.Error.WriteLine($"Error: {ex.Message}");
                     }
@@ -324,7 +324,7 @@ public class Program
     // Emit a facade RunResult in the resolved mode.
     private static void EmitResult(RunResult result, string mode)
     {
-        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied);
+        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied, result.Provider);
         if (mode == "porcelain") EmitPorcelain(result.Events, trailer);
         else EmitJsonl(result.Events, trailer);
     }
@@ -368,7 +368,7 @@ public class Program
         {
             result = await Nb.RunAsync(config, program, BuildNbOptions());
         }
-        catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or NbStartupException or McpServerUnavailableException)
+        catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or NbStartupException or McpServerUnavailableException or ProviderUnavailableException)
         {
             // Malformed fabricated tool round, an unhonorable `approval sandbox`, an
             // unassemblable engine, or a selected-but-dead MCP server — fail fast.

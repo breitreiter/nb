@@ -473,6 +473,26 @@ run_prog_stdout_contains "resolve: prints per-run envelope" "run 1:" \
     "$(cat "$FIX/prog-swap.nb")" --resolve
 
 echo ""
+echo "--- provider substitution (bugs/Failed_Provider_Directive_Silently_Substitutes.md) ---"
+echo ""
+
+# An entry that is present but unbuildable (no ApiKey) used to be answered by whichever
+# client was live before the directive, at exit 0. It must abort instead.
+run_prog_contains "provider: unbuildable entry aborts rather than substituting" 1 \
+    "aborted rather than answered by the previously selected provider" \
+    "$(cat "$FIX/prog-unbuildable-provider.nb")" --config "$FIX/unbuildable-provider.json"
+
+# --validate only checks that the *name* is configured, so this one passes validation
+# and fails at run time. Pinned so the gap does not get quietly re-described.
+run_prog "provider: unbuildable entry still validates clean (name is configured)" 0 \
+    "$(cat "$FIX/prog-unbuildable-provider.nb")" --validate --config "$FIX/unbuildable-provider.json"
+
+# The trailer names the provider that actually answered, always — a corpus is
+# attributed by this field.
+run_prog_stdout_contains "trailer: records the provider that answered" '"provider":"Mock"' \
+    "run MOCK:response=hi" --output jsonl
+
+echo ""
 
 # ----------------------------------------
 # LLM Eval (real provider, LLM-as-judge)

@@ -35,7 +35,8 @@ NuGet — reference the built assembly or the project). Types live in `nb` (the
 facade) and `nb.Transcript` (the event schema).
 
 ```csharp
-using nb;             // Nb, NbProgramBuilder, NbOptions, RunResult, NbStartupException
+using nb;             // Nb, NbProgramBuilder, NbOptions, RunResult, NbStartupException,
+                      // ProviderUnavailableException
 using nb.Transcript;  // TranscriptEvent and its subtypes, UsageInfo
 ```
 
@@ -199,8 +200,12 @@ var config = new ConfigurationBuilder()
 ```
 
 Provider/MCP-server *names* are installation-local (they must match what your
-config defines). A `provider`/`model` directive naming something unconfigured
-warns and keeps the current client rather than switching.
+config defines). A `provider`/`model` directive whose client cannot be built —
+unconfigured, implementation not loaded, required keys missing, or a throwing
+`CreateClient` — throws `ProviderUnavailableException` out of `RunAsync` rather than
+switching. It is not caught and folded into a `RunResult`: the run never happened, so
+there is no outcome to report, and answering from whichever client was live before the
+directive would attribute the result to a provider the program did not name.
 
 ---
 
@@ -251,6 +256,7 @@ public sealed record RunResult
     public UsageInfo? Usage   { get; init; }    // { Input, Output, Total, Estimated }, summed across runs
     public string  ExitReason { get; init; }    // "ok" | "provider_error" | "max_tool_calls" | ...
     public int     ExitCode   { get; init; }    // 0 | 2 | 3 | 4
+    public string? Provider   { get; init; }    // the entry that actually answered
     public string? Harness    { get; init; }    // the costume worn, null for nb's own
     public int     Denied     { get; init; }    // tool calls the approval policy refused
     public IReadOnlyList<string> Warnings { get; init; } // non-fatal evaluator warnings
@@ -271,6 +277,11 @@ turn, or an approval denial come back as `ExitReason`/`ExitCode`:
 - `NbStartupException` — the engine couldn't be assembled: no usable chat client
   (bad/missing provider, no `ProvidersDirectory`), an invalid `Approval.Sandbox`,
   or `bwrap` requested where unavailable.
+- `ProviderUnavailableException` — a `provider`/`model` directive named an entry whose
+  client could not be built. Distinct from `NbStartupException`, which is the same
+  failure at *assembly* time: this one is raised mid-program, when a directive re-targets
+  the run and the new target cannot be built. The run aborts rather than continuing on
+  the previously selected client.
 - `TranscriptFormatException` — the program is malformed (an unpaired/ill-ordered
   fabricated tool round).
 - `OperationCanceledException` — the `CancellationToken` you passed to `RunAsync` was
@@ -287,6 +298,7 @@ try
     Use(r.Answer, r.Events, r.Usage);
 }
 catch (NbStartupException e)      { /* config/provider/environment problem */ }
+catch (ProviderUnavailableException e) { /* a provider directive could not be honored */ }
 catch (TranscriptFormatException e) { /* the program you built is malformed */ }
 ```
 

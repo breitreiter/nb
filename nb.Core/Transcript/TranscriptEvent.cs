@@ -240,6 +240,15 @@ public sealed record ResultEvent : TranscriptEvent
     public long? DurationMs { get; init; }
 
     /// <summary>
+    /// The provider entry that actually answered. Always emitted, unlike
+    /// <see cref="Harness"/>: omitting it when it matches the configured default would
+    /// reintroduce the ambiguity this field exists to remove, because the default is
+    /// config-dependent and a reader of the transcript cannot resolve it.
+    /// bugs/Failed_Provider_Directive_Silently_Substitutes.md
+    /// </summary>
+    public string? Provider { get; init; }
+
+    /// <summary>
     /// The harness the run wore, when it was not nb's own. Omitted for the default, so a
     /// plain trailer stays byte-identical to before this field existed. Recorded for the
     /// same reason the model is: a corpus of runs spanning more than one costume cannot

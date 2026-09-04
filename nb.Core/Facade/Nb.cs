@@ -74,6 +74,7 @@ public static class Nb
                 Usage = usage,
                 ExitReason = reason,
                 ExitCode = ExitReasons.ToExitCode(reason),
+                Provider = runtime.Conversation.GetCurrentProvider(),
                 Harness = evaluator.Harness == HarnessRegistry.Default ? null : evaluator.Harness,
                 Denied = runtime.Conversation.Approvals.DeniedCount,
                 Warnings = warnings,

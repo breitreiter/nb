@@ -178,6 +178,7 @@ public static class TranscriptSerializer
         if (r.Turns is { } turns) w.WriteNumber("turns", turns);
         if (r.ToolCalls is { } calls) w.WriteNumber("tool_calls", calls);
         if (r.DurationMs is { } d) w.WriteNumber("duration_ms", d);
+        if (r.Provider is { } prov) w.WriteString("provider", prov);
         if (r.Harness is { } h) w.WriteString("harness", h);
         if (r.Denied is { } denied) w.WriteNumber("denied", denied);
     }
@@ -288,6 +289,7 @@ public static class TranscriptSerializer
                     Turns = GetInt(root, "turns"),
                     ToolCalls = GetInt(root, "tool_calls"),
                     DurationMs = GetLong(root, "duration_ms"),
+                    Provider = GetString(root, "provider"),
                     Harness = GetString(root, "harness"),
                     Denied = GetInt(root, "denied"),
                 };

@@ -386,13 +386,17 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 **The `result` trailer** (one per run, `turn: null`):
 
 ```json
-{"type":"result","turn":null,"exit_reason":"ok","usage":{"input":10,"output":5,"total":15},"turns":1,"tool_calls":0}
+{"type":"result","turn":null,"exit_reason":"ok","usage":{"input":10,"output":5,"total":15},"turns":1,"tool_calls":0,"provider":"Mock"}
 ```
 
 Fields: `exit_reason` (§2), `usage{input,output,total,estimated?}`, `turns`,
-`tool_calls`, `duration_ms`?, `harness`?. `harness` names the costume the run wore and
-is **omitted for nb's own** — so a default run's trailer is unchanged. Read `exit_reason` for the outcome; read the last
-`assistant_text` for the answer.
+`tool_calls`, `duration_ms`?, `provider`, `harness`?. `harness` names the costume the run
+wore and is **omitted for nb's own** — so a default run's trailer is unchanged.
+`provider` names the entry that actually answered and is **always emitted**, unlike
+`harness`: it is the field a corpus is attributed by, and omitting it when it matches the
+configured default would leave a reader unable to resolve it, since the default is
+config-dependent. Read `exit_reason` for the outcome; read the last `assistant_text` for
+the answer.
 
 **Estimated usage.** `usage` normally carries the provider's own counts. Two
 degradations are handled rather than papered over:
@@ -463,8 +467,16 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
   exit 1. There is no bare-prompt mode. Wrap it: `echo 'run some text' | nb -`.
 - **Unknown verb / missing value / bad delta token** → parse error, exit 1. (Note
   `output` is no longer a verb — an `output` line is an unknown directive.)
-- **Unknown provider name** → caught by `--validate` (exit 1); at run time a bad
-  `provider`/`model` directive warns and keeps the current client. Prefer `--validate`.
+- **Unknown provider name** → caught by `--validate` (exit 1).
+- **A `provider`/`model` directive whose client cannot be built** → the run **aborts**,
+  exit 1. This covers an unknown entry, an entry naming an implementation that did not
+  load, missing required keys (an expired `ApiKey`, an env var absent from a CI job), and
+  a throwing `CreateClient`. A program naming a provider is asserting a dependency, so
+  nb refuses rather than answering from whichever client was live before it — that
+  substitution used to exit 0 with a transcript indistinguishable from a working run.
+  Note `--validate` catches only unknown *names*: an entry that is present but
+  unbuildable validates clean and fails at run time. In the **REPL** this is reported and
+  the session continues, since a mistyped line there should not tear down the session.
 - **Malformed fabricated round** (unpaired call/result, non-monotonic turns) → exit 1.
 - **Tool call outside the advertised surface** → refused as "not found" (native tools
   are all-on; MCP is strict-empty until `mcp +server`).

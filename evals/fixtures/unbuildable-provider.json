@@ -1,0 +1,7 @@
+{
+  "ActiveProvider": "Mock",
+  "ChatProviders": [
+    { "Name": "Mock", "Response": "OK" },
+    { "Name": "Unbuildable", "Provider": "OpenAI", "Model": "gpt-5" }
+  ]
+}

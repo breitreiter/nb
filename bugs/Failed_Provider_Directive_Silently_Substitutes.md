@@ -2,16 +2,17 @@
 kind: bug
 title: 'A `provider` directive that can''t build a client silently answers from a different provider'
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-09-04
 status: current
-state: open
+state: fixed
 severity: high
 cluster: provider-truthfulness
 ---
 
 # A `provider` directive that can't build a client silently answers from a different provider
 
-Status: Confirmed (2026-08-13) against `bin/Debug/net10.0/nb` at master 418941a.
+Status: **Fixed 2026-09-04** — the first two of the three suggested fixes, taken as
+written. Originally: Confirmed (2026-08-13) against `bin/Debug/net10.0/nb` at master 418941a.
 Found while testing rate-limit retry — a `provider Mock` test run quietly went to
 a live model instead.
 
@@ -162,3 +163,65 @@ In rough order of value:
   with model `(none)`, having asked for neither. A benchmark sweeping
   provider/model pairs can silently record the same baseline under several
   labels.
+
+
+## Fix
+
+Two of the three suggestions above landed; the third is deliberately not taken.
+
+**1. The `provider` directive hard-fails.** `SwapClient` (`nb.Core/ProgramEvaluator.cs`)
+throws the new `ProviderUnavailableException` instead of warning and returning, so the
+previous client is never left live to answer a question it was not asked. The exception
+follows the `SandboxUnavailableException` / `McpServerUnavailableException` precedent
+this report cites, including its REPL carve-out: both catch filters in `Program.cs` learn
+the new type, and because the REPL's filter prints and continues the loop while the
+program path's exits 1, the scoping the Notes section asked for falls out of the existing
+structure with no mode flag on the evaluator.
+
+```console
+$ ./nb --config broken.json b.nb --output jsonl
+Entry 'Broken' is missing configuration required by 'OpenAI':
+  - ApiKey
+Error: could not build a client for provider 'Broken' model '(default)'. The run is
+aborted rather than answered by the previously selected provider.
+exit=1
+```
+
+**2. The transcript names the provider that answered.** `ResultEvent` gains `provider`,
+written and read by `TranscriptSerializer`, surfaced as `RunResult.Provider` for library
+hosts. Unlike `harness` it is **always emitted**, because omitting it when it matches the
+configured default would reintroduce exactly the ambiguity it exists to remove — the
+default is config-dependent, so a reader of the transcript cannot resolve it.
+
+```json
+{"type":"result","turn":null,"exit_reason":"ok","usage":{…},"turns":1,"tool_calls":0,"provider":"Mock"}
+```
+
+**3. `--validate` was left alone.** Extending it to buildability is still worth doing and
+is still argued for above; it is a separate change with its own cost (validation would
+have to construct clients, which is a side effect `--validate` does not currently have).
+The gap is now *documented* rather than implied — §11 says plainly that `--validate`
+catches unknown names only, and an eval pins the fact that an unbuildable-but-configured
+entry validates clean, so the gap cannot be quietly re-described.
+
+**Scope note — effective *model* is not recorded.** The trailer names the provider, not
+the model. Nothing in nb tracks a resolved model today (`ConversationManager` knows
+`_currentProviderName` and no counterpart), so recording one means new plumbing through
+the client factory. With the hard-fail in place the Notes section's model-drop case can
+no longer happen silently — `provider Broken` + `model gpt-5-mini` now aborts rather than
+answering as Mock/`(none)` — so what remains is an attribution nicety, not a correctness
+hole. Worth its own item if a benchmark needs per-model attribution from the trailer
+alone.
+
+**Docs.** `docs/conversation-program-cli.md` §11 replaces the "warns and keeps the current
+client" bullet with the abort, and its trailer section documents `provider`.
+`docs/conversation-program-api.md` documents the new exception (and how it differs from
+`NbStartupException`: same failure, but mid-program rather than at assembly) and the new
+`RunResult.Provider`.
+
+**Tests.** `nb.Tests/ProviderSubstitutionTests.cs`, five tests, written before the fix and
+confirmed failing against the unfixed evaluator — the substitution cases failed with
+*"No exception was thrown"* and the run returning `from-mock`, which is the reported bug
+exactly. The happy-path control passed before and after, so the guard is not firing
+indiscriminately. Three evals cover the CLI surface (exit 1 + message, the `--validate`
+gap, the trailer field), since none of that is reachable from the unit suite.

@@ -27,6 +27,14 @@ public sealed record RunResult
     public required int ExitCode { get; init; }
 
     /// <summary>
+    /// The provider entry that actually answered — the effective one, not the one the
+    /// program requested. Mirrors <c>provider</c> on the transcript trailer, and exists
+    /// so a corpus of runs cannot be mis-attributed to a provider that never ran. See
+    /// bugs/Failed_Provider_Directive_Silently_Substitutes.md.
+    /// </summary>
+    public string? Provider { get; init; }
+
+    /// <summary>
     /// The harness the run wore, when it was not nb's own — null for the default.
     /// Mirrors the <c>harness</c> field on the transcript trailer.
     /// </summary>

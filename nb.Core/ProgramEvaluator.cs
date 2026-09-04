@@ -236,8 +236,15 @@ public sealed class ProgramEvaluator
         var client = _clientFactory(Provider, Model);
         if (client is null)
         {
-            _warnings.Add($"could not build a client for provider '{Provider ?? "(default)"}' model '{Model ?? "(default)"}'");
-            return;
+            // Hard-fail rather than warn: a program naming a provider is asserting a
+            // dependency, and keeping the previous client live answers the question with
+            // the wrong thing — silently, at exit 0, with a transcript that cannot be
+            // told from a working one. The REPL catches this and stays alive; the
+            // program path reports it and exits 1.
+            // bugs/Failed_Provider_Directive_Silently_Substitutes.md
+            throw new ProviderUnavailableException(
+                $"could not build a client for provider '{Provider ?? "(default)"}' model '{Model ?? "(default)"}'. " +
+                "The run is aborted rather than answered by the previously selected provider.");
         }
         _conversation.SwitchProvider(client, Provider ?? _conversation.GetCurrentProvider());
     }

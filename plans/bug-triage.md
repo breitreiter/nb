@@ -174,7 +174,7 @@ four *before* any fix also settles Step 1's open question for
 `Trust_Rung_Denies_A_Bare_Find` — that report is stuck at "repro script written and not
 yet run", so writing the failing test **is** its triage step.
 
-### 2. Provider truthfulness — 1 file, highest severity in the queue
+### 2. Provider truthfulness — ~~1 file~~ **FIXED 2026-09-04**
 `Failed_Provider_Directive_Silently_Substitutes`
 
 One of **two open reports where nb produces a confidently wrong result** (the other is
@@ -185,12 +185,26 @@ transcript with nothing in it to say so. Everything else in the queue is a denia
 missing capability, or a diagnosability gap. Fix it regardless of cluster order: it is the
 smallest fix with the worst failure mode.
 
-**Tests: yes, first.** The report already carries a working repro (a two-entry config
-where `Broken` can't build a client) and the Mock provider makes it hermetic — assert
-that a program naming an unbuildable provider does *not* answer from the previously
-selected one. Red is unambiguous, and this is exactly the bug that punishes writing the
-test afterwards: today the run exits 0 with a plausible answer, so a test written to
-match the fix can pass for the wrong reason.
+**Tests: yes, first — done, and the discipline paid.** Five tests in
+`nb.Tests/ProviderSubstitutionTests.cs` written before the fix. The type surface
+(`ProviderUnavailableException`, `RunResult.Provider`) was added first *without* the
+behaviour, so the tests failed on behaviour rather than on missing symbols — a compile
+error is not an observed red. They failed with *"No exception was thrown"* and the run
+returning `from-mock`: the reported bug exactly. The happy-path control passed before and
+after, so the guard is not firing indiscriminately.
+
+**Landed:** hard-fail in `ProgramEvaluator.SwapClient`, and `provider` on the result
+trailer (always emitted — omitting it when it matches the config default would
+reintroduce the ambiguity it removes). The REPL carve-out needed no mode flag: its catch
+filter prints and continues while the program path's exits 1, so adding the new exception
+to both filters gave the Notes section's requested scoping for free. `--validate` was
+left alone deliberately; the gap is now documented and pinned by an eval instead.
+
+**Not done:** effective *model* is not recorded. Nothing tracks a resolved model today,
+so it needs new plumbing through the client factory. The hard-fail means the model-drop
+case can no longer happen silently, so this is attribution polish, not a hole — but it is
+the one part of cluster 2 still open, and it should be filed as its own item rather than
+left implicit here.
 
 ### 3. Advertised schema vs dispatch path — 3 files, 1 structural fix
 `Optional_Tool_Parameters_Advertised_As_Required` · `Bash_Advertises_A_Timeout_It_Ignores` ·
@@ -292,7 +306,7 @@ alongside, not first; there is no wrong behaviour to pin, only an absent capabil
 
 1. ~~Step 0 hygiene + Step 1 verify-and-close~~ — both done 2026-09-04. Step 1 closed
    nothing; see above for what it changed instead.
-2. Cluster 2 (silent provider substitution) — smallest fix, worst failure mode.
+2. ~~Cluster 2 (silent provider substitution)~~ — done 2026-09-04.
 3. Cluster 1 (near-miss reporting) — retires 3-4 files, unblocks the eval harness.
 4. Cluster 4 decision — costs a conversation, may close 1 file for free.
 5. Cluster 3 (schema/dispatch seam) — structural, do it once, guard it with the golden test.
