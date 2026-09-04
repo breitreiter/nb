@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Can''t configure two endpoints for one provider implementation'
+created: 2026-07-28
+updated: 2026-07-28
+status: current
+state: fixed
+severity: medium
+cluster: provider-truthfulness
+---
+
 # Can't configure two endpoints for one provider implementation
 
 Status: Fixed (2026-07-28) — both candidates landed.

@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'nb''s own state files show up as project files'
+created: 2026-07-28
+updated: 2026-07-28
+status: current
+state: fixed
+severity: low
+cluster: file-discovery
+---
+
 # nb's own state files show up as project files
 
 Status: Fixed (2026-07-28) — narrow fix (candidate 1). Candidate 2 was

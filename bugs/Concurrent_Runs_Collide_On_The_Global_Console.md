@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Two runs in one process collide on the global console, and the loser does nothing'
+created: 2026-08-14
+updated: 2026-08-14
+status: current
+state: open
+severity: medium
+cluster: library-host
+---
+
 # Two runs in one process collide on the global console, and the loser does nothing
 
 Status: Open (2026-08-14) — found when a second test class started driving real runs and

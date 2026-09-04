@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'The documented `approval_denied` exit code can never be produced'
+created: 2026-08-15
+updated: 2026-08-15
+status: current
+state: fixed
+severity: medium
+cluster: approval-diagnosability
+---
+
 # The documented `approval_denied` exit code can never be produced
 
 Status: **Fixed 2026-08-15** — implemented in step 4 of

@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'find_files only skips bin/obj/node_modules at the repo root'
+created: 2026-07-28
+updated: 2026-07-28
+status: current
+state: fixed
+severity: medium
+cluster: file-discovery
+---
+
 # find_files only skips bin/obj/node_modules at the repo root
 
 Status: Fixed (2026-07-28) — found while investigating

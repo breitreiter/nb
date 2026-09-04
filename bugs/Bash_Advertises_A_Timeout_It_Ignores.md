@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'bash advertises `timeout_seconds` and ignores it'
+created: 2026-08-14
+updated: 2026-09-04
+status: current
+state: open
+severity: low
+cluster: schema-vs-dispatch
+---
+
 # bash advertises `timeout_seconds` and ignores it
 
 Status: Open (2026-08-14) — found while deleting the qwen-code costume's argument
@@ -80,3 +91,49 @@ dead for this same reason and was deleted with it.
 A program whose bash call sets a short `timeout_seconds` against a `sleep` that exceeds
 it should return the timeout result rather than completing. Testable through the Mock
 provider — `BuildToolArgs` already scripts `bash` — with no live model needed.
+
+## Triage verification, 2026-09-04 — two findings that widen this
+
+Verified against a fresh `dotnet build` at `0cb2567` + the uncommitted
+`ConversationManager` string edits. Both findings mean the obvious one-line fix
+(pass the argument through at the dispatch site) is **not sufficient**.
+
+**1. The parameter is advertised as *required*, not optional.** The report and the
+tool's own description both call it "Optional timeout". The emitted schema disagrees —
+from `nb.Tests/golden/tool-surface.all-native.txt`:
+
+```json
+"timeout_seconds": { "type": ["integer", "null"] },
+"required": [ "description", "command", "timeout_seconds" ]
+```
+
+So a model is obliged to supply a value on every `bash` call, and that value is then
+discarded. This is `bugs/Optional_Tool_Parameters_Advertised_As_Required.md` and this
+report meeting on the same parameter: one says it must be sent, the other says it is
+ignored. Fixing only the dispatch wiring leaves it mandatory; fixing only the
+optionality leaves it ignored.
+
+**2. Even once wired, the value can only ever *lower* the timeout.**
+`BashTool.ExecuteAsync` clamps (`nb.Core/Shell/BashTool.cs:84-85`):
+
+```csharp
+var requested = timeoutSeconds ?? _defaultTimeoutSeconds;
+var timeout = Math.Min(requested, _defaultTimeoutSeconds);
+```
+
+`_defaultTimeoutSeconds` is the configured default, so `Math.Min` makes it a ceiling as
+well as a fallback. A model asking for 600s on a slow build gets 120s. This is the
+motivating case in "Why it matters" above — *"a model asking for a long timeout on a slow
+build gets the default"* — and it survives the dispatch fix untouched.
+
+Whether the clamp is deliberate (a model should not be able to hang a run for an hour)
+or accidental is the open question. If deliberate, the honest fix is to stop advertising
+a timeout the model cannot raise, or to advertise the real bound. If accidental, drop the
+`Math.Min` and let the configured default be a default.
+
+**Regression test.** Per `CLAUDE.md`, one hand-written assertion earns its place here
+because it encodes a fact rather than a design: *a `timeout_seconds` above the configured
+default must raise the effective timeout.* It is red today, stays red after the dispatch
+wiring alone, and is the only assertion that catches the half-fix. The rest of this
+report's surface (the `required` array) is pinned by the golden and needs no hand-written
+test.

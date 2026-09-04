@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'GPT-5x ends turn early under streaming'
+created: 2026-04-23
+updated: 2026-08-12
+status: current
+state: wontfix
+severity: medium
+cluster: provider-truthfulness
+---
+
 # GPT-5x ends turn early under streaming
 
 Status: **Closed, will not fix** (2026-08-12) — the use case retired before the

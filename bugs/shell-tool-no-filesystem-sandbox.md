@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'bash tool has no filesystem sandbox — model can read arbitrary files'
+created: 2026-07-06
+updated: 2026-08-12
+status: current
+state: open
+severity: high
+cluster: bash-boundary
+---
+
 # bash tool has no filesystem sandbox — model can read arbitrary files
 
 Status: Reported (2026-07-06) — unpatched. Verified against current source.

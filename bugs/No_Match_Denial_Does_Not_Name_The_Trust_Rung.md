@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'A `no-match` denial says "nothing in the approval policy allows it", but the gate is `Trust` in the config'
+created: 2026-09-04
+updated: 2026-09-04
+status: current
+state: open
+severity: low
+cluster: approval-diagnosability
+---
+
 # A `no-match` denial says "nothing in the approval policy allows it", but the gate is `Trust` in the config
 
 Status: Open (2026-09-04) — found while building a documentation-retrieval eval

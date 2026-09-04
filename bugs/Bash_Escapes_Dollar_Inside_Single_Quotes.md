@@ -1,3 +1,14 @@
+---
+kind: bug
+title: '`bash` tool escapes `$` unconditionally, breaking every single-quoted script'
+created: 2026-08-12
+updated: 2026-08-12
+status: current
+state: fixed
+severity: high
+cluster: bash-boundary
+---
+
 # `bash` tool escapes `$` unconditionally, breaking every single-quoted script
 
 Status: Fixed (2026-08-12) — `ArgumentList`, as the report proposed.

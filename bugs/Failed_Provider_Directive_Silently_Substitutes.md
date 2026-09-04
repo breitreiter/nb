@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'A `provider` directive that can''t build a client silently answers from a different provider'
+created: 2026-08-13
+updated: 2026-08-13
+status: current
+state: open
+severity: high
+cluster: provider-truthfulness
+---
+
 # A `provider` directive that can't build a client silently answers from a different provider
 
 Status: Confirmed (2026-08-13) against `bin/Debug/net10.0/nb` at master 418941a.

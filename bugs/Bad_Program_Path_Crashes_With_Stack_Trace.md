@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Bad program-file path crashes with an unhandled exception'
+created: 2026-08-12
+updated: 2026-08-12
+status: current
+state: fixed
+severity: low
+cluster: cli-surface
+---
+
 # Bad program-file path crashes with an unhandled exception
 
 Status: Fixed (2026-08-12) — the suggested pre-check, taken as written.

@@ -1,3 +1,14 @@
+---
+kind: bug
+title: '`approval search` is documented but the program parser rejects it'
+created: 2026-08-12
+updated: 2026-08-13
+status: current
+state: fixed
+severity: low
+cluster: approval-diagnosability
+---
+
 # `approval search` is documented but the program parser rejects it
 
 Status: Fixed (2026-08-12).

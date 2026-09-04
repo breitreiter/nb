@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Provider entries can''t send extra HTTP headers, so an authenticated gateway is unreachable'
+created: 2026-08-13
+updated: 2026-08-13
+status: current
+state: open
+severity: medium
+cluster: feature-gap
+---
+
 # Provider entries can't send extra HTTP headers, so an authenticated gateway is unreachable
 
 Status: Open (2026-08-13) — found pointing nb at a hosted LLM gateway to reach

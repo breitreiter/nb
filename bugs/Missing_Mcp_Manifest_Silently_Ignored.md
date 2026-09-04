@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'A missing `--mcp` manifest is silently ignored, and the run still exits 0'
+created: 2026-08-12
+updated: 2026-08-12
+status: current
+state: fixed
+severity: medium
+cluster: cli-surface
+---
+
 # A missing `--mcp` manifest is silently ignored, and the run still exits 0
 
 Status: Fixed (2026-08-12) — both gaps closed, as the report recommended.

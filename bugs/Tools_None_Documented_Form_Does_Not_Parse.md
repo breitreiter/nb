@@ -1,3 +1,14 @@
+---
+kind: bug
+title: '`tools none +read_file` is documented but does not parse'
+created: 2026-08-11
+updated: 2026-08-11
+status: current
+state: fixed
+severity: medium
+cluster: cli-surface
+---
+
 # `tools none +read_file` is documented but does not parse
 
 Status: Fixed (2026-08-11) — found while writing the first program for a harness

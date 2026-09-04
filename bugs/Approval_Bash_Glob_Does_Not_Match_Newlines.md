@@ -1,3 +1,14 @@
+---
+kind: bug
+title: '`approval bash *` allows only single-line commands, so a heredoc is denied'
+created: 2026-09-04
+updated: 2026-09-04
+status: current
+state: open
+severity: medium
+cluster: approval-diagnosability
+---
+
 # `approval bash *` allows only single-line commands, so a heredoc is denied
 
 Status: Open (2026-09-04) — found while building a documentation-retrieval eval

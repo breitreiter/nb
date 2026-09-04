@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Publishing nb for distribution: four gotchas, one of them a secret leak'
+created: 2026-08-13
+updated: 2026-08-13
+status: current
+state: fixed
+severity: high
+cluster: packaging
+---
+
 # Publishing nb for distribution: four gotchas, one of them a secret leak
 
 Status: Fixed (2026-08-13) — all five, and the report's own preference taken in

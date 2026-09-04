@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'With `Trust: true` and `sandbox bwrap`, a bare `find … 2>/dev/null` is still denied'
+created: 2026-09-04
+updated: 2026-09-04
+status: current
+state: open
+severity: low
+cluster: approval-diagnosability
+---
+
 # With `Trust: true` and `sandbox bwrap`, a bare `find … 2>/dev/null` is still denied
 
 Status: Open (2026-09-04), **not isolated** — repro script written and not yet run.

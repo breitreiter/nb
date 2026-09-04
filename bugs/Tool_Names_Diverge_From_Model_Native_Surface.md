@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Tool names diverge from the model''s native surface, and it costs tokens'
+created: 2026-08-11
+updated: 2026-09-04
+status: current
+state: open
+severity: low
+cluster: harness-evaluation
+---
+
 # Tool names diverge from the model's native surface, and it costs tokens
 
 Status: Open (2026-08-11) — measured on a local harness driving nb against a
@@ -196,3 +207,42 @@ streak: at a plausible effect size, single-digit runs per arm are not enough.
 surface, task completed — but there is **no measured evidence yet that it changes model
 behaviour**. The only demonstrated intervention on this bug remains the one-sentence
 `system` steer from 2026-08-12.
+
+## Triage, 2026-09-04 — does not close; the measurement was already tried and was negative
+
+`plans/bug-triage.md` Step 1 listed this as a verify-and-close candidate on the theory
+that `harness qwen-code` had overtaken it and a re-measurement would confirm it. **That
+premise was wrong, and this report already said so** — the "Replication attempt,
+2026-08-14" section above ran exactly that experiment, twice, and found no effect
+(pooled 2/6 vs 4/6, Fisher exact p ≈ 0.57). Recording the mistake here so the next triage
+pass does not propose it a third time.
+
+What triage did confirm, from the goldens rather than from a model, is that the
+*mechanism* this report asked for is fully shipped:
+
+- **Names.** `harness qwen-code` advertises `edit`, `glob`, `grep_search`,
+  `list_directory`, `run_shell_command` — the report's suggested fix, item 2.
+- **Parameter spellings.** `edit` takes `file_path`, not `path` — item 1.
+- **The instructional half.** `nb.Core/prompts/harness/qwen-code.md:64` carries
+  *"Prefer `edit` over `write_file`"*, which is the 2026-08-12 steer that produced the
+  only demonstrated effect in this report.
+
+So both halves of "Suggested fix" have landed and are pinned by
+`nb.Tests/ToolSurfaceGoldenTests.cs`. The standing conclusion is unchanged: the costume
+is verified to *work*, and there is still no measured evidence that it changes model
+behaviour.
+
+**Retagged** `cluster: harness-evaluation`, `severity: low`. It was briefly filed under
+`schema-vs-dispatch`, which is wrong: nothing here is a schema/dispatch disagreement.
+What remains is a *measurement* question, and it is already owned —
+`plans/harness-emulation.md` §"What to diff" adopts this report's metrics and its
+confounds, and this report's own analysis says what the experiment needs (files of a few
+hundred lines, where whole-file rewrite risks truncating mid-write; enough replicates to
+see a rate rather than a streak).
+
+**The one actionable, unshipped residue** is small and worth separating from the
+measurement: the one-sentence `system` steer from 2026-08-12 is the only intervention on
+this bug ever demonstrated to work (`edit_file` 1 → 10, exit reason `token_budget` → `ok`),
+and it is documented nowhere a caller would find it. Callers on nb's *native* surface get
+no steer at all — the preamble above ships only with the costume. Documenting it is a
+docs change, not an experiment, and it does not wait on the fixture.

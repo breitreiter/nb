@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Every optional parameter on the native surface is advertised as required'
+created: 2026-08-14
+updated: 2026-09-04
+status: current
+state: open
+severity: low
+cluster: schema-vs-dispatch
+---
+
 # Every optional parameter on the native surface is advertised as required
 
 Status: Open (2026-08-14) — found while building the tool-surface golden master
@@ -81,3 +92,40 @@ so the sentinel can go away, which changes the body slightly.
 `nb.Tests/ToolSurfaceGoldenTests.cs` already pins the emitted schemas. Re-baseline with
 `UPDATE_GOLDEN=1 dotnet test` and the diff *is* the review: every `required` array should
 shrink to the genuinely mandatory parameters, and nothing else in the golden should move.
+
+## Scope correction, 2026-09-04 — native surface only; the costumes are already correct
+
+Triage checked the `required` array of every tool in every golden surface. The defect is
+**confined to nb's own native surface**. Every costume already declares optionality
+correctly:
+
+| surface | tools with a correct `required` array |
+|---|---|
+| `all-native` | 0 of 10 — every tool marks every parameter required |
+| `apply-patch` | 0 of 9 |
+| `qwen-code` | 6 of 9 (`read_file` requires only `path`; `edit` omits `replace_all`; `grep_search` omits `path`/`glob`/`limit`) |
+| `claude-code` | 7 of 11 (`Grep` requires 1 of 12; `Read` omits `offset`/`limit`) |
+| `codex` | 3 of 4 (`shell_command` omits `workdir`/`timeout_ms`) |
+
+The remaining "all required" entries under the costumes are tools whose parameters
+genuinely are all mandatory (`write_file`, `WebFetch`, `TodoWrite`), not instances of
+this bug.
+
+**Cause of the split.** The two surfaces build schemas by opposite mechanisms, with
+opposite defaults:
+
+- Costumes hand-declare via `SchemaBuilder.Add(name, type, description, bool required = false)`
+  (`nb.Core/Harness/DeclaredFunction.cs:39`) — a parameter is optional unless the costume
+  opts in.
+- The native surface reflects the tool lambda through `AIFunctionFactory`, where a
+  parameter is required unless it carries a C# default — and none do.
+
+**One bullet above is now wrong and should be read as superseded.** "It blocks costume
+fidelity … a harness costume cannot match its target's schema while the underlying tools
+cannot express optionality" — costumes match their targets' schemas today, because
+`DeclaredFunction` decouples the advertised schema from the lambda entirely. This bug
+costs nb's *own* surface fidelity, not the costumes'. That lowers its urgency, and it is
+why it is tagged `severity: low`.
+
+The fix in the section above is unchanged and still correct — add C# defaults to the
+lambda parameters — and `ToolSurfaceGoldenTests` re-baselining is still the review.

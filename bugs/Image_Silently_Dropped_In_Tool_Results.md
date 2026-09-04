@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Images are silently dropped on OpenAI-wire providers'
+created: 2026-07-26
+updated: 2026-07-28
+status: current
+state: open
+severity: high
+cluster: provider-truthfulness
+---
+
 # Images are silently dropped on OpenAI-wire providers
 
 Status: Open (2026-07-26) — found while testing nb against a local llama.cpp

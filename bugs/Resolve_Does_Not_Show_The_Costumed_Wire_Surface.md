@@ -1,3 +1,14 @@
+---
+kind: bug
+title: '`--resolve` reports canonical tool names, so a costume''s real surface is invisible'
+created: 2026-08-16
+updated: 2026-08-16
+status: current
+state: open
+severity: medium
+cluster: schema-vs-dispatch
+---
+
 # `--resolve` reports canonical tool names, so a costume's real surface is invisible
 
 Status: Open (2026-08-16) — found while preparing harness arms for a comparison

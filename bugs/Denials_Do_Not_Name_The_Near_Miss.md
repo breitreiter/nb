@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'A denial names the tier that refused, never the rung that nearly matched'
+created: 2026-09-04
+updated: 2026-09-04
+status: current
+state: open
+severity: medium
+cluster: approval-diagnosability
+---
+
 # A denial names the tier that refused, never the rung that nearly matched
 
 Status: Open (2026-09-04) — cross-cutting. Read against `c7a3c93`.

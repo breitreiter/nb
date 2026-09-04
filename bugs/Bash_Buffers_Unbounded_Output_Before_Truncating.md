@@ -1,3 +1,14 @@
+---
+kind: bug
+title: '`bash` buffers a command''s entire output in memory, then throws away 99% of it'
+created: 2026-08-13
+updated: 2026-08-13
+status: current
+state: open
+severity: medium
+cluster: bash-boundary
+---
+
 # `bash` buffers a command's entire output in memory, then throws away 99% of it
 
 Status: Open (2026-08-13) — hit in a headless trial where a tool under test spun

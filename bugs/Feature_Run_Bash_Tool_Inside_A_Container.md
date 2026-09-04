@@ -1,3 +1,14 @@
+---
+kind: bug
+title: 'Feature: run the `bash` tool inside a running container'
+created: 2026-08-11
+updated: 2026-08-12
+status: current
+state: wontfix
+severity: low
+cluster: bash-boundary
+---
+
 # Feature: run the `bash` tool inside a running container
 
 Status: **Closed, will not fix** (2026-08-12) — the requirement dissolved rather
