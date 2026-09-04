@@ -86,7 +86,8 @@ distinguish *"your policy does not cover this"* from *"a rung is disabled."*
 
 There is a shared shape with the newline bug: both denials were **silent about the
 near-miss**, and in both cases the near-miss was the whole diagnosis. A reason
-string that says what almost matched would retire both reports.
+string that says what almost matched would retire both reports — filed as
+[`Denials_Do_Not_Name_The_Near_Miss.md`](Denials_Do_Not_Name_The_Near_Miss.md).
 
 ## Smaller note in the same area
 

@@ -82,7 +82,8 @@ could and did accomplish another way. In `real-a4` the denied command **was** th
 treatment.
 
 Same mechanism, and only one of the two invalidates an experiment. Anything that
-lets a harness tell them apart cheaply — a reason string precise enough to grep, or
+lets a harness tell them apart cheaply — see
+[`Denials_Do_Not_Name_The_Near_Miss.md`](Denials_Do_Not_Name_The_Near_Miss.md) — — a reason string precise enough to grep, or
 a trailer field counting denials that had no successful alternative — is worth more
 to me than the denials going away.
 
