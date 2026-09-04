@@ -645,7 +645,7 @@ public class ConversationManager
                     var deniedOut = _errorTracker.StreakWasAllDenials(offendingTool!);
                     var abortMsg = deniedOut
                         ? $"Tool '{offendingTool}' was denied {_errorTracker.Limit} times in a row and nothing in this run will authorize it. Aborting this turn. Grant it with an `approval` directive, or proceed without it."
-                        : $"Tool '{offendingTool}' failed {_errorTracker.Limit} times in a row. Aborting this turn to prevent a runaway loop. Review the errors above and try a different approach, or ask the user for help.";
+                        : $"Tool '{offendingTool}' failed {_errorTracker.Limit} times in a row. Aborting this turn to prevent a runaway loop. Review the errors above and try a different approach, or end the turn stating plainly what is blocked.";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, abortMsg));
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]⛔ {Markup.Escape(abortMsg)}[/]");
                     return deniedOut
@@ -657,7 +657,7 @@ public class ConversationManager
                 string? nextInjectedReminder = null;
                 if (_doomLoopEnabled && _doomLoopDetector.DetectLoop() is int reps)
                 {
-                    var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and ask the user for clarification.</system_reminder>";
+                    var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and end the turn, stating plainly what is blocked and what you would need to proceed. No one is available to answer a question mid-run.</system_reminder>";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Loop detected ({reps} reps); reminding model[/]");
                     _doomLoopDetector.Reset();
