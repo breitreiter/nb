@@ -2,9 +2,9 @@
 kind: plan
 title: Approval is not a boundary — the container is
 created: 2026-08-12
-updated: 2026-08-12
+updated: 2026-09-05
 status: current
-state: proposed
+state: accepted
 touches:
   files:
     - Shell/ApprovalPolicy.cs
@@ -335,3 +335,219 @@ Hand a fresh reader nothing but the code and docs. If they can state **"nb does
 not confine the tools it runs; run it inside something that does"** without
 having read this plan, it landed. If they come away believing trust mode or the
 safe list protects anything, it did not — regardless of what the code does.
+
+---
+
+## Revisions
+
+### 2026-09-05 — accepted, and the constructive half added
+
+**Decision: accepted.** The container is the boundary; nb is not one and stops
+saying it is. Two questions from the grill list are settled by that acceptance,
+and the rest of this revision is the half the original plan deferred: not what nb
+stops claiming, but what harness authors do *instead*.
+
+The framing shift that produced it: bash access is required in ~95% of runs (the
+coding agents nb emulates reach for a shell to do work core file tools would do),
+and the workload is **adversarial by construction** — these harnesses exist to
+trick an agent and see whether it falls in. So "grant a shell to a model we are
+actively trying to mislead" is the normal case, not the exception, and it cannot
+run with the operator's own permissions. A pivot that only removes a false claim
+leaves that need unanswered. This revision answers it.
+
+#### The topology is settled, and it is not the one in the sandbox report
+
+`bugs/shell-tool-no-filesystem-sandbox.md` ranks bwrap first among fixes.
+**That ranking is superseded**, and so is the alternative that replaced it in
+`plans/container-bash-exec.md` (route bash into a container, nb outside). The
+standard shape is:
+
+> **One container. nb runs inside it. One filesystem.**
+
+The reason for rejecting the routing approach is the reason nb cannot solve this
+at the tool layer at all, and it is worth keeping in front of anyone who
+re-proposes it: `read_file`, `write_file`, `edit_file`, `list_dir`, `find_files`
+and `grep` are in-process .NET and never route through bash. Confine only bash
+and the agent gets **two filesystems** — host paths from `read_file`, container
+paths from `go build`, `cd` a no-op between them. The first trial that hit this
+recorded the model trying `cd /work && go mod tidy` then `cd work && go mod tidy`:
+sensible in either namespace, wrong in the hybrid. For a harness measuring whether
+an agent avoids a trap, an environment that is *quietly non-standard in ways the
+agent cannot discover* contaminates every result — you cannot tell a failed agent
+from a lying harness.
+
+That also disposes of grill #5: **bwrap is deleted, not left dormant.** It is a
+weaker, Linux-only, partial control that would sit *inside* the real boundary, and
+it is the strongest signal in the codebase that nb confines things. Podman is a
+net improvement on every axis that matters here.
+
+#### Threat model (this is the doc `shell-tool-no-filesystem-sandbox` closes against)
+
+**An agent we are actively trying to mislead, holding a shell, inside a disposable
+container whose egress reaches the model endpoint and nothing else.**
+
+Properties that follow, and that a harness author must accept rather than
+work around:
+
+- **nb does not confine the bash child, and no version of nb will.** Both holes in
+  the sandbox report are real and stay open. The mitigation is deployment.
+- **nb and the agent under test share a filesystem.** `appsettings.json`, any seed
+  transcripts, and nb's own binaries are readable by the thing being tricked.
+  Rule: *the container holds the fixture and nothing you would mind the agent
+  reading.* This matters most for the obvious next step — mounting grading data in
+  — because `plans/oracle-resolver.md` already establishes that a model reaching
+  the answer key inverts what the eval measures.
+- **nb and the agent under test share a network namespace.** Whatever nb can
+  reach, the agent can reach. There is no separating "nb's egress" from "the
+  agent's egress" under this topology, so the allowlist is necessarily the union
+  and should be as small as nb's own needs allow.
+
+#### The network regression neither document recorded
+
+Moving nb inside the container **reintroduced the requirement it was meant to
+remove.** The original driver in `bugs/Feature_Run_Bash_Tool_Inside_A_Container.md`
+was that the workspace must have *no* network, so a build cannot silently fetch
+from the real module registry and results stay comparable across weeks. That is
+why nb had to stay outside: nb needs HTTP to reach the model.
+
+nb-inside dissolves the routing problem and **gives the network back**. The
+container must now have an interface, because nb needs one. `--network=none` is no
+longer available.
+
+`Part 1 §1a` waves at this in one clause ("no network beyond the model endpoint"),
+but under the accepted topology that egress restriction is **load-bearing for
+reproducibility**, not incidental hygiene. If the reference topology does not ship
+the network policy, every harness author reinvents it, some will not, and their
+fixture builds will quietly reach the real registry — producing exactly the
+week-to-week incomparability the container was adopted to prevent. It ships as a
+rule in the template, not as a sentence in a doc.
+
+#### Who owns the egress allowlist
+
+Nobody curates one. **nb must not ship a list of "safe endpoints"** — that is this
+plan's own failure mode one layer up: a thing that looks authoritative, rots
+quietly, and gets trusted anyway.
+
+The list is **derivable**, because every host nb reaches is already config:
+
+- the active `ChatProviders` entry's `Endpoint`
+- `Search.Endpoint` (`https://api.search.brave.com` by default, or a gateway)
+- `fetch_url` — **arbitrary by design**
+
+The third is decisive: with `fetch_url` in the tool surface there is no finite
+allowlist and the question is unanswerable. So a fixture run declares an explicit
+surface (`tools none +read_file +edit_file +bash`) and the egress set collapses to
+hosts nb can enumerate.
+
+Which yields a new work item: **`--resolve` should print the endpoints a run will
+reach**, not just provider and model names (it prints `provider=LocalCoder
+model=…` today). Then the harness *generates* the firewall rule from nb's own
+config instead of hand-maintaining a parallel list that drifts. Ownership splits
+three ways and each layer must stay out of the others' job:
+
+| Layer | Owns |
+|---|---|
+| nb | deriving and **printing** the endpoints it will reach |
+| the harness | the allowlist, and the decision to enforce it |
+| the container | **enforcement** |
+
+Two practical notes. For a locally-served model (`127.0.0.1:8081`) this is barely
+a question — that is a host-local port, not internet egress, and the container
+needs zero outbound. And if a fixture does point at a hosted API, **do not
+allowlist by IP**: those hosts sit behind CDNs with no stable published range, so
+an IP list breaks on someone else's schedule. No direct egress plus `HTTPS_PROXY`
+at a proxy permitting CONNECT to named hosts is the form that survives.
+
+#### Podman, and what it costs non-Linux users
+
+**Standardized on podman.** The concern that it penalises Mac or Windows users
+does not survive checking:
+
+- **macOS** — `podman machine` runs a Linux VM. Docker Desktop is *also* a VM on
+  Mac; there is no native-container advantage being given up.
+- **Windows** — `podman machine` uses WSL2. Docker Desktop also uses WSL2. The
+  WSL2 requirement is a container-on-Windows fact, not a podman fact.
+- **Licensing** cuts toward podman: Docker Desktop requires a paid subscription
+  above a company-size threshold, podman is Apache-2.0. Anyone picking this up at
+  work avoids a procurement conversation.
+- **Rootless by default** genuinely fits an adversarial workload: an agent that
+  breaks out lands as an unprivileged user, not root.
+
+Three details keep the choice close to free, and belong in the template:
+
+1. **Auto-detect the runtime.** `RUNTIME=$(command -v podman || command -v docker)`
+   — the `run`/`exec -w`/`build`/`--network` subset is identical across both.
+2. **Name the file `Dockerfile`, not `Containerfile`.** Podman reads `Dockerfile`
+   happily; docker does *not* read `Containerfile` by default. The podman-preferred
+   name is the incompatible one.
+3. **Bake the fixture into the image; do not bind-mount it.** The same-path mount
+   constraint came from the *rejected* routing plan and dies with it. Baking is
+   better for reproducibility and makes macOS VM filesystem performance irrelevant.
+
+Net: the host OS matters *less* under this topology than under anything that
+touched the host filesystem. The image is Linux regardless.
+
+#### Revised work list
+
+Item 0 of the original sequencing (**emit `approved` on `tool_call`, count denials
+in the trailer**) has **already shipped** — `TranscriptSerializer.cs` writes
+`approved`, and `ResultEvent.Denied` carries the count. That was the item the plan
+said to do first *because it is useful even if the rest is rejected*, so the
+additive half is banked and what remains is removal plus the construction below.
+
+The reordering matters: under this revision the headline is no longer Tier 1's
+deletion. It is supplying a **positive answer** — a declared, rewarded, reported
+deployment, plus a container to copy.
+
+1. **Narrative pass (Tier 3).** Unchanged from the original plan and still first:
+   no behaviour change, and it stops the corpus teaching the old model. CLAUDE.md
+   is the highest-leverage file in the repo for this, because it is what every
+   fresh agent session reads before touching anything.
+2. **Close `bugs/shell-tool-no-filesystem-sandbox.md`** as accepted-by-design
+   against the threat model above.
+3. **`boundary` directive** — declare the deployment in-band:
+   ```
+   boundary container    # a disposable container is the boundary; nb is inside it
+   boundary none         # nothing confines this run, and I know it
+   ```
+   Grammar is the strongest steer available, because an agent authoring a program
+   must confront the directive's existence. This is the answer to grill #1, and it
+   deliberately **rejects** that item's `--unconfined` flag: a flag reads as a
+   permission grant, which invites use on a laptop — the exact failure this plan
+   exists to prevent. A directive reads as a statement of fact about a deployment.
+4. **Make declaring the truth improve nb's behaviour.** `boundary container`
+   retires the cwd trust heuristic for that run. Inside a container that rule has
+   none of its benefit (there is no human's home directory to protect) and all of
+   its cost — it produces **false denials on legitimate work**, e.g. §1b's
+   `go env GOROOT && ls $(go env GOROOT)/src` denied because `/usr/local/go/src`
+   is not under cwd. A run that failed on a harness artifact is indistinguishable
+   from a run where the model failed, which is the same corruption class as
+   `bugs/Approval_Bash_Glob_Does_Not_Match_Newlines.md` and worse: it biases
+   silently toward agents that never inspect their toolchain. This is what makes
+   the directive earn its keep rather than nag — you declare because it *helps*.
+   The REPL keeps the cwd default (grill #3, unchanged): there is a real human
+   watching, and it is right there and only there.
+5. **Report it.** `boundary:` in `--resolve` and in the `result` trailer (grill #6,
+   confirmed both), plus endpoint printing from the section above. When bash is
+   enabled and no boundary is declared: **warn loudly at startup**, do not
+   hard-fail — a hard fail breaks every existing program and every REPL user.
+   Detection (`/.dockerenv`, cgroups) feeds **reporting only, never behaviour**,
+   which is grill #2 unchanged and for its original reason: a wrong guess that
+   silently changes policy is worse than no guess.
+6. **Ship the reference topology in-tree.** A `Dockerfile`, a run script, an
+   example program, the egress rule. There is currently **no Dockerfile anywhere
+   in this repo**, which is why "run nb inside a container" is tribal knowledge
+   living in one private harness. This is the strongest steering mechanism by a
+   wide margin: agents copy examples far more reliably than they follow prose, and
+   it turns "the standard way" from a doc claim into a directory you can `cp`.
+7. **Tier 1 deletion** — bwrap machinery; `approval sandbox` degrades to a warning
+   for one release (published grammar, out-of-tree consumer).
+8. **Tier 2 labelling** — `TrustSandbox` and `SafeCommandPrefixes` as convenience
+   defaults, not boundaries.
+
+#### Done test, restated
+
+The original done test still holds ("nb does not confine the tools it runs; run it
+inside something that does"), but it is now only half. Add: a reader who wants to
+build an eval harness should find **one obvious shape to copy**, and should not
+have to invent the network policy themselves.

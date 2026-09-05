@@ -233,3 +233,22 @@ Plan written 2026-07-14. Build order P5.1 → P5.2 → P5.3.
   `BwrapSandboxTests` (12) + 2 policy tests; 5 evals
   (`prog-sandbox-{ro,mask,mask-control,badval,resolve}.nb`). Verified live on a
   Linux+bwrap host.
+
+---
+
+## Revisions
+
+### 2026-09-05 — the sandbox axis is superseded
+
+`plans/approval-is-not-a-boundary.md` was accepted, and it supersedes **this plan's
+sandbox axis** (not its approval-ladder work, which stands). The change is one of
+kind rather than degree: this plan treats containment as something nb performs and
+`SandboxMode` as the knob that selects how much. The accepted position is that nb
+performs none of it — the container nb runs inside is the boundary, and approval is
+an observability and steering surface.
+
+Consequences for what is written above: bwrap is scheduled for deletion rather than
+extension, `approval sandbox` degrades to a warning for one release (it is published
+grammar with an out-of-tree consumer), and the trust path scoping is relabelled a
+convenience default rather than a sandbox. Per the Features/plans convention this
+history is left intact rather than rewritten.

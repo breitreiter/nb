@@ -54,8 +54,10 @@ Full reference: [`docs/conversation-program-cli.md`](docs/conversation-program-c
   typed result, or spawn `nb` as a subprocess and parse stdout.
 
 The shell and file tools are a **tool surface you hand the model under test** — shaped
-per program by `tools` and `mcp`, governed by declarative approval policy, and
-optionally confined to a bubblewrap sandbox.
+per program by `tools` and `mcp`, and governed by declarative approval policy. That
+policy decides what is *recorded and refused*; it is not a security boundary. For an
+untrusted or adversarial workload, run nb inside a container (see
+[Approval is not a boundary](#approval-records-it-does-not-confine)).
 
 ## Prerequisites
 
@@ -314,11 +316,35 @@ execute, so without it every `search_web` call reads as a denial. (The search in
 recorded in the transcript either way.)
 
 The allow-lists are what let a scripted run auto-approve exactly the tools it needs.
-Some commands are always safe: build tools (`dotnet build`, `cargo build`, `make`,
-`npm run`, …), read-only git (`status`/`log`/`diff`/`show`), and read-only queries
-(`which`, `file`, …). A **trust posture** (`"Trust": true` in config) auto-approves
-non-dangerous tools within the cwd sandbox (cwd + system temp) and bumps the max tool
-calls to 50; dangerous commands (`rm -rf`, `sudo`) never auto-approve.
+Some commands auto-approve without a rule: build tools (`dotnet build`, `cargo build`,
+`make`, `npm run`, …), read-only git (`status`/`log`/`diff`/`show`), and read-only
+queries (`which`, `file`, …) — note that the build entries auto-approve *arbitrary code
+execution*, which is a convenience decision, not a safety one. A **trust posture**
+(`"Trust": true` in config) auto-approves non-dangerous tools whose paths fall under the
+cwd (plus system temp) and bumps the max tool calls to 50; dangerous commands
+(`rm -rf`, `sudo`) never auto-approve. `approval default deny` suppresses both, which is
+the primary mechanism for a run that should honour its allow-list and nothing else.
+
+### Approval records; it does not confine
+
+**nb does not sandbox the tools it runs.** The bash child is a plain subprocess with no
+OS-level isolation, so a model can read anything the nb process user can read. The
+approval ladder is a string/path heuristic — it produces a recorded, transcript-visible
+refusal (`tool_call.approved`, plus a `denied` count in the result trailer), which is
+exactly the observation an eval wants. It is not an enforcement mechanism and no
+denylist could be one: block `cat` and `awk`, `od` or `python -c` still read files.
+
+**Run nb inside a container if the workload is untrusted.** The supported shape is one
+container with nb *inside* it, so the model sees a single filesystem. nb's file tools
+(`read_file`, `edit_file`, `grep`, …) run in-process and never route through bash, so
+confining bash alone would show the model two sets of paths for the same files.
+
+Note that nb then shares that container's filesystem and network with the model under
+test: keep the image to the fixture and nothing you would mind the model reading, and
+keep egress as narrow as nb's own model endpoint requires.
+
+Background: `plans/approval-is-not-a-boundary.md` and
+`bugs/shell-tool-no-filesystem-sandbox.md`.
 
 The **bash sandbox** (`approval sandbox bwrap`, or `Approval.Sandbox` in config) wraps
 the bash child in a [bubblewrap](https://github.com/containers/bubblewrap) namespace:
@@ -327,7 +353,9 @@ writable, known secret dirs (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/nb`) mas
 empty, and no network. Use `bwrap-net` to keep the sandbox but allow network. It
 contains only bash — MCP and `fetch_url` run in-process under their own approval.
 Requesting `bwrap` on a host without bubblewrap (non-Linux, or not on `PATH`)
-hard-fails the run.
+hard-fails the run. **Deprecated:** bwrap is a partial, Linux-only control that is
+weaker than the container it would sit inside; it is scheduled for removal, and
+`approval sandbox` will degrade to a warning. Do not build on it.
 
 ### Inspecting a program without running it
 

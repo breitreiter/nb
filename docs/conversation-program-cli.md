@@ -228,7 +228,7 @@ subsequent runs.
 | `search` | `allow` \| `prompt` | Auto-approve `search_web`. Needed by any run that means to search: an unapproved tool can never execute, so without this the search intent is recorded but the call reads as a denial. The `prompt` spelling is historical and means "not auto-approved" — nothing prompts. (`Approval.Search` in config does the same.) |
 | `fetch` | `allow` \| `prompt` | Auto-approve `fetch_url`. Separate from `search` on purpose: reaching an arbitrary URL and running a web search are different grants, and allowing one should not silently confer the other. (`Approval.Fetch` in config does the same.) |
 | `default` | `prompt` \| `deny` | Which auto-approve ladder an unmatched call runs. `prompt` (the default) tries explicit patterns, then the built-in safe-command list, then trust + sandbox; `deny` honours the explicit allow-list and nothing else. A call that survives either ladder unmatched is refused — the names are permissiveness tiers, not dispositions, and neither one asks. |
-| `sandbox` | `none` \| `bwrap` \| `bwrap-net` | Run the bash child under a bubblewrap sandbox (Linux). `bwrap` = fs read-only, cwd + a fresh `/tmp` writable, secret dirs masked, no network; `bwrap-net` allows network. Requesting bwrap where it isn't available hard-fails (exit 1). |
+| `sandbox` | `none` \| `bwrap` \| `bwrap-net` | **Deprecated — scheduled for removal.** Run the bash child under a bubblewrap sandbox (Linux). `bwrap` = fs read-only, cwd + a fresh `/tmp` writable, secret dirs masked, no network; `bwrap-net` allows network. Requesting bwrap where it isn't available hard-fails (exit 1). A partial, Linux-only control that is weaker than the container it would sit inside; the directive will degrade to a warning rather than becoming a parse error. Don't build on it — run nb inside a container instead. |
 
 `approval default deny` plus explicit `approval bash`/`approval mcp` allows = a run
 that auto-approves exactly what it should and refuses everything else. (`Approval.Bash`
@@ -238,9 +238,26 @@ outside a program.)
 Under `default deny` the **explicit allow-list is the only thing that allows**. Outside
 it, bash has two implicit grants that a first-time reader will not expect: a built-in
 safe-command list (`ls`, `pwd`, `git status`, but also `make`, `npx`, `go build`,
-`dotnet run` — build commands, i.e. arbitrary code), and `--trust`, which auto-approves
-any non-dangerous command in the sandbox. Both are suppressed by `default deny`, so
-denial means denial; under `prompt` they still apply and the command simply runs.
+`dotnet run` — build commands, i.e. arbitrary code), and trust, which auto-approves
+any non-dangerous command whose path falls under the cwd. Both are suppressed by
+`default deny`, so denial means denial; under `prompt` they still apply and the command
+simply runs. **`default deny` is the primary mechanism** for a run that should honour
+its allow-list and nothing else — not a footnote to the other two.
+
+**None of this confines anything.** Approval decides what nb *records and refuses*, not
+what the bash child can do: the child is an ordinary subprocess with no OS-level
+isolation, so a model can read whatever the nb process user can read. The trust path
+scoping is a convenience filter inherited from nb's coding-agent era, not a sandbox, and
+no denylist could be one — block `cat` and `awk`, `od` or `python -c` still read files.
+The useful output is the record: `tool_call.approved` plus the `denied` count in the
+result trailer, which is what an eval reads to learn that the model reached outside its
+surface.
+
+If the workload is untrusted or adversarial, **run nb inside a container** — one
+container, nb inside it, one filesystem. nb's file tools (`read_file`, `edit_file`,
+`grep`, …) run in-process and never route through bash, so confining bash alone would
+give the model two sets of paths for the same files. See
+`plans/approval-is-not-a-boundary.md`.
 
 ### 5.4 Loop & budget directives — `loop` and `budget`
 

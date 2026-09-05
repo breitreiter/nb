@@ -2,6 +2,13 @@ using System.Runtime.InteropServices;
 
 namespace nb.Shell;
 
+// Shape inherited from nb's coding-agent era: keep an agent out of the human's home
+// directory while they watch. It is a convenience default, NOT a boundary — a path check
+// cannot bound reads, because the command that reads the file need not name it in a form
+// this sees (bugs/shell-tool-no-filesystem-sandbox.md, closed as accepted by design).
+// Right for the REPL, where the watching human exists. Wrong inside a container, where it
+// only yields false denials on legitimate work — see plans/approval-is-not-a-boundary.md.
+
 public static class TrustSandbox
 {
     /// <summary>

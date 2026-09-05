@@ -2,16 +2,21 @@
 kind: bug
 title: 'bash tool has no filesystem sandbox — model can read arbitrary files'
 created: 2026-07-06
-updated: 2026-08-12
+updated: 2026-09-05
 status: current
-state: open
+state: wontfix
 severity: high
 cluster: bash-boundary
 ---
 
 # bash tool has no filesystem sandbox — model can read arbitrary files
 
-Status: Reported (2026-07-06) — unpatched. Verified against current source.
+Status: **Closed 2026-09-05 — accepted by design, not fixed.** Both holes are
+real, both remain open, and nb will not close them. See *Resolution* at the foot
+of this report. The analysis below stands unaltered: it is the premise of
+`plans/approval-is-not-a-boundary.md`, not a defect list that plan discharges.
+
+Originally: Reported (2026-07-06) — unpatched. Verified against current source.
 
 > **Update 2026-08-12 — Hole #2's repro works now, and did not before.**
 > Until today the unsandboxed bash path escaped `$` and backticks
@@ -229,3 +234,82 @@ model that can run arbitrary commands.
 - **Process-spawn point to wrap:** `Shell/BashTool.cs:216-220` (`GetShellCommand`)
   feeding `ProcessStartInfo` at `Shell/BashTool.cs:76-90`. Cwd origin:
   `Shell/ShellEnvironment.cs:40,55`.
+
+---
+
+## Resolution — accepted by design (2026-09-05)
+
+**This report is correct, its two holes are live, and nb is not going to fix
+them.** It closes as *accepted*, not *fixed*, because the thing being given up is
+the claim rather than the capability. Rationale:
+`plans/approval-is-not-a-boundary.md` (accepted 2026-09-05), whose threat model
+section is the doc this closes against.
+
+### What is accepted
+
+This report's central claim is the premise the plan is built on, and it is quoted
+there rather than closed over:
+
+> The core problem: a denylist can never bound reads. If `cat`/`grep`/`find` were
+> blocked, `head` / `awk` / `python -c` / `od` / redirection / hundreds of other
+> binaries still read files. The only guarantee that holds against an untrusted
+> model is an **OS-enforced** sandbox.
+
+That is right, and it is why no amount of work on `CommandClassifier`,
+`TrustSandbox` or `SafeCommandPrefixes` can resolve this. The conclusion the plan
+draws is that nb should stop being the layer that tries.
+
+Hole #1 (unconditional `Run` trust) and Hole #2 (safe-prefix + command
+substitution, no trust flag required) both remain reachable. Anyone relying on
+nb's approval ladder to bound reads is relying on something that does not work.
+
+### What replaces it
+
+**One container. nb runs inside it. One filesystem.** The container is the
+boundary; approval is an observability and steering surface that records what the
+model reached for. A denial is a datum about model behaviour, not a control.
+
+The mitigation for both holes is therefore deployment: run nb inside a disposable
+container that holds the fixture and nothing you would mind the agent reading.
+
+### Why not the fix this report recommends
+
+The report ranks **bwrap first**. That ranking is superseded, and bwrap is being
+*removed* rather than extended. Two reasons:
+
+1. **It would sit inside the real boundary.** Under the accepted topology nb is
+   already in a container, so bwrap is a second, weaker, Linux-only, partial
+   sandbox nested in a working one.
+2. **It is the strongest signal in the codebase that nb confines things** — the
+   precise belief that makes an operator run an adversarial workload on their
+   laptop. A dormant partial sandbox is worse than none.
+
+The alternative that briefly replaced it — route bash into a container with nb
+outside (`plans/container-bash-exec.md`) — is also rejected, for a reason
+specific to nb's architecture and worth stating here so it is not re-proposed:
+`read_file`, `write_file`, `edit_file`, `list_dir`, `find_files` and `grep` are
+in-process .NET and never route through bash. Confining only bash gives the agent
+**two filesystems** — host paths from `read_file`, container paths from a build,
+`cd` a no-op between them.
+
+### The residue this leaves, stated rather than hidden
+
+Under nb-inside, two properties follow that no reader should have to discover:
+
+- **nb shares a filesystem with the agent under test.** `appsettings.json`, seed
+  transcripts and nb's binaries are readable by the thing being tricked. The
+  container must hold the fixture and nothing else of value.
+- **nb shares a network namespace with it.** Whatever nb can reach, the agent can
+  reach — so the egress allowlist is the union, and wants to be as small as nb's
+  own needs allow.
+
+### Where the work went
+
+Not here. The plan's revised work list carries it: the narrative pass that stops
+the corpus teaching that nb sandboxes, a `boundary` directive that declares the
+deployment in-band, `boundary:` reporting in `--resolve` and the result trailer,
+and a reference container topology shipped in-tree so the standard shape is
+something to copy rather than tribal knowledge.
+
+**Do not reopen this to build a sandbox.** Reopen it only if nb's deployment model
+changes such that it can no longer run inside the thing that confines it.

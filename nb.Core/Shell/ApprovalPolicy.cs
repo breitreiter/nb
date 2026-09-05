@@ -24,7 +24,10 @@ public enum ApprovalDecision { Allow, Deny }
 /// </summary>
 public enum ApprovalDefault { Prompt, Deny }
 
-/// <summary>How the bash child is contained: not at all, or under a bwrap sandbox.</summary>
+/// <summary>Which optional bwrap wrapper the bash child gets. Deliberately not named
+/// "containment": nb does not confine the bash child, and bwrap is a partial, Linux-only
+/// control scheduled for removal (plans/approval-is-not-a-boundary.md). The boundary is
+/// the container nb runs inside, not anything in this file.</summary>
 public enum SandboxMode { None, Bwrap }
 
 /// <summary>
@@ -33,7 +36,18 @@ public enum SandboxMode { None, Bwrap }
 /// <c>--approve</c> / <c>alwaysAllow</c> and an <c>Approval</c> config block, and
 /// layered further by the <c>approval</c> conversation-program directive (its
 /// mutators). Carries the bash <see cref="Sandbox"/> mode (Phase 5.3). See
-/// plans/approval-policy-and-sandbox.md. The policy only chooses the decision;
+/// plans/approval-policy-and-sandbox.md, whose sandbox axis is superseded by
+/// plans/approval-is-not-a-boundary.md.
+///
+/// <para><b>This is an observability surface, not a security boundary.</b> A decision here
+/// determines what nb records and refuses, never what the bash child is capable of — the
+/// child is a plain subprocess with no OS-level isolation. A denial is a datum about model
+/// behaviour (surfaced as <c>tool_call.approved</c> and the trailer's denied count), which
+/// is what an eval reads. Anything relying on this to bound reads is relying on something
+/// that does not work; see bugs/shell-tool-no-filesystem-sandbox.md, closed as accepted by
+/// design.</para>
+///
+/// The policy only chooses the decision;
 /// rendering the refusal — to the model and to the human — stays at the call site
 /// (<see cref="nb.Harness.NbHarness.Deny"/>).
 /// </summary>

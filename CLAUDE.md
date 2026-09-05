@@ -125,7 +125,7 @@ CLI Exe (repo root):
 - `Transcript/` - The wire schema (events, serializer, mapper, loader, program parser)
 - `Harness/` - The advertised tool surface. `NbHarness` (nb's own surface + the tool-execution capabilities), `HarnessRegistry` (the closed set of costume names), and one subclass per costume (`QwenCodeHarness`, `CodexHarness`, `ClaudeCodeHarness`). A costume swaps names, schemas, result strings and prompt furniture; the tools behind it are the same instances. Preambles are deployed data files in `nb.Core/prompts/harness/*.md`, not embedded resources. Design: `plans/harness-emulation.md`
 - `MCP/` - `McpManager` (client lifecycle, layered mcp.json), `FakeToolManager`
-- `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust sandbox, bwrap)
+- `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust path-scoping, bwrap)
 - `Utilities/` - `ConfigurationService` (layered config), `UIColors`, markdown rendering
 
 Other:
@@ -222,25 +222,65 @@ No files are skipped by name. nb is stateless per-directory — it writes no
 conversation history, lock, or kit state — so there is nothing of its own for
 discovery to filter out. See `bugs/nb_State_Files_Leak_Into_Discovery.md`.
 
-## Trust Mode
-Auto-approves file tools and non-dangerous bash commands **within the working directory sandbox**.
+## nb does not confine the tools it runs
+
+**nb is not a security boundary and has no filesystem sandbox.** The bash tool runs
+the model's command string through `bash -c` with no OS-level isolation, so a model
+driving it can read any file the nb process user can read. The approval ladder is a
+C# string/path heuristic: it decides what gets *recorded and refused*, not what is
+*possible*. A denylist cannot bound reads — block `cat`, and `awk`, `od`, `python -c`
+and hundreds of other binaries still read files.
+
+This is **accepted by design**, not a defect awaiting a fix. See
+`bugs/shell-tool-no-filesystem-sandbox.md` (closed as accepted) and
+`plans/approval-is-not-a-boundary.md` (accepted 2026-09-05) for the argument.
+
+**The container is the boundary.** The standard deployment for an untrusted or
+adversarial workload is: one container, nb running *inside* it, one filesystem.
+Confining only bash while nb's in-process file tools (`read_file`, `edit_file`,
+`find_files`, `grep`, `list_dir`) see the host would give the model two filesystems
+and two sets of paths — which is why nb does not do it.
+
+Two properties follow from nb being inside, and both matter when building harnesses:
+
+- nb **shares a filesystem** with the model under test — `appsettings.json`, seeds
+  and nb's binaries are all readable. The container should hold the fixture and
+  nothing you would mind the model reading.
+- nb **shares a network namespace** with it. Whatever nb can reach, the model can
+  reach, so egress should be as narrow as nb's own needs allow.
+
+What approval *is* for: a recorded, transcript-visible observation of what the model
+reached for. `tool_call.approved` and the `denied` count in the result trailer are
+the load-bearing outputs, and a denial is a datum about model behaviour rather than
+a control.
+
+## Trust Mode — a convenience default, not a boundary
+Auto-approves file tools and non-dangerous bash commands whose paths fall under the
+working directory. **This is a UX default, not a sandbox** — its shape is inherited
+from nb's coding-agent era, where it kept an agent out of a watching human's home
+directory. It is the right default for the REPL, where that human exists. It is the
+wrong one inside a container, where it only produces false denials on legitimate
+work (see `plans/approval-is-not-a-boundary.md` §1b).
 
 **Activation:** `"Trust": true` in appsettings.json, or `NbOptions.Trust` for library hosts. There is no `--trust` flag — trust is a posture, set in config, not per-invocation. Note that `approval default deny` suppresses it (see `ApprovalPolicy.DecideBash`)
 
-**Path sandboxing:** Only auto-approves operations targeting:
+**Path scoping** (a convenience filter, not enforcement) — only auto-approves operations targeting:
 - The shell cwd and subdirectories
 - System temp directories (`/tmp`, `TEMP`/`TMP` on Windows)
 
 **What gets auto-approved:**
-- `write_file` / `edit_file` targeting paths within sandbox
-- `bash` commands classified as non-dangerous with paths in sandbox
+- `write_file` / `edit_file` targeting paths under the working directory
+- `bash` commands classified as non-dangerous with paths under the working directory
 - `bash` Run commands with no extractable path (e.g. `dotnet build`, `git status`)
 
 **What trust does NOT auto-approve** (these are denied unless something else allows them —
 nothing prompts):
 - Dangerous bash commands (rm -rf, sudo, etc.) — never auto-approved by trust
-- File operations targeting paths outside the sandbox
+- File operations targeting paths outside the working directory
 - MCP tools (use their own `alwaysAllow` mechanism)
+
+Note that none of those denials *prevent* anything: a model that wants the same
+effect can usually reach it by another command. They are recorded refusals.
 
 **Other effects:** Bumps effective MaxToolCalls to 50 (minimum)
 
