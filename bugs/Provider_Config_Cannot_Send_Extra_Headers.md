@@ -161,6 +161,11 @@ report, and both failed:
 - **Anthropic 12.16.0 `ClientOptions` has no `Headers` collection.** It is a `record
   struct` with `ApiKey`, `AuthToken`, `BaseUrl`, `HttpClient`, `MaxRetries`,
   `ResponseValidation` and `Timeout` — nothing else. There is no `get_Headers`.
+  `AddDefaultHeaders` *is* a real name in that assembly, which is presumably where the
+  claim came from, but it is a public method on the *service* classes
+  (`Anthropic.Services.Beta.FileService` and ~14 siblings) taking an
+  `HttpRequestMessage`, not an internal member of `ClientOptions`. Nothing on the
+  options object accepts a header.
 - **`OpenAI.GenericActionPipelinePolicy` is internal.** `AddPolicy` is public and takes a
   `PipelinePolicy`, but the concrete policy the report named cannot be constructed from
   outside the OpenAI assembly.
@@ -185,6 +190,31 @@ SDK's own of that name instead of appending a second value — the report's "or 
 `ProviderConfig` lives in the Abstractions package rather than nb.Core precisely because
 an out-of-tree provider should get the same three lines.
 
+### The reported path is Anthropic *through* Cloudflare, and that is what is pinned
+
+Worth being explicit, since "the Anthropic provider" and "talking to Anthropic" are not
+the same route here. The reported configuration never reaches api.anthropic.com: it is
+the `Anthropic` provider with `Endpoint` pointing at a Cloudflare AI Gateway, which then
+forwards upstream. Both tests below run that shape — `Endpoint` set to the listener, not
+omitted — so what is pinned is the gateway route, not direct Anthropic.
+
+The part of that route most likely to break quietly is URL composition, so it is now
+asserted rather than assumed. `Endpoint` is a *base*: the Anthropic SDK appends
+`/v1/messages` to it, and the OpenAI-dialect SDKs append `/chat/completions`. A
+Cloudflare `Endpoint` of
+
+```
+https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic
+```
+
+therefore resolves to `…/anthropic/v1/messages`, which is the shape Cloudflare
+documents. Supplying our own `HttpClient` does not disturb that — the SDK still builds
+the URI from `BaseUrl` — and the tests assert the received path to keep it that way.
+
+**Not verified against a live gateway.** The listener is a stand-in. What is proven is
+that the header, the SDK's own auth header and the expected path all leave nb together;
+whether Cloudflare accepts a given token is between the operator and Cloudflare.
+
 ### `ApiKey` when the gateway holds the key
 
 Resolved as the report's first option: `RequiredConfigKeys` is unchanged, but
@@ -203,7 +233,8 @@ gateway cannot front it at all, with or without this fix.
 `nb.Tests/ProviderHeaderTests.cs`, five, **all confirmed failing before the fix** —
 three on a missing header, one on `CanCreate` rejecting a keyless entry, one on the
 `${VAR}` expansion. They are the report's own test design: a loopback `HttpListener`
-stands in for the gateway, the entry sets `MaxRetries: 0`, and the listener answers 400
+stands in for the gateway (so the Anthropic case is Anthropic-via-gateway, matching what
+was reported, rather than a direct call), the entry sets `MaxRetries: 0`, and the listener answers 400
 so the run gives up promptly — the assertion is on the request that went out, not on
 anything coming back. Both SDK families are covered end to end, loading the real plugin
 DLLs out of `bin/…/providers`, because they use different assemblies and only an

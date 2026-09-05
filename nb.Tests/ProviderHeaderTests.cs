@@ -24,9 +24,9 @@ public class ProviderHeaderTests
     private sealed class CapturingListener : IDisposable
     {
         private readonly HttpListener _listener = new();
-        private readonly TaskCompletionSource<NameValueCollection2> _first = new();
+        private readonly TaskCompletionSource<Captured> _first = new();
 
-        public sealed record NameValueCollection2(IReadOnlyDictionary<string, string> Headers);
+        public sealed record Captured(IReadOnlyDictionary<string, string> Headers, string Path);
 
         public string Prefix { get; }
 
@@ -47,7 +47,7 @@ public class ProviderHeaderTests
                 var headers = ctx.Request.Headers.AllKeys
                     .Where(k => k is not null)
                     .ToDictionary(k => k!, k => ctx.Request.Headers[k] ?? "", StringComparer.OrdinalIgnoreCase);
-                _first.TrySetResult(new NameValueCollection2(headers));
+                _first.TrySetResult(new Captured(headers, ctx.Request.Url?.AbsolutePath ?? ""));
                 ctx.Response.StatusCode = 400;
                 await using var body = ctx.Response.OutputStream;
                 await body.WriteAsync("{\"error\":{\"message\":\"stop\"}}"u8.ToArray());
@@ -58,11 +58,11 @@ public class ProviderHeaderTests
             }
         }
 
-        public async Task<IReadOnlyDictionary<string, string>> FirstRequestHeaders()
+        public async Task<Captured> FirstRequest()
         {
             var done = await Task.WhenAny(_first.Task, Task.Delay(TimeSpan.FromSeconds(20)));
             Assert.Same(_first.Task, done);
-            return (await _first.Task).Headers;
+            return await _first.Task;
         }
 
         private static int FreePort()
@@ -98,7 +98,7 @@ public class ProviderHeaderTests
         return new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
     }
 
-    private static async Task<IReadOnlyDictionary<string, string>> Reach(
+    private static async Task<CapturingListener.Captured> Reach(
         CapturingListener listener, IConfiguration config)
     {
         // The gateway answers 400, so the run fails — the outgoing request is the datum.
@@ -108,9 +108,9 @@ public class ProviderHeaderTests
             catch { }
         });
 
-        var headers = await listener.FirstRequestHeaders();
+        var captured = await listener.FirstRequest();
         await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(20)));
-        return headers;
+        return captured;
     }
 
     /// <summary>
@@ -122,7 +122,7 @@ public class ProviderHeaderTests
     {
         using var listener = new CapturingListener();
 
-        var headers = await Reach(listener, Entry(new()
+        var request = await Reach(listener, Entry(new()
         {
             ["Provider"] = "LocalLlm",
             ["Endpoint"] = listener.Prefix + "v1",
@@ -131,8 +131,12 @@ public class ProviderHeaderTests
             ["Headers:cf-aig-authorization"] = "Bearer gw-token",
         }));
 
-        Assert.Equal("Bearer gw-token", headers["cf-aig-authorization"]);
-        Assert.Equal("Bearer upstream-key", headers["Authorization"]);
+        Assert.Equal("Bearer gw-token", request.Headers["cf-aig-authorization"]);
+        Assert.Equal("Bearer upstream-key", request.Headers["Authorization"]);
+
+        // Endpoint is a base: the SDK appends its own path. A gateway route has to
+        // account for that, so pin what gets appended.
+        Assert.Equal("/v1/chat/completions", request.Path);
     }
 
     /// <summary>
@@ -144,7 +148,7 @@ public class ProviderHeaderTests
     {
         using var listener = new CapturingListener();
 
-        var headers = await Reach(listener, Entry(new()
+        var request = await Reach(listener, Entry(new()
         {
             ["Provider"] = "Anthropic",
             ["Endpoint"] = listener.Prefix.TrimEnd('/'),
@@ -153,8 +157,13 @@ public class ProviderHeaderTests
             ["Headers:cf-aig-authorization"] = "Bearer gw-token",
         }));
 
-        Assert.Equal("Bearer gw-token", headers["cf-aig-authorization"]);
-        Assert.Equal("upstream-key", headers["x-api-key"]);
+        Assert.Equal("Bearer gw-token", request.Headers["cf-aig-authorization"]);
+        Assert.Equal("upstream-key", request.Headers["x-api-key"]);
+
+        // The Anthropic SDK appends /v1/messages to BaseUrl, so a Cloudflare AI Gateway
+        // Endpoint ending in /anthropic resolves to .../anthropic/v1/messages — the
+        // shape Cloudflare documents. Supplying our own HttpClient does not disturb it.
+        Assert.Equal("/v1/messages", request.Path);
     }
 
     /// <summary>
@@ -166,7 +175,7 @@ public class ProviderHeaderTests
     {
         using var listener = new CapturingListener();
 
-        var headers = await Reach(listener, Entry(new()
+        var request = await Reach(listener, Entry(new()
         {
             ["Provider"] = "LocalLlm",
             ["Endpoint"] = listener.Prefix + "v1",
@@ -175,7 +184,7 @@ public class ProviderHeaderTests
             ["Headers:Authorization"] = "Bearer gw-token",
         }));
 
-        Assert.Equal("Bearer gw-token", headers["Authorization"]);
+        Assert.Equal("Bearer gw-token", request.Headers["Authorization"]);
     }
 
     /// <summary>
@@ -187,7 +196,7 @@ public class ProviderHeaderTests
     {
         using var listener = new CapturingListener();
 
-        var headers = await Reach(listener, Entry(new()
+        var request = await Reach(listener, Entry(new()
         {
             ["Provider"] = "Anthropic",
             ["Endpoint"] = listener.Prefix.TrimEnd('/'),
@@ -195,7 +204,7 @@ public class ProviderHeaderTests
             ["Headers:cf-aig-authorization"] = "Bearer gw-token",
         }));
 
-        Assert.Equal("Bearer gw-token", headers["cf-aig-authorization"]);
+        Assert.Equal("Bearer gw-token", request.Headers["cf-aig-authorization"]);
     }
 
     /// <summary>
