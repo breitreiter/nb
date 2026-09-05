@@ -627,11 +627,15 @@ public class ConversationManager
                     }
                 }
 
-                // Add all tool results as a single message
+                // Add all tool results as a single message, with any image parts hoisted
+                // out of it and onto a user message that immediately follows.
                 if (allToolResults.Count > 0)
                 {
                     var toolContents = allToolResults.Select(o => (AIContent)o.Content).ToList();
+                    var hoisted = HoistImagesOutOfToolResults(allToolResults);
                     _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, toolContents));
+                    if (hoisted.Count > 0)
+                        _conversationHistory.Add(new AIChatMessage(ChatRole.User, hoisted));
                 }
 
                 // Hard-abort the turn if any tool has hit its failure budget
@@ -759,6 +763,59 @@ public class ConversationManager
         {
             Interlocked.Exchange(ref _liveDisplayHeld, 0);
         }
+    }
+
+    /// <summary>
+    /// Move image parts off the tool-role message and onto a user message that follows it.
+    ///
+    /// <para>The OpenAI chat-completions wire format has no representation for an image
+    /// inside a <c>tool</c>-role message — image parts are valid only on user messages — so
+    /// an image attached to a <c>FunctionResultContent</c> was dropped during serialization
+    /// while its text note survived. The note names the file, and the model answered from
+    /// the *filename*: the same 8×8 red PNG read as `red.png` was described as red and as
+    /// `sample.png` as white, both times asserting it could see the image. No error was
+    /// raised anywhere, which is what made it a confidently wrong answer rather than a
+    /// failure. bugs/Image_Silently_Dropped_In_Tool_Results.md</para>
+    ///
+    /// <para>Runs unconditionally, with no provider sniffing: a user message carrying an
+    /// image is valid everywhere, so this needs no capability flag. Anthropic does allow
+    /// images inside a tool result, but sending them in both places would only duplicate
+    /// tokens. Hoisting happens here, at the join, rather than where the file is read,
+    /// because the ordering constraint — after the tool result, before the next assistant
+    /// turn — is a property of the conversation, not of the tool.</para>
+    ///
+    /// <para>Note the consequence, which is intended: a model that genuinely cannot accept
+    /// images now gets a real error from its provider instead of quietly confabulating.
+    /// A wrong answer with no warning is worse than a refusal.</para>
+    /// </summary>
+    private static List<AIContent> HoistImagesOutOfToolResults(List<ToolOutcome> outcomes)
+    {
+        List<AIContent>? images = null;
+
+        foreach (var (result, _) in outcomes)
+        {
+            if (result.Result is not IEnumerable<AIContent> parts) continue;
+
+            var kept = new List<AIContent>();
+            foreach (var part in parts.ToList())
+            {
+                if (part is DataContent) (images ??= new List<AIContent>()).Add(part);
+                else kept.Add(part);
+            }
+
+            if (images is not null) result.Result = kept;
+        }
+
+        if (images is null) return new List<AIContent>();
+
+        // Say where the image came from and, explicitly, what to do if it did not arrive —
+        // answering from the filename is the exact failure this fixes, so name it.
+        images.Insert(0, new TextContent(
+            "The image(s) from the preceding tool result are attached to this message. " +
+            "Describe only what you can actually see; if no image reached you, say so " +
+            "rather than inferring anything from the file name."));
+
+        return images;
     }
 
     private static Dictionary<string, object?> SnapshotUpdate(ChatResponseUpdate update, int index)

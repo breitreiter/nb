@@ -2,16 +2,21 @@
 kind: bug
 title: 'Images are silently dropped on OpenAI-wire providers'
 created: 2026-07-26
-updated: 2026-07-28
+updated: 2026-09-05
 status: current
-state: open
+state: fixed
 severity: high
 cluster: provider-truthfulness
 ---
 
 # Images are silently dropped on OpenAI-wire providers
 
-Status: Open (2026-07-26) — found while testing nb against a local llama.cpp
+Status: **Fixed 2026-09-05** — candidate 1 implemented against the post-restructure
+code, and the positive path that two earlier attempts left unconfirmed is now confirmed
+at the HTTP wire. **The Cause section below is wrong in mechanism** — see *Correction*
+in the resolution. See *Resolution (2026-09-05)* at the foot.
+
+Originally: Open (2026-07-26) — found while testing nb against a local llama.cpp
 server. Not a local-model quirk; affects every OpenAI-wire provider.
 
 Candidate 1 was drafted and partially verified on 2026-07-28, then parked
@@ -220,3 +225,97 @@ the tree — the **Findings (2026-07-28)** section is the durable record, as it 
 
 Nothing here was re-audited against the new architecture; the symptom itself has
 not been re-tested since the merge. Do that when picking this back up.
+
+---
+
+## Resolution (2026-09-05)
+
+Candidate 1, implemented at the tool-result join in `nb.Core/ConversationManager.cs`
+(`HoistImagesOutOfToolResults`). Image parts are moved off the tool-role message onto a
+user message appended immediately after it, carrying a note plus the `DataContent`.
+Unconditional, no provider sniffing — a user message with an image is valid everywhere,
+and Anthropic allowing images inside `tool_result` is not a reason to send them twice.
+
+Candidate 3 ("stop printing `→ image (N bytes)` as success") turned out **not** to be
+needed. It was right when the image genuinely did not survive; now it does, and the line
+reports what happened.
+
+### Correction — the Cause section above is wrong, and the truth is worse
+
+This report says:
+
+> the `DataContent` has nowhere to go and is dropped; only `textNote` survives — and
+> `textNote` contains the filename, which is exactly what the model then answers from.
+
+**Nothing was dropped.** Captured from the actual HTTP body against a local stub, with
+the fix reverted, the tool message's `content` is a JSON *string*:
+
+```json
+[
+  { "$type": "text", "text": "[Image loaded: sample.png (74 bytes)]" },
+  { "$type": "data", "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg…" }
+]
+```
+
+M.E.AI serialises the whole `List<AIContent>` to JSON text and puts it in the tool
+message. The base64 **was** on the wire — as text, inside a JSON blob, in a role that
+cannot carry an image. So the model was handed the bytes in a form it cannot decode,
+alongside the filename in the same blob, and answered from the filename. Same symptom,
+same fix, different mechanism.
+
+The difference matters for two reasons. It explains a cost this report never noticed:
+every image was **billed as base64 text** for no benefit — trivial for a 74-byte fixture,
+but a 2 MB screenshot is ~2.7 MB of useless input tokens per turn, resent for the rest of
+the conversation. And it means "the adapter drops what it cannot represent" is not a safe
+assumption to carry to other content types; it stringifies instead.
+
+### The gap two earlier attempts left open is now closed
+
+The 2026-07-28 findings say the 500 from a text-only server proves the image is on the
+wire but **not** that the shape is right, and that this is "the gap to close first on any
+restart". Closed, by capturing the request body against a local SSE-answering stub
+configured as an OpenAI-wire provider:
+
+```
+user: [ {"type":"text", …}, {"type":"image_url", "image_url":{"url":"data:image/png;base64,iVBORw0KGgo…"}} ]
+```
+
+That is the OpenAI `image_url` part, on a `user` message, carrying the fixture's own
+bytes. Confirmed at the byte level rather than inferred.
+
+Two notes from those findings were load-bearing in getting there and are worth keeping:
+the stub **must** answer SSE (a plain JSON body makes nb hang, which is what defeated the
+previous attempt), and `ThreadingHTTPServer` rather than `HTTPServer`.
+
+The end-to-end symptom check also reproduces this report's own success criterion: against
+llama.cpp with a text-only model, `read_file` on a PNG now produces a loud
+`500 … image input is not supported` instead of a confident wrong answer.
+
+**Still not confirmed:** a vision-capable model describing the image correctly. That
+needs a vision model, which is not available here. The wire shape is now verified, which
+is the part that was nb's to get right; what remains unverified is whether a given
+*model* can see, and that has never been in doubt as a format question.
+
+### Behaviour change worth stating
+
+On a text-only model, `read_file` on an image now **fails the turn** with a provider
+error rather than quietly confabulating. That is the intended trade from candidate 2 — *a
+wrong answer with no warning is worse than a refusal* — but it is a change in observable
+behaviour, not a pure bug fix.
+
+### Tests
+
+`nb.Tests/ImageToolResultTests.cs`, 4 tests, 3 confirmed failing first (the fourth is a
+control that passed throughout: an ordinary text read must not grow an extra user
+message). They assert on what nb hands its `IChatClient` — nb's own output, and the last
+point the shape is nb's responsibility — using this report's fixture, the 8×8 pure-red
+PNG, generated inline with no imaging dependency.
+
+Pinned: the pixels ride a user message, that message falls after the tool result and
+before the next assistant turn, the tool result no longer carries `DataContent` but keeps
+its text note, and the bytes on the wire are the bytes that were read.
+
+### Left as it was
+
+The pre-existing history-persistence gap noted in the findings (`ExtractMessageContent`
+keeps only the first `TextContent`) is unchanged and still not a regression.

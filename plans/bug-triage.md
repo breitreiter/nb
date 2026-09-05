@@ -435,3 +435,30 @@ The remaining question — does a matched surface change model behaviour — is 
 **measurement**, not a defect, and is owned by `plans/harness-emulation.md` §"What to
 diff". The 12-line fixture is settled as unable to discriminate: rewriting is the
 *cheapest* path there, so the choice is near a coin flip. Do not run it a third time.
+
+---
+
+## `Image_Silently_Dropped_In_Tool_Results` — fixed 2026-09-05
+
+The second of the two silent-wrong-answer reports, and the last of them. Candidate 1
+implemented at the tool-result join: image parts hoist onto a user message that follows
+the tool message.
+
+**The report's Cause section was wrong and is corrected in place.** It said the image was
+*dropped* during serialization. Captured from the real HTTP body with the fix reverted:
+M.E.AI stringifies the whole `List<AIContent>` to JSON, so the base64 **was** on the
+wire, as text, in a role that cannot carry an image. The model got the bytes in an
+undecodable form plus the filename in the same blob, and answered from the filename.
+
+Same fix, but the correction earns its keep twice: it explains a cost nobody had noticed
+(every image billed as base64 text, trivial at 74 bytes and ~2.7 MB per turn for a real
+screenshot), and it retires the assumption that the adapter *drops* what it cannot
+represent — it stringifies.
+
+**The gap two prior attempts left open is closed.** Both stopped at "a 500 proves the
+image is on the wire, but not that the shape is right". Verified now at the byte level
+against a local SSE stub: `{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}`
+on a user message. The prior attempt's own note — the stub must answer SSE or nb hangs —
+was what made this work.
+
+Test-first held: 3 of 4 red first, plus a control that passed throughout.
