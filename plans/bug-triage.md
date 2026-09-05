@@ -414,3 +414,24 @@ overlapping runs restored each other's stale values and left the console permane
 pointed at a dead sink — outliving both runs, unlike the spinner bug. Now refcounted.
 The residual (concurrent hosts share the first one's `DiagnosticsWriter`) needs the
 reporter seam, which is the same `TODO.md` item this cluster was already paired with.
+
+---
+
+## `Tool_Names_Diverge_From_Model_Native_Surface` — closed 2026-09-05
+
+Closed as fixed on the narrow reading that its *suggested fix* is shipped and golden-
+pinned: qwen-code's names, its `file_path` spelling, and the instructional steer. The
+report's own follow-ups withdrew its token claim (input moved <4%) and failed to
+replicate the costume's effect on tool selection (pooled 2/6 vs 4/6, p ≈ 0.57).
+
+Shipped with the close, and the reason the close is honest rather than bookkeeping: the
+**`system` steer is now documented** in `docs/conversation-program-cli.md` §5.5 and
+`README.md`. It is the only intervention on this bug ever measured working
+(`edit_file` 1 → 10, `token_budget` → `ok`) and it previously shipped only inside costume
+preambles — so native-surface callers got no steer and no hint one existed. That was the
+cheap docs win surfaced in Step 1 and never done; it is done.
+
+The remaining question — does a matched surface change model behaviour — is a
+**measurement**, not a defect, and is owned by `plans/harness-emulation.md` §"What to
+diff". The 12-line fixture is settled as unable to discriminate: rewriting is the
+*cheapest* path there, so the choice is near a coin flip. Do not run it a third time.

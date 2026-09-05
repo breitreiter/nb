@@ -2,16 +2,22 @@
 kind: bug
 title: 'Tool names diverge from the model''s native surface, and it costs tokens'
 created: 2026-08-11
-updated: 2026-09-04
+updated: 2026-09-05
 status: current
-state: open
+state: fixed
 severity: low
 cluster: harness-evaluation
 ---
 
 # Tool names diverge from the model's native surface, and it costs tokens
 
-Status: Open (2026-08-11) — measured on a local harness driving nb against a
+Status: **Closed 2026-09-05 — mechanism shipped, residue documented, measurement
+handed off.** The suggested fix is built and pinned by goldens; the one demonstrated
+intervention is now documented; the open question that remains is a measurement, and it
+is owned by `plans/harness-emulation.md` rather than by this report. See *Resolution* at
+the foot.
+
+Originally: Open (2026-08-11) — measured on a local harness driving nb against a
 containerized Go fixture, with `qwen3-coder-next` served by llama.cpp.
 
 ## Symptom
@@ -246,3 +252,76 @@ this bug ever demonstrated to work (`edit_file` 1 → 10, exit reason `token_bud
 and it is documented nowhere a caller would find it. Callers on nb's *native* surface get
 no steer at all — the preamble above ships only with the costume. Documenting it is a
 docs change, not an experiment, and it does not wait on the fixture.
+
+---
+
+## Resolution — 2026-09-05
+
+Closed as **fixed**, on the narrow reading that what this report *asked for* is shipped.
+Being precise about that, because the report's headline claim did not survive its own
+follow-up:
+
+### What was asked for, and is done
+
+Both items of "Suggested fix":
+
+1. **Parameter spellings** — `harness qwen-code`'s `edit` takes `file_path`, not `path`.
+2. **Tool names** — that costume advertises `edit`, `glob`, `grep_search`,
+   `list_directory`, `run_shell_command`.
+
+Plus the "worth considering alongside it" half: the instructional steer ships in
+`nb.Core/prompts/harness/qwen-code.md` (*"Prefer `edit` over `write_file`"*). The whole
+surface is pinned byte-for-byte by `nb.Tests/ToolSurfaceGoldenTests.cs`, so it cannot
+regress silently.
+
+The report's suggested `tools profile qwen` spelling was **not** built, and should not
+be: `plans/harness-emulation.md` subsumed it with something better. A profile would have
+aliased names while leaving the prompt, result formatting and declared omissions
+untouched — which is half a costume, and the half that measures worst.
+
+### What was withdrawn
+
+The **token claim in the title is wrong** and the report says so itself (2026-08-12):
+input tokens moved under 4%. The dominant term is turns × accumulated context, not the
+shape of the writes. The title is left as filed rather than rewritten, since the
+correction is in the body and rewriting a filed claim hides that it was made.
+
+### What did not replicate
+
+The costume's effect on tool selection. Two sessions, three runs per arm: pooled
+**baseline 2/6, costume 4/6, Fisher exact two-tailed p ≈ 0.57** — no effect at this
+sample size. Not a regression: zero tool errors, both arms 3/3 correct, the costume's
+`edit` and `write_file` both demonstrably work.
+
+The report's own diagnosis of why is the durable part, and it is a lesson about fixtures
+rather than about nb: **at 12 lines a whole-file rewrite is not merely acceptable, it is
+the cheapest path** (18–23k tokens against 73–75k for the edit-heavy runs). When both
+strategies succeed and the wrong-looking one is cheaper, which the model picks is close
+to a coin flip, and single-digit replicates cannot see through that.
+
+### What shipped today
+
+The one actionable residue triage identified: **the `system` steer is now documented**
+where a caller will find it — `docs/conversation-program-cli.md` §5.5 ("Steering tool
+choice on the bare surface") and `README.md` alongside the no-persona guarantee.
+
+It is the only intervention on this bug ever demonstrated to work (`edit_file` 1 → 10,
+`write_file` 6 → 3, exit reason `token_budget` → `ok`), and it shipped only inside costume
+preambles — so callers on nb's native surface, which is most of them, got no steer and no
+hint that one existed. Both write-ups carry the two caveats honestly: it is **not** a
+token saving (under 4%; what improves is work per token), and it is n=1 on one fixture.
+
+### What is not closed, and where it went
+
+**Whether a matched tool surface changes model behaviour is still open, and it is a
+measurement question, not a defect.** It is owned by `plans/harness-emulation.md`
+§"What to diff", which adopts this report's metrics and its confounds. The experiment this
+report says is needed:
+
+- files of a few hundred lines, where a whole-file rewrite risks truncating mid-write —
+  the condition that produced the original 411,938-token abort;
+- enough replicates to see a *rate* rather than a streak.
+
+**Do not re-run the 12-line fixture.** It has now been run twice with a negative result,
+and triage proposed it a third time on a stale premise (recorded in the 2026-09-04
+section). The fixture cannot discriminate; that is settled.

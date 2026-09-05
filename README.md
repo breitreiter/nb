@@ -192,6 +192,15 @@ directives it writes, and nothing if it writes none — which is what an eval wa
 the main reason results here don't drift when nb changes. The sole exception is
 explicit: a `harness` directive brings its costume's prompt with it.
 
+That cuts both ways, and one case is worth knowing before you spend a run: a model asked
+to modify files will often **rewrite them whole** rather than edit them, and on the bare
+surface nothing tells it not to. Adding *"to modify an existing file use `edit_file`; use
+`write_file` only to create a new file; prefer editing over rewriting"* moved `edit_file`
+calls from 1 to 10 on one measured task, and turned a run that aborted on `token_budget`
+into one that finished. It is not a token saving — the spend barely moved — it is more
+finished work for the same spend. Costumes ship this steer in their preamble already;
+see §5.5 of `docs/conversation-program-cli.md`.
+
 ### Fabricated history
 
 `user`/`assistant` directives fabricate turns the model believes already happened —

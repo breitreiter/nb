@@ -312,6 +312,33 @@ depends on where and *when* the program runs, so two runs of one program are nev
 byte-identical under a costume that sends one. `qwen-code` sends none; its omission list
 says so.
 
+#### Steering tool choice on the bare surface
+
+"No persona" cuts both ways, and one consequence is worth stating because it is the only
+intervention on tool selection this repo has ever measured working. A model asked to
+modify files will often **rewrite them whole** rather than edit them, and on nb's bare
+surface nothing tells it not to. One `system` sentence changes that:
+
+```
+system to modify an existing file use edit_file(path, old_string, new_string); use
+system write_file only to create a new file; prefer editing over rewriting
+```
+
+Measured on one task, same model and fixture, that one directive moved `edit_file` calls
+from **1 to 10**, `write_file` from 6 to 3, and the exit reason from `token_budget` to
+`ok` — a task that previously aborted, finished.
+
+Two honest caveats. It is **not a token saving**: input tokens moved under 4%, because
+the dominant term is turns × accumulated context, not the shape of the writes. What
+improved was work per token — the same spend produced roughly six times as much finished
+work. And it is n=1 on one fixture; the effect is large and the mechanism is plain, but
+it has not been replicated at scale. See
+`bugs/Tool_Names_Diverge_From_Model_Native_Surface.md` for the full measurement history,
+including a costume-based intervention that did *not* replicate.
+
+A `harness` costume ships this steer in its preamble already (`qwen-code`'s says *"Prefer
+`edit` over `write_file`"*), so this section is about the bare surface specifically.
+
 Everything injected — preamble first, then the costume's furniture in the order that
 harness uses, then the program's own `system` directives — is materialised into the
 transcript as ordinary `system` messages,
