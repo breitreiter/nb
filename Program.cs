@@ -563,12 +563,57 @@ public class Program
                         : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
                     var budgetStr = $"tokens:{(tokenBudget?.ToString() ?? "-")} tool_calls:{(toolCallBudget?.ToString() ?? "-")} wall_ms:{(wallBudget?.ToString() ?? "-")}";
                     Console.WriteLine($"run {run}: provider={provider} model={model} harness={harness} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
+                    // `tools=` echoes the canonical directives, which is the documented
+                    // vocabulary — but under a costume those names are requested, not
+                    // effective: a costume advertises a subset under different names, so a
+                    // program naming nine tools can reach the model holding two.
+                    // bugs/Resolve_Does_Not_Show_The_Costumed_Wire_Surface.md
+                    if (harness != HarnessRegistry.Default)
+                    {
+                        var (wire, dropped) = ResolveWireSurface(harness, surface);
+                        Console.WriteLine($"       wire={wire} dropped={dropped}");
+                    }
                     break;
             }
         }
 
         if (run == 0)
             Console.WriteLine($"no runs. provider={provider} model={model} harness={harness} output={output}");
+    }
+
+
+    /// <summary>
+    /// What a costume will actually advertise, and which canonical tools it discards.
+    ///
+    /// <para>`dropped` is the load-bearing half — a costume that quietly discards seven of
+    /// nine named tools is worth seeing before spending a run. It is derived by probing the
+    /// costume one canonical tool at a time, because costumes keep no canonical-to-wire map:
+    /// each <c>CreateTools</c> arm gates on a single <c>AllowsNative</c> check, so a tool
+    /// that yields nothing on its own yields nothing in company either.</para>
+    /// </summary>
+    private static (string Wire, string Dropped) ResolveWireSurface(string harness, ToolSurface surface)
+    {
+        var env = ShellEnvironment.Detect(Array.Empty<string>());
+
+        // Every capability is present, so a name missing from the wire surface is the
+        // costume's decision and not an absent tool. search_web is normally config-gated on
+        // an API key; constructing it here keeps the report about the costume.
+        NbHarness probe = new(
+            new BashTool(env), new ReadFileTool(env), new WriteFileTool(env), new EditFileTool(env),
+            new FindFilesTool(env), new GrepTool(env), new ListDirTool(env), new FetchUrlTool(),
+            new SearchWebTool(), new ApplyPatchTool(env), applyPatchStyle: false);
+        probe = HarnessRegistry.Create(harness, probe);
+
+        var wire = probe.CreateTools(surface).Select(t => t.Name).OrderBy(n => n).ToList();
+
+        var named = surface.NativeAllow ?? ConversationManager.NativeToolNames.ToHashSet();
+        var dropped = named
+            .Where(n => probe.CreateTools(new ToolSurface { NativeAllow = new HashSet<string> { n } }).Count == 0)
+            .OrderBy(n => n)
+            .ToList();
+
+        return (wire.Count > 0 ? string.Join(",", wire) : "(none)",
+                dropped.Count > 0 ? string.Join(",", dropped) : "(none)");
     }
 
     // First non-blank, non-comment line starting with '{' => JSONL bytecode.

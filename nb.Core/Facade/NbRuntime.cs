@@ -74,7 +74,10 @@ internal sealed class NbRuntime : IDisposable
         if (!options.NoBash)
         {
             var bashTimeout = int.TryParse(config["BashTimeoutSeconds"], out var bts) ? bts : 120;
-            bash = new BashTool(shell, defaultTimeoutSeconds: bashTimeout);
+            // The ceiling on what a model may *request*, not on what config may set: a
+            // configured default above this wins (see BashTool.ExecuteAsync).
+            var bashMaxTimeout = int.TryParse(config["BashMaxTimeoutSeconds"], out var bmts) ? bmts : 600;
+            bash = new BashTool(shell, defaultTimeoutSeconds: bashTimeout, maxTimeoutSeconds: bashMaxTimeout);
             readFile = new ReadFileTool(shell);
             findFiles = new FindFilesTool(shell);
             grep = new GrepTool(shell);

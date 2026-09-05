@@ -124,7 +124,7 @@ public sealed class ClaudeCodeHarness : NbHarness
     private static readonly string[] _omissions = new[]
     {
         "Task / Skill / NotebookEdit: declared but not backed. They exist and are callable so the model can see the surface it expects, and each returns a note saying it did nothing. A run that depends on one of them is not measuring what it thinks it is. They cannot be filtered individually by a tools directive — they ride the surface as a group and go with `tools none`.",
-        "BashOutput / KillShell: not offered, and Bash's run_in_background is accepted and ignored. nb's bash runs foreground, so advertising the poll-and-kill pair would invite the model into a loop it can never finish — worse than not backgrounding at all.",
+        "BashOutput / KillShell: not offered, and Bash's run_in_background is accepted and ignored. nb's bash runs foreground, so advertising the poll-and-kill pair would invite the model into a loop it can never finish — worse than not backgrounding at all. Bash's timeout is honoured, converted from milliseconds to nb's seconds and subject to nb's configured maximum.",
         "Grep: type, multiline, -n and the -A/-B/-C context flags are accepted and ignored; output_mode `count` falls back to files_with_matches. pattern, path, glob, -i, head_limit and the content/files_with_matches modes are real.",
         "Read: reproduces the line-numbered format and the image branch, but not Claude Code's PDF page ranges or notebook cell rendering.",
         "result formatting: Bash returns raw output with the exit code shown only on failure, and Edit/Write acknowledge by path — all written from observed behaviour, not from the harness's source, so they are close rather than exact. Not reproduced: the cat -n snippet of the edited region that the real Edit returns, which is the part that decides whether the model re-reads a file it just changed.",
@@ -329,8 +329,9 @@ public sealed class ClaudeCodeHarness : NbHarness
         switch (name)
         {
             case "Bash" when Bash != null:
-                // run_in_background and timeout are accepted and ignored.
-                return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"));
+                // run_in_background is accepted and ignored; timeout is converted from ms.
+                return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"),
+                    MillisToSeconds(Int(arguments, "timeout")));
 
             case "Glob" when FindFiles != null:
                 return HandleFindFilesToolCall(callId, Str(arguments, "pattern"), StrOrNull(arguments, "path"), null);

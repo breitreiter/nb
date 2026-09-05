@@ -20,6 +20,7 @@ public class BashTool
     private readonly int _sandwichHeadLines;
     private readonly int _sandwichTailLines;
     private readonly long _outputByteCeiling;
+    private readonly int _maxTimeoutSeconds;
 
     public BashTool(
         ShellEnvironment env,
@@ -28,7 +29,8 @@ public class BashTool
         int outputThresholdBytes = 10240,
         int sandwichHeadLines = 50,
         int sandwichTailLines = 20,
-        long outputByteCeiling = 8L * 1024 * 1024)
+        long outputByteCeiling = 8L * 1024 * 1024,
+        int maxTimeoutSeconds = 600)
     {
         _env = env;
         _defaultTimeoutSeconds = defaultTimeoutSeconds;
@@ -37,6 +39,7 @@ public class BashTool
         _sandwichHeadLines = sandwichHeadLines;
         _sandwichTailLines = sandwichTailLines;
         _outputByteCeiling = outputByteCeiling;
+        _maxTimeoutSeconds = maxTimeoutSeconds;
     }
 
     /// <summary>
@@ -56,7 +59,7 @@ public class BashTool
 
     public AIFunction CreateTool()
     {
-        var executeFunc = (string description, string command, int? timeout_seconds) =>
+        var executeFunc = (string description, string command, int? timeout_seconds = null) =>
             ExecuteAsync(command, null, timeout_seconds);
 
         return AIFunctionFactory.Create(
@@ -70,7 +73,7 @@ public class BashTool
                 Parameters:
                 - description: Brief explanation (5-10 words) of what this command does and why. Required.
                 - command: The shell command to execute.
-                - timeout_seconds: Optional timeout (default {_defaultTimeoutSeconds}s).
+                - timeout_seconds: Optional timeout (default {_defaultTimeoutSeconds}s, maximum {Math.Max(_defaultTimeoutSeconds, _maxTimeoutSeconds)}s).
 
                 Returns stdout, stderr, and exit code. Large outputs are truncated.
                 Commands require user approval before execution.
@@ -84,8 +87,15 @@ public class BashTool
         int? timeoutSeconds = null)
     {
         var workingDir = cwd ?? _env.ShellCwd;
+        // The configured value is a *default*, not a ceiling. Math.Min made it both, so a
+        // model asking for longer on a slow build silently got the default and a truncated
+        // run it could not diagnose — the motivating case in the report. The raise is still
+        // bounded, so a model cannot park a headless run for an hour; an operator who
+        // configures a long default outranks that bound, since it exists to limit what the
+        // *model* may ask for. bugs/Bash_Advertises_A_Timeout_It_Ignores.md
+        var ceiling = Math.Max(_defaultTimeoutSeconds, _maxTimeoutSeconds);
         var requested = timeoutSeconds ?? _defaultTimeoutSeconds;
-        var timeout = Math.Min(requested, _defaultTimeoutSeconds);
+        var timeout = Math.Clamp(requested, 1, ceiling);
 
         var psi = new ProcessStartInfo
         {

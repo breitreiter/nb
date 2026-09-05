@@ -446,7 +446,8 @@ public class NbHarness
         switch (name)
         {
             case "bash" when Bash != null:
-                return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"));
+                return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"),
+                    Int(arguments, "timeout_seconds"));
 
             case "read_file" when ReadFile != null:
                 return HandleReadFileToolCall(callId, Str(arguments, "path"),
@@ -544,6 +545,14 @@ public class NbHarness
 
     protected static string? StrOrNull(IDictionary<string, object?>? args, string key) =>
         args != null && args.TryGetValue(key, out var v) ? v?.ToString() : null;
+
+    /// <summary>
+    /// Every costume nb wears declares its bash timeout in milliseconds; nb's is in seconds.
+    /// Rounds up, so a sub-second request becomes 1s rather than 0 (which would read as
+    /// "no timeout requested" and silently restore the default).
+    /// </summary>
+    protected static int? MillisToSeconds(int? millis) =>
+        millis is null ? null : Math.Max(1, (int)Math.Ceiling(millis.Value / 1000.0));
 
     protected static int? Int(IDictionary<string, object?>? args, string key) =>
         StrOrNull(args, key) is { Length: > 0 } s && int.TryParse(s, out var n) ? n : null;
@@ -823,7 +832,14 @@ public class NbHarness
         "No approval directive grants paths outside the working directory. Work within it, " +
         "or start nb from a directory that contains the target.";
 
-    public async Task<ToolOutcome> HandleBashToolCall(string callId, string command, string description)
+    /// <summary>
+    /// Approve and run one bash call. <paramref name="timeoutSeconds"/> is the model's
+    /// requested timeout in *seconds*; costumes whose target declares milliseconds convert at
+    /// their own dispatch site, because the conversion is a property of the costume and not
+    /// of this capability (bugs/Bash_Advertises_A_Timeout_It_Ignores.md).
+    /// </summary>
+    public async Task<ToolOutcome> HandleBashToolCall(string callId, string command, string description,
+        int? timeoutSeconds = null)
     {
         try
         {
@@ -845,7 +861,7 @@ public class NbHarness
                     _ => $"• bash: {display}",
                 };
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{line}[/]");
-                return await ExecuteBashCommand(callId, command);
+                return await ExecuteBashCommand(callId, command, timeoutSeconds);
             }
 
             // Nothing on the ladder allowed it, so it is refused. The classification and
@@ -872,7 +888,7 @@ public class NbHarness
         }
     }
 
-    private async Task<ToolOutcome> ExecuteBashCommand(string callId, string command)
+    private async Task<ToolOutcome> ExecuteBashCommand(string callId, string command, int? timeoutSeconds = null)
     {
         if (Bash == null)
         {
@@ -881,7 +897,7 @@ public class NbHarness
 
         try
         {
-            var result = await Bash.ExecuteAsync(command);
+            var result = await Bash.ExecuteAsync(command, cwd: null, timeoutSeconds);
 
             var outputStr = FormatShellResult(result);
 

@@ -14,7 +14,7 @@ public class ListDirTool
 
     public AIFunction CreateTool()
     {
-        var listFunc = (string path) =>
+        var listFunc = (string? path = null) =>
             ListDir(string.IsNullOrEmpty(path) ? null : path);
 
         return AIFunctionFactory.Create(
@@ -25,7 +25,7 @@ public class ListDirTool
                 Paths are relative to: {_env.ShellCwd}
 
                 Parameters:
-                - path: Directory path (absolute or relative to working directory). Empty string for working directory.
+                - path: Directory path (absolute or relative to working directory). Omit for working directory.
 
                 Returns entries in "type name" format where type is [file] or [dir].
                 Automatically skips: {string.Join(", ", DefaultSkipDirectories.All)}

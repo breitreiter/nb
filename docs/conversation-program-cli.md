@@ -59,7 +59,7 @@ make it a program: `echo 'run summarize this' | nb -`.
 | `--config <file>` | Use exactly this config file (hermetic); otherwise config resolves in layers (§9). |
 | `--mcp <file>` | Use this MCP manifest only; otherwise `mcp.json` resolves in layers. |
 | `--validate` | Parse + semantically check the program, run nothing. Exit 1 on any error. |
-| `--resolve` | Print the effective envelope at each run point, run nothing. |
+| `--resolve` | Print the effective envelope at each run point, run nothing. Under a `harness` costume it adds a second line — `wire=` (the tool names the model is actually offered) and `dropped=` (canonical tools the costume discards) — because `tools=` echoes the directives, which under a costume are *requested*, not effective. |
 | `--verbose` | Verbose engine diagnostics (to stderr). |
 | `--dump-tools` | Write the MCP tool manifest to `mcp-tools.json` and exit. |
 
@@ -214,7 +214,18 @@ apply to the cleared set.
   that fails but is *not* named is a non-fatal warning instead, and the run continues.
 
 A tool call outside the advertised surface is **refused** ("Error: Tool … not
-found"), not executed. `--resolve` prints the resolved surface at each run point.
+found"), not executed. `--resolve` prints the resolved surface at each run point —
+and under a costume also the **wire** surface, since a costume advertises a subset of
+what a program names, under different names:
+
+```console
+$ nb --resolve rails-codex.nb
+run 1: … harness=codex … tools=bash,edit_file,fetch_url,find_files,grep,list_dir,read_file,search_web,write_file …
+       wire=shell_command,view_image dropped=edit_file,fetch_url,find_files,grep,list_dir,search_web,write_file
+```
+
+`dropped=` is the half worth reading before spending a run: nine tools named, two
+offered, and no way to edit a file.
 
 ### 5.3 Approval directives — `approval`
 

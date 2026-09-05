@@ -13,7 +13,7 @@ public class EditFileTool
 
     public AIFunction CreateTool()
     {
-        var editFunc = (string path, string old_string, string new_string, bool? replace_all) =>
+        var editFunc = (string path, string old_string, string new_string, bool? replace_all = null) =>
             EditFile(path, old_string, new_string, replace_all ?? false);
 
         return AIFunctionFactory.Create(

@@ -7,7 +7,7 @@ Shell: <SHELL>
 Parameters:
 - description: Brief explanation (5-10 words) of what this command does and why. Required.
 - command: The shell command to execute.
-- timeout_seconds: Optional timeout (default 120s).
+- timeout_seconds: Optional timeout (default 120s, maximum 600s).
 
 Returns stdout, stderr, and exit code. Large outputs are truncated.
 Commands require user approval before execution.
@@ -25,13 +25,13 @@ Commands require user approval before execution.
       "type": [
         "integer",
         "null"
-      ]
+      ],
+      "default": null
     }
   },
   "required": [
     "description",
-    "command",
-    "timeout_seconds"
+    "command"
   ]
 }
 
@@ -57,19 +57,19 @@ Parameters:
       "type": [
         "integer",
         "null"
-      ]
+      ],
+      "default": null
     },
     "limit": {
       "type": [
         "integer",
         "null"
-      ]
+      ],
+      "default": null
     }
   },
   "required": [
-    "path",
-    "offset",
-    "limit"
+    "path"
   ]
 }
 
@@ -80,7 +80,7 @@ Searches from: <CWD>
 
 Parameters:
 - pattern: Glob pattern (e.g. "**/*.cs", "src/**/*.ts", "*.json")
-- path: Directory to search in (absolute or relative to working directory). Empty string or omit for working directory.
+- path: Directory to search in (absolute or relative to working directory). Omit for working directory.
 - max_results: Maximum number of results to return (default: 200)
 
 Automatically skips: .git, node_modules, bin, obj, .vs, __pycache__, .venv, venv, .idea, dist, build, .next, .nuget
@@ -92,19 +92,22 @@ Automatically skips: .git, node_modules, bin, obj, .vs, __pycache__, .venv, venv
       "type": "string"
     },
     "path": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
     },
     "max_results": {
       "type": [
         "integer",
         "null"
-      ]
+      ],
+      "default": null
     }
   },
   "required": [
-    "pattern",
-    "path",
-    "max_results"
+    "pattern"
   ]
 }
 
@@ -115,8 +118,8 @@ Searches from: <CWD>
 
 Parameters:
 - pattern: Regular expression to search for
-- path: Directory or file to search (absolute or relative to working directory). Empty string for working directory.
-- file_pattern: Glob filter for files to search (e.g. "*.cs", "*.ts"). Empty string for all files.
+- path: Directory or file to search (absolute or relative to working directory). Omit for working directory.
+- file_pattern: Glob filter for files to search (e.g. "*.cs", "*.ts"). Omit for all files.
 - case_insensitive: If true, perform case-insensitive search (default: false)
 - max_results: Maximum number of results to return (default: 100)
 - output_mode: "content" (default) returns matching lines as "file:line: content". "files_with_matches" returns only file paths that contain matches.
@@ -130,34 +133,43 @@ Automatically skips binary files and common non-source directories.
       "type": "string"
     },
     "path": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
     },
     "file_pattern": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
     },
     "case_insensitive": {
       "type": [
         "boolean",
         "null"
-      ]
+      ],
+      "default": null
     },
     "max_results": {
       "type": [
         "integer",
         "null"
-      ]
+      ],
+      "default": null
     },
     "output_mode": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
     }
   },
   "required": [
-    "pattern",
-    "path",
-    "file_pattern",
-    "case_insensitive",
-    "max_results",
-    "output_mode"
+    "pattern"
   ]
 }
 
@@ -167,7 +179,7 @@ List the contents of a directory. Returns files and subdirectories with type ind
 Paths are relative to: <CWD>
 
 Parameters:
-- path: Directory path (absolute or relative to working directory). Empty string for working directory.
+- path: Directory path (absolute or relative to working directory). Omit for working directory.
 
 Returns entries in "type name" format where type is [file] or [dir].
 Automatically skips: .git, node_modules, bin, obj, .vs, __pycache__, .venv, venv, .idea, dist, build, .next, .nuget
@@ -176,12 +188,13 @@ Automatically skips: .git, node_modules, bin, obj, .vs, __pycache__, .venv, venv
   "type": "object",
   "properties": {
     "path": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
     }
-  },
-  "required": [
-    "path"
-  ]
+  }
 }
 
 === apply_patch

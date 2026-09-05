@@ -2,16 +2,16 @@
 kind: bug
 title: 'bash advertises `timeout_seconds` and ignores it'
 created: 2026-08-14
-updated: 2026-09-04
+updated: 2026-09-05
 status: current
-state: open
+state: fixed
 severity: low
 cluster: schema-vs-dispatch
 ---
 
 # bash advertises `timeout_seconds` and ignores it
 
-Status: Open (2026-08-14) — found while deleting the qwen-code costume's argument
+Status: **Fixed 2026-09-05** — all three parts. Originally: Open (2026-08-14) — found while deleting the qwen-code costume's argument
 translation layer, which had been faithfully converting a value into a void.
 
 ## Symptom
@@ -137,3 +137,68 @@ default must raise the effective timeout.* It is red today, stays red after the 
 wiring alone, and is the only assertion that catches the half-fix. The rest of this
 report's surface (the `required` array) is pinned by the golden and needs no hand-written
 test.
+
+---
+
+## Fix (2026-09-05)
+
+All three changes the triage verification called for, because any one alone leaves the
+parameter broken in a different way.
+
+**1. Dispatch reads the argument.** `case "bash"` passes `Int(arguments,
+"timeout_seconds")` into `HandleBashToolCall`, which threads it to
+`ExecuteBashCommand` and on to `ExecuteAsync`.
+
+**2. The schema lets it be omitted.** Fixed by
+`bugs/Optional_Tool_Parameters_Advertised_As_Required.md`, landed in the same commit —
+`timeout_seconds` is off `bash`'s `required` array.
+
+**3. The clamp is gone.** `Math.Min(requested, _defaultTimeoutSeconds)` became
+`Math.Clamp(requested, 1, Math.Max(_defaultTimeoutSeconds, _maxTimeoutSeconds))`.
+
+The open question in the triage note — deliberate or accidental — is answered
+**deliberate in intent, wrong in mechanism**. Bounding what a model may ask for is
+right: a headless run should not be parkable for an hour. Expressing that bound as the
+*default* is what made the advertised parameter a lie, since it could only ever lower a
+value the model had no reason to lower. So the bound survives as its own knob:
+
+- `BashTimeoutSeconds` (default 120) is the **default**, used when the model asks for
+  nothing.
+- `BashMaxTimeoutSeconds` (default 600) is the **ceiling on what the model may request**.
+- A configured default above the ceiling wins, because the ceiling exists to bound the
+  *model*, not to overrule the operator. `ConfiguredDefaultAboveTheMaximum_IsHonoured…`
+  pins that.
+
+The tool description states the real bound: *"Optional timeout (default 120s, maximum
+600s)"*. Advertising a limit the model can discover beats advertising a parameter it
+cannot use.
+
+**Costume conversion.** All three costumes declare their timeout in milliseconds
+(`timeout_ms` on codex `shell_command`, `timeout` on claude-code `Bash` and qwen-code
+`run_shell_command`) and each now converts at its own dispatch site via a shared
+`MillisToSeconds` on the base — rounding *up*, so a sub-second request becomes 1s rather
+than 0, which would have read as "nothing requested" and silently restored the default.
+The conversion lives at the dispatch site rather than in the capability because it is a
+property of the costume, which is what the deleted translation table got right about
+*where* even while being dead code.
+
+Their declared-omission strings were updated: timeout is no longer listed as accepted
+and ignored, and the ms/seconds conversion plus nb's maximum are stated. Those strings
+are model-visible, so this is a behaviour change to the costume surface, not bookkeeping.
+
+**The audit this report asked for.** `apply_patch`, `fetch_url` and `search_web` were
+checked and are clean — each takes a single required parameter that the dispatch path
+reads. `apply_patch`'s lambda is a bare identity (`(string input) => input`), which
+looks alarming and is correct: it exists only to carry the name and schema.
+
+### Tests
+
+`nb.Tests/BashTimeoutTests.cs`, 8 tests, **6 confirmed failing first** — on behaviour,
+not on a compile error (the `maxTimeoutSeconds` parameter was added ahead of the clamp
+change so the red would be real). The 2 that passed from the start assert behaviour that
+was already correct: a requested timeout *below* the default still lowers it, and a
+configured default above the ceiling is honoured.
+
+The regression test the triage note specified —
+`RequestedTimeoutAboveDefault_RaisesTheEffectiveTimeout` — is the one that catches a
+half-fix, and did: it stays red after the dispatch wiring alone.

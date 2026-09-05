@@ -58,6 +58,19 @@ run_prog_contains() {
     FAILED=$((FAILED + 1)); return 1
 }
 
+run_prog_stdout_lacks() {
+    local name="$1" unexpected="$2" prog="$3"; shift 3
+    local out
+    out=$(cd "$NB_DIR" && printf '%s\n' "$prog" | "$NB" --config "$MOCK_CONFIG" "$@" 2>/dev/null)
+    if [[ "$out" != *"$unexpected"* ]]; then
+        echo -e "${GREEN}PASS${NC}: $name"; PASSED=$((PASSED + 1)); return 0
+    fi
+    echo -e "${RED}FAIL${NC}: $name"
+    echo "  Expected stdout NOT to contain: $unexpected"
+    echo "  Output: ${out:0:300}"
+    FAILED=$((FAILED + 1)); return 1
+}
+
 run_prog_stdout_contains() {
     local name="$1" expected="$2" prog="$3"; shift 3
     local out
@@ -471,6 +484,21 @@ run_prog_contains "validate: unknown provider exits 1" 1 "unknown provider" \
     "$(cat "$FIX/prog-badprovider.nb")" --validate
 run_prog_stdout_contains "resolve: prints per-run envelope" "run 1:" \
     "$(cat "$FIX/prog-swap.nb")" --resolve
+
+# bugs/Resolve_Does_Not_Show_The_Costumed_Wire_Surface.md — the program names nine
+# canonical tools and codex advertises two of them, under other names. Reporting only
+# the canonical list told a harness author the run could edit a file when it could not.
+run_prog_stdout_contains "resolve: costume prints the wire surface" "wire=shell_command,view_image" \
+    "$(cat "$FIX/prog-costume-resolve.nb")" --resolve
+run_prog_stdout_contains "resolve: costume names the dropped tools" "dropped=edit_file,fetch_url,find_files,grep,list_dir,search_web,write_file" \
+    "$(cat "$FIX/prog-costume-resolve.nb")" --resolve
+# The canonical line is unchanged: `tools=` still echoes the directives, which is the
+# documented vocabulary. The wire line is additive.
+run_prog_stdout_contains "resolve: costume keeps the canonical tools line" "tools=bash,edit_file,fetch_url,find_files,grep,list_dir,read_file,search_web,write_file" \
+    "$(cat "$FIX/prog-costume-resolve.nb")" --resolve
+# No costume, no divergence to report — the extra line would be noise on every run.
+run_prog_stdout_lacks "resolve: native harness prints no wire line" "wire=" \
+    "$(cat "$FIX/prog-native-resolve.nb")" --resolve
 
 echo ""
 echo "--- provider substitution (bugs/Failed_Provider_Directive_Silently_Substitutes.md) ---"

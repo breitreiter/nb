@@ -230,7 +230,7 @@ case can no longer happen silently, so this is attribution polish, not a hole �
 the one part of cluster 2 still open, and it should be filed as its own item rather than
 left implicit here.
 
-### 3. Advertised schema vs dispatch path — 3 files, 1 structural fix
+### 3. Advertised schema vs dispatch path — ~~3 files~~ **ALL 3 FIXED 2026-09-05**
 `Optional_Tool_Parameters_Advertised_As_Required` · `Bash_Advertises_A_Timeout_It_Ignores` ·
 `Resolve_Does_Not_Show_The_Costumed_Wire_Surface`
 
@@ -347,3 +347,40 @@ alongside, not first; there is no wrong behaviour to pin, only an absent capabil
 5. Cluster 3 (schema/dispatch seam) — structural, do it once, guard it with the golden test.
 6. Cluster 5 with the TODO console-seam item.
 7. Cluster 6 on demand.
+
+---
+
+## Cluster 3 outcome, 2026-09-05
+
+All three fixed in one commit, which is what the cluster analysis called for: the two
+schema bugs met on `bash.timeout_seconds` (mandatory to send *and* ignored on arrival),
+so either alone would have looked complete and not been.
+
+**What the plan got right.** The golden *was* the red state for
+`Optional_Tool_Parameters` — re-baselining and reading the diff was the whole review, and
+it confirmed the Step 1 scope correction mechanically: costume goldens moved only in
+description prose, not one costume `required` array changed. And the one hand-written
+test the plan argued for (`a timeout above the configured default must raise the
+effective timeout`) is exactly the one that catches a half-fix — it stays red after the
+dispatch wiring alone.
+
+**What the plan got wrong, mildly.** It predicted "one fix shape covers all three: make
+the emitted schema and the dispatch path share a declaration". That shared-declaration
+seam was **not** built and is not needed. The native surface's problem was that
+`AIFunctionFactory` reads optionality from C# defaults and none were written; adding them
+is a signature change, not a design change. `--resolve` turned out to be a reporting gap
+solved by probing the costume, not by a shared declaration. Building the seam would have
+been the design change the plan itself warned would invalidate hand-written tests.
+
+**Answered along the way:** the `Math.Min` clamp was *deliberate in intent, wrong in
+mechanism*. Bounding what a model may request is right; expressing that bound as the
+default is what made the parameter a lie. Split into `BashTimeoutSeconds` (default) and
+`BashMaxTimeoutSeconds` (ceiling on requests), with a configured default outranking the
+ceiling.
+
+**Audit closed:** `apply_patch`, `fetch_url`, `search_web` have no dead lambda
+parameters.
+
+**Queued, not done:** warning when a costume drops a tool named explicitly with `+`.
+`ToolSurface.Fold` collapses `+name` and left-in-by-default into one set, so the
+distinction needed to warn precisely does not survive folding. See the report.

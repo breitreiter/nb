@@ -127,7 +127,7 @@ public sealed class CodexHarness : NbHarness
         "AGENTS.md: loaded from the project root down to the cwd, in Codex's own <INSTRUCTIONS> wrapper, but sent as a system message where Codex sends a user-role fragment. Not reproduced: user-level instructions from ~/.codex, and Codex's re-check when the model works outside the cwd — its prompt tells the model to look for those itself, which this costume's shell can do.",
         "environment context: the <environment_context> block carries cwd, shell, current_date and timezone in Codex's verified layout, but not its <network> or <filesystem> elements — mapping nb's approval model and trust sandbox onto Codex's permission-profile vocabulary would mean inventing enum spellings, which is worse than a missing element. Approval-policy instructions are not appended to the prompt either, so the prompt's references to a \"Sandbox and approvals\" section still point at nothing.",
         "escalated execution: refusals are shaped as Codex's escalatable sandbox failure (verified from codex-rs/core/src/tools/runtimes/shell/unix_escalation.rs), but shell_command does not declare with_escalated_permissions, so a model cannot actually request escalation the way it can under Codex. nb has no mid-run elevation to grant: authorization is fixed by the program before the run. The refusal names the approval directive that would have allowed it instead — a real remedy for the operator rather than a parameter the model would emit and have rejected.",
-        "shell_command: workdir and timeout_ms are accepted and ignored — nb's bash runs in the shell cwd on its own configured timeout.",
+        "shell_command: workdir is accepted and ignored — nb's bash runs in the shell cwd. timeout_ms is honoured, converted to nb's seconds and subject to nb's configured maximum.",
         "view_image: detail is accepted and ignored. A path that is not an image comes back as text rather than as an error.",
         "update_plan: mapped onto nb's todo list. Codex replaces the plan wholesale; this reproduces that by cancelling steps the new plan drops, but nb renders the list its own way rather than as Codex's plan widget.",
         "surface size: Codex also ships unified exec (exec_command/write_stdin), web_search, MCP resource tools, sub-agents, skills and plugins, most behind feature flags. This costume covers the default four.",
@@ -259,10 +259,11 @@ public sealed class CodexHarness : NbHarness
         switch (name)
         {
             case "shell_command" when Bash != null:
-                // workdir and timeout_ms are accepted and ignored. Codex has no
+                // workdir is accepted and ignored; timeout_ms is converted. Codex has no
                 // description argument — it narrates in prose before the call instead —
                 // so there is nothing to show above an approval prompt but the command.
-                return await HandleBashToolCall(callId, Str(arguments, "command"), "");
+                return await HandleBashToolCall(callId, Str(arguments, "command"), "",
+                    MillisToSeconds(Int(arguments, "timeout_ms")));
 
             case "apply_patch" when ApplyPatch != null:
                 return HandleApplyPatchToolCall(callId, Str(arguments, "input"));

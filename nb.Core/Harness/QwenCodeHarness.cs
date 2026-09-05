@@ -67,7 +67,7 @@ public sealed class QwenCodeHarness : NbHarness
         "tool descriptions: nb's own prose, with corrected parameter names. qwen-code's descriptions are Apache-2.0 and vendorable, and are not vendored.",
         "environment block: none. qwen-code injects one; its shape was not researched, and an invented block is worse than an absent one because the model reads it as fact. The consequence is concrete — expect the model to open by running pwd, since nothing has told it where it is.",
         "result formatting: nb's own strings, unchanged — the exit-code footer on run_shell_command, the edit and write acknowledgments. The codex and claude-code costumes reshape theirs; this one does not, because qwen-code's exact result text was not researched and guessing at it would be worse than saying so.",
-        "run_shell_command: is_background, directory and timeout are all accepted and ignored — nb's bash runs foreground in the shell cwd, under its own configured timeout. qwen-code's timeout is in milliseconds and nb's is in seconds, but nothing converts between them because the shared bash capability takes no timeout at all; see bugs/Bash_Advertises_A_Timeout_It_Ignores.md.",
+        "run_shell_command: is_background and directory are accepted and ignored — nb's bash runs foreground in the shell cwd. timeout is honoured: qwen-code states it in milliseconds and nb in seconds, and this costume converts, subject to nb's configured maximum.",
         "web_fetch: qwen-code runs a model over the fetched page and answers the prompt; nb's fetch_url returns the content. The prompt and format arguments are accepted and ignored.",
         "list_directory: ignore and file_filtering_options are not offered.",
         "surface size: qwen-code advertises ~46 tools (agent, skill, plan mode, cron, sub-sessions, …). This costume covers the file/shell/search core only.",
@@ -166,9 +166,10 @@ public sealed class QwenCodeHarness : NbHarness
         switch (name)
         {
             case "run_shell_command" when Bash != null:
-                // is_background, directory and timeout are accepted and ignored; nb's bash
-                // runs foreground in the shell cwd under its own configured timeout.
-                return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"));
+                // is_background and directory are accepted and ignored; nb's bash runs
+                // foreground in the shell cwd. timeout is qwen-code's milliseconds, converted.
+                return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"),
+                    MillisToSeconds(Int(arguments, "timeout")));
 
             case "read_file" when ReadFile != null:
                 return HandleReadFileToolCall(callId, Str(arguments, "file_path"),

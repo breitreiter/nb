@@ -1,0 +1,3 @@
+tools none
+tools +read_file +write_file +edit_file +list_dir +find_files +grep +bash +search_web +fetch_url
+run go

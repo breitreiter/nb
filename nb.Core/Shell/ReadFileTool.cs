@@ -24,7 +24,10 @@ public class ReadFileTool
 
     public AIFunction CreateTool()
     {
-        var readFunc = (string path, int? offset, int? limit) =>
+        // Defaults, not just nullable types: AIFunctionFactory marks a parameter optional only
+        // when it carries a C# default, so `int? limit` reflects as required-may-be-null.
+        // bugs/Optional_Tool_Parameters_Advertised_As_Required.md
+        var readFunc = (string path, int? offset = null, int? limit = null) =>
             ReadFile(path, offset, limit);
 
         return AIFunctionFactory.Create(

@@ -2,16 +2,16 @@
 kind: bug
 title: 'Every optional parameter on the native surface is advertised as required'
 created: 2026-08-14
-updated: 2026-09-04
+updated: 2026-09-05
 status: current
-state: open
+state: fixed
 severity: low
 cluster: schema-vs-dispatch
 ---
 
 # Every optional parameter on the native surface is advertised as required
 
-Status: Open (2026-08-14) — found while building the tool-surface golden master
+Status: **Fixed 2026-09-05.** Originally: Open (2026-08-14) — found while building the tool-surface golden master
 (`nb.Tests/ToolSurfaceGoldenTests.cs`), which prints the emitted JSON schemas and
 made this visible for the first time.
 
@@ -129,3 +129,39 @@ why it is tagged `severity: low`.
 
 The fix in the section above is unchanged and still correct — add C# defaults to the
 lambda parameters — and `ToolSurfaceGoldenTests` re-baselining is still the review.
+
+---
+
+## Fix (2026-09-05)
+
+Taken as written: C# defaults on the native tool lambda parameters, so
+`AIFunctionFactory` reflects them as optional. `int? limit` became `int? limit = null`;
+the empty-string sentinels became `string? path = null` and the descriptions now say
+"Omit for working directory" instead of "Empty string for working directory", since
+omission is now actually available.
+
+Re-baselining `ToolSurfaceGoldenTests` was the review, as predicted. Every `required`
+array shrank to the genuinely mandatory parameters and nothing else moved:
+
+| tool | was | now |
+|---|---|---|
+| `grep` | pattern, path, file_pattern, case_insensitive, max_results, output_mode | `pattern` |
+| `read_file` | path, offset, limit | `path` |
+| `find_files` | pattern, path, max_results | `pattern` |
+| `bash` | description, command, timeout_seconds | description, command |
+| `edit_file` | path, old_string, new_string, replace_all | path, old_string, new_string |
+| `list_dir` | path | *(none)* |
+
+`write_file`, `fetch_url`, `search_web` and `apply_patch` are unchanged — their
+parameters genuinely are all mandatory.
+
+**The scope correction held up under the diff.** Costume goldens moved only in
+description *prose* (the "Omit for…" rewording, which passes through for tools a costume
+does not rename); not one costume `required` array changed. That is the mechanical
+confirmation of the 2026-09-04 finding that `DeclaredFunction`'s
+`Add(..., bool required = false)` already had this right and the defect was
+native-surface only.
+
+Fixed alongside `bugs/Bash_Advertises_A_Timeout_It_Ignores.md`, which met this one on
+`bash.timeout_seconds` — mandatory to send *and* ignored on arrival. Fixing either alone
+would have looked complete and not been.
