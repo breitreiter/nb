@@ -40,6 +40,36 @@ public class MyProvider : IChatClientProvider
 }
 ```
 
+## Extra HTTP headers
+
+An entry may carry a `Headers` object for a gateway that authenticates its caller with
+its own token:
+
+```jsonc
+{ "Name": "GwSonnet", "Provider": "MyProvider",
+  "Endpoint": "https://gateway.example.com/...",
+  "Headers": { "cf-aig-authorization": "Bearer ${CF_AIG_TOKEN}" } }
+```
+
+`ProviderConfig` reads them for you. It hands back an `HttpClient` that stamps them on
+every request — pass it to whatever HTTP hook your SDK exposes — or `null` when the
+entry declares none, so an unconfigured entry keeps the SDK's default stack:
+
+```csharp
+public bool CanCreate(IConfiguration config) =>
+    ProviderConfig.HasRequired(config, RequiredConfigKeys);   // excuses ApiKey when Headers carry the credential
+
+public IChatClient CreateClient(IConfiguration config)
+{
+    var http = ProviderConfig.HttpClientWithHeaders(config);
+    var apiKey = ProviderConfig.ApiKeyOrPlaceholder(config);
+    ...
+}
+```
+
+`${VAR}` in a header value is expanded by nb's config layer before your provider sees
+it, so there is nothing to resolve yourself.
+
 ## Project Setup
 
 Your provider project needs:

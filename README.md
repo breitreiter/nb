@@ -506,6 +506,31 @@ share one:
 
 Omit `Provider` and it defaults to `Name`.
 
+### Routing through an authenticated gateway
+
+`Endpoint` points an entry at a proxy, and `Headers` supplies whatever that proxy wants
+to authenticate *you* — a Cloudflare AI Gateway, a corporate LLM proxy, anything that
+checks its own bearer token before forwarding upstream:
+
+```jsonc
+{ "Name": "GwSonnet", "Provider": "Anthropic",
+  "Endpoint": "https://gateway.example.com/account/gw/anthropic",
+  "ApiKey": "${ANTHROPIC_API_KEY}",
+  "Headers": { "cf-aig-authorization": "Bearer ${CF_AIG_TOKEN}" },
+  "Model": "claude-sonnet-5" }
+```
+
+Every header is sent on every request, alongside the provider SDK's own auth header — or
+*instead of* it, if you name the same header, since a configured value replaces the
+SDK's rather than appending to it. Values are ordinary config values, so `${VAR}` is
+expanded at startup like anywhere else and the token never has to live in the file.
+
+If the gateway holds the upstream key itself (stored-keys / BYOK mode), leave `ApiKey`
+out entirely: an entry that carries `Headers` doesn't need one.
+
+Supported on `Anthropic`, `OpenAI`, `LocalLlm`, `AzureOpenAI` and `AzureFoundry`. Not on
+`Gemini`, whose SDK accepts neither a custom base URL nor a custom HTTP stack.
+
 **`EditToolStyle` is deprecated** (per entry). It selects the file-edit surface:
 `EditReplace` (default) advertises `edit_file` + `write_file`; `ApplyPatch` advertises
 `apply_patch` instead. They're mutually exclusive — GPT-family models confuse the two

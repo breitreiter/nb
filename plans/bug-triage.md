@@ -316,7 +316,7 @@ not a reproduction: once the reporter seam exists, two concurrent `Nb.RunAsync` 
 get their own sink, and you assert both invoked the client. Deleting the
 `ConsoleBoundCollection` serialisation and having the suite stay green is the real signal.
 
-### 6. Standing feature gaps — 2 files
+### 6. Standing feature gaps — 2 files — **BOTH FIXED 2026-09-05**
 `Image_Silently_Dropped_In_Tool_Results` · `Provider_Config_Cannot_Send_Extra_Headers`
 
 `Provider_Config_Cannot_Send_Extra_Headers` blocks the authenticated-gateway mode (the mode
@@ -462,3 +462,42 @@ on a user message. The prior attempt's own note — the stub must answer SSE or 
 was what made this work.
 
 Test-first held: 3 of 4 red first, plus a control that passed throughout.
+
+
+## `Provider_Config_Cannot_Send_Extra_Headers` — fixed 2026-09-05
+
+`Headers` on a `ChatProviders` entry, honoured by Anthropic, OpenAI, LocalLlm,
+AzureOpenAI and AzureFoundry. All three gateway auth modes now work; Gemini can't be
+gatewayed at all (its SDK takes neither a base URL nor an HTTP stack), and the README
+says so.
+
+**The plan's own prediction was wrong in the useful direction.** This section said the
+test is "ordinary new-feature work … write it alongside, not first; there is no wrong
+behaviour to pin, only an absent capability." Writing it first was in fact cheap and
+worth it: the assertion (a named header arrives on the outgoing request) was obvious
+before any of the design was, so it encoded an observation rather than a guess. All five
+were red first, and one of them — `${VAR}` inside a header value — was red for a reason
+I would not have predicted, because `ExpandEnvironmentReferences` runs in
+`LoadConfiguration` rather than `BuildConfiguration`. The rule of thumb in CLAUDE.md
+holds: what disqualifies test-first is *an assertion you'd have to rewrite*, not the
+absence of a bug.
+
+**Two SDK claims in the report were false**, both stated with confidence and both
+checked here by reflecting over the shipped assemblies: Anthropic 12.16.0's
+`ClientOptions` has no `Headers` collection, and `OpenAI.GenericActionPipelinePolicy` is
+internal. Neither proposed mechanism existed. The mechanism that does — a plain
+`HttpClient` handed to `ClientOptions.HttpClient` or to
+`ClientPipelineOptions.Transport` — is *one* mechanism covering both SDK families rather
+than the report's two, which is what let the resolution live in a single helper.
+
+**The published interface did not change.** The report expected to touch
+`IChatClientProvider`; it didn't need to. A provider already gets its entry as an
+`IConfiguration`, and the config layer already expands `${VAR}` in nested values, so
+both reasons for an interface change evaporated. `ProviderConfig` went into
+`nb.Providers.Abstractions` so an out-of-tree provider gets the same three lines.
+
+That leaves **1 open** of the 14 this sweep started with:
+`Trust_Rung_Denies_A_Bare_Find_With_A_Redirect`, held deliberately — it is diagnosed and
+has two candidate fixes, but `plans/approval-is-not-a-boundary.md` may dissolve it by
+retiring the cwd heuristic inside a container, and fixing it now risks writing code the
+`boundary` directive deletes.

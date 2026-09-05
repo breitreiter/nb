@@ -135,7 +135,7 @@ public class ConfigurationService
 
     // Resolve ${VAR} references in config values against environment variables, so
     // secrets (e.g. an API key) can live in the environment, never in the JSON.
-    private static void ExpandEnvironmentReferences(IConfigurationRoot config)
+    internal static void ExpandEnvironmentReferences(IConfigurationRoot config)
     {
         var envRef = new Regex(@"\$\{(\w+)\}");
         foreach (var (key, value) in config.AsEnumerable())

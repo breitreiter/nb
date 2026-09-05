@@ -17,21 +17,25 @@ public class AzureOpenAIProvider : IChatClientProvider
 
     public bool CanCreate(IConfiguration config)
     {
-        return RequiredConfigKeys.All(key => !string.IsNullOrEmpty(config[key]));
+        return ProviderConfig.HasRequired(config, RequiredConfigKeys);
     }
 
     public IChatClient CreateClient(IConfiguration config)
     {
         var endpoint = config["Endpoint"];
-        var apiKey = config["ApiKey"];
+        var apiKey = ProviderConfig.ApiKeyOrPlaceholder(config);
         var deployment = config["ChatDeploymentName"] ?? "o4-mini";
 
         var endpointUri = new Uri(endpoint!);
         var options = new AzureOpenAIClientOptions(AzureOpenAIClientOptions.ServiceVersion.V2025_03_01_Preview);
 
+        var http = ProviderConfig.HttpClientWithHeaders(config);
+        if (http is not null)
+            options.Transport = new System.ClientModel.Primitives.HttpClientPipelineTransport(http);
+
         var azureClient = new AzureOpenAIClient(
             endpointUri,
-            new AzureKeyCredential(apiKey!),
+            new AzureKeyCredential(apiKey),
             options);
 
         return azureClient.GetChatClient(deployment).AsIChatClient();

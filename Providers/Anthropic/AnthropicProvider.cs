@@ -16,12 +16,12 @@ public class AnthropicProvider : IChatClientProvider
 
     public bool CanCreate(IConfiguration config)
     {
-        return RequiredConfigKeys.All(key => !string.IsNullOrEmpty(config[key]));
+        return ProviderConfig.HasRequired(config, RequiredConfigKeys);
     }
 
     public IChatClient CreateClient(IConfiguration config)
     {
-        var apiKey = config["ApiKey"]!;
+        var apiKey = ProviderConfig.ApiKeyOrPlaceholder(config);
         var model = config["Model"] ?? "claude-sonnet-4-6";
         var endpoint = config["Endpoint"];
 
@@ -30,6 +30,12 @@ public class AnthropicProvider : IChatClientProvider
         var options = new ClientOptions();
         if (!string.IsNullOrEmpty(endpoint))
             options.BaseUrl = endpoint;
+
+        // ClientOptions has no header collection, so extra headers ride on an HttpClient
+        // that stamps them. Only set one when the entry asks for headers.
+        var http = ProviderConfig.HttpClientWithHeaders(config);
+        if (http is not null)
+            options.HttpClient = http;
 
         var anthropicClient = new AnthropicClient(options) { ApiKey = apiKey };
         return anthropicClient.AsIChatClient(model);

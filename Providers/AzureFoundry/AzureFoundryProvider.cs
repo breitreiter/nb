@@ -24,13 +24,13 @@ public class AzureFoundryProvider : IChatClientProvider
 
     public bool CanCreate(IConfiguration config)
     {
-        return RequiredConfigKeys.All(key => !string.IsNullOrEmpty(config[key]));
+        return ProviderConfig.HasRequired(config, RequiredConfigKeys);
     }
 
     public IChatClient CreateClient(IConfiguration config)
     {
         var endpoint = config["Endpoint"]!;
-        var apiKey = config["ApiKey"]!;
+        var apiKey = ProviderConfig.ApiKeyOrPlaceholder(config);
         var model = config["Model"]!;
 
         // Accept either the resource root or the full deployment URL — the Azure SDK
@@ -42,6 +42,11 @@ public class AzureFoundryProvider : IChatClientProvider
         var baseUri = new Uri($"{parsed.Scheme}://{parsed.Authority}{basePath}/");
 
         var options = new AzureOpenAIClientOptions(AzureOpenAIClientOptions.ServiceVersion.V2025_03_01_Preview);
+
+        var http = ProviderConfig.HttpClientWithHeaders(config);
+        if (http is not null)
+            options.Transport = new System.ClientModel.Primitives.HttpClientPipelineTransport(http);
+
         var azureClient = new AzureOpenAIClient(
             baseUri,
             new AzureKeyCredential(apiKey),

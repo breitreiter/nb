@@ -33,6 +33,13 @@ public class LocalLlmProvider : IChatClientProvider
         var apiKey = string.IsNullOrEmpty(config["ApiKey"]) ? "local" : config["ApiKey"]!;
 
         var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
+
+        // A gateway in front of the OpenAI dialect wants its own token; the transport
+        // hook is where a plain HttpClient can stamp it.
+        var http = ProviderConfig.HttpClientWithHeaders(config);
+        if (http is not null)
+            options.Transport = new System.ClientModel.Primitives.HttpClientPipelineTransport(http);
+
         var chatClient = new OpenAI.Chat.ChatClient(model, new ApiKeyCredential(apiKey), options);
 
         return chatClient.AsIChatClient();
