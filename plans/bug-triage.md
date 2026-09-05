@@ -300,7 +300,7 @@ new bounded behaviour instead — a producer emitting well past the retained hea
 budget completes with bounded allocation — and record in the report that the test asserts
 the fix rather than reproducing the bug.
 
-### 5. Library-host correctness — 1 file
+### 5. Library-host correctness — ~~1 file~~ **FIXED 2026-09-05**
 `Concurrent_Runs_Collide_On_The_Global_Console`
 
 Two `RunAsync` calls in one process collide on Spectre's global console and one silently
@@ -384,3 +384,33 @@ parameters.
 **Queued, not done:** warning when a costume drops a tool named explicitly with `+`.
 `ToolSurface.Fold` collapses `+name` and left-in-by-default into one set, so the
 distinction needed to warn precisely does not survive folding. See the report.
+
+---
+
+## Cluster 5 outcome, 2026-09-05
+
+Fixed, and **the plan's test call was wrong** — worth recording because the error was
+mine and it was the kind that stops you looking.
+
+The plan said *"no red test — it's a race... a test that reliably loses the race is flaky
+by construction"*. The report disagreed in its Verification section, and the report was
+right. The race is deterministic once you gate the client: block the first run inside its
+streaming call and it provably owns the live display before the second starts, so the
+second always meets the losing condition. No sleeps, no margin. Three tests, all
+confirmed red first.
+
+I had generalised from `nb.Tests/ConsoleBoundCollection.cs` — the workaround serialises,
+therefore the bug must be timing-dependent. But the collection serialises because the
+*collision* is timing-dependent in normal use, not because it is unobservable on demand.
+
+What the plan got right: deleting `ConsoleBoundCollection` and watching the suite stay
+green **is** the load-bearing verification, and it is stronger than the tests — ten
+classes racing for real rather than two contrived ones. Suite also went ~37s → ~25s,
+since those classes no longer run one at a time.
+
+**A second defect surfaced while fixing the first**, and is fixed with it:
+`Nb.RunAsync` restored the process-global `AnsiConsole.Console` from a plain local, so
+overlapping runs restored each other's stale values and left the console permanently
+pointed at a dead sink — outliving both runs, unlike the spinner bug. Now refcounted.
+The residual (concurrent hosts share the first one's `DiagnosticsWriter`) needs the
+reporter seam, which is the same `TODO.md` item this cluster was already paired with.

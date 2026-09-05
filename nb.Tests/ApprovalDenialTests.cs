@@ -16,7 +16,6 @@ namespace nb.Tests;
 /// for as long as it did. These drive real runs and assert on what a caller and a model
 /// actually receive.
 /// </summary>
-[Collection(ConsoleBoundCollection.Name)]
 public class ApprovalDenialTests
 {
     private static IConfiguration MockConfig() =>

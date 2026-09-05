@@ -7,7 +7,6 @@ namespace nb.Tests;
 // The retry wrapper is what stands between a transient gateway throttle and a dead
 // run that has already paid for 40 turns of tool calls. These tests keep the timing
 // knobs tiny (1s cap, ~2s budget) so the real waits stay in the test's patience.
-[Collection(ConsoleBoundCollection.Name)]
 public class RetryingChatClientTests
 {
     private static IConfiguration Config(params (string Key, string Value)[] settings) =>

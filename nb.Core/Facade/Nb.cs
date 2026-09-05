@@ -37,12 +37,31 @@ public static class Nb
         options ??= new NbOptions();
 
         // Engine classes still write via AnsiConsole (a 6b cleanup); redirect it to the
-        // diagnostics sink so stdout stays clean for the caller. Global + restored.
-        var savedConsole = AnsiConsole.Console;
-        AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+        // diagnostics sink so stdout stays clean for the caller.
+        //
+        // AnsiConsole.Console is process-global, so a naive save/restore pair races when a
+        // host runs several programs at once: two runs each save what the other set, and
+        // the last one out restores a writer that belongs to a finished run — leaving the
+        // process console permanently pointed at a dead sink, long after both calls
+        // returned. Refcount instead: the first run in redirects, the last one out
+        // restores, and nobody restores a stale value.
+        //
+        // Residual, and not fixable here: concurrent hosts share the first one's
+        // DiagnosticsWriter, because one global cannot serve two sinks. Routing each run's
+        // diagnostics to its own writer needs the reporter seam that would stop engine
+        // classes writing to a global at all (TODO.md, "engine chrome still lives in
+        // nb.Core"). bugs/Concurrent_Runs_Collide_On_The_Global_Console.md
+        lock (ConsoleRedirectLock)
         {
-            Out = new AnsiConsoleOutput(options.DiagnosticsWriter ?? TextWriter.Null),
-        });
+            if (_consoleRedirectDepth++ == 0)
+            {
+                _savedConsole = AnsiConsole.Console;
+                AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+                {
+                    Out = new AnsiConsoleOutput(options.DiagnosticsWriter ?? TextWriter.Null),
+                });
+            }
+        }
         try
         {
             using var runtime = await NbRuntime.BuildAsync(config, options);
@@ -82,7 +101,18 @@ public static class Nb
         }
         finally
         {
-            AnsiConsole.Console = savedConsole;
+            lock (ConsoleRedirectLock)
+            {
+                if (--_consoleRedirectDepth == 0 && _savedConsole is not null)
+                {
+                    AnsiConsole.Console = _savedConsole;
+                    _savedConsole = null;
+                }
+            }
         }
     }
+
+    private static readonly object ConsoleRedirectLock = new();
+    private static int _consoleRedirectDepth;
+    private static IAnsiConsole? _savedConsole;
 }

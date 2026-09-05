@@ -16,7 +16,6 @@ namespace nb.Tests;
 /// (<see cref="ToolSurfaceGoldenTests"/>); these pin the warning, and that it is not
 /// emitted at people who never set the field.
 /// </summary>
-[Collection(ConsoleBoundCollection.Name)]
 public class EditToolStyleDeprecationTests
 {
     [Fact]

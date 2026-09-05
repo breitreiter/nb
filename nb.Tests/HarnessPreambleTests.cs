@@ -15,7 +15,6 @@ namespace nb.Tests;
 /// Captured off a recording <see cref="IChatClient"/>, so what is asserted is what went
 /// on the wire rather than what the evaluator believes it buffered.
 /// </summary>
-[Collection(ConsoleBoundCollection.Name)]
 public class HarnessPreambleTests
 {
     /// <summary>

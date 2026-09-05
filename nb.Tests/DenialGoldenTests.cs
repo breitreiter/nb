@@ -32,7 +32,6 @@ namespace nb.Tests;
 /// To re-baseline after an intentional change: <c>UPDATE_GOLDEN=1 dotnet build &amp;&amp;
 /// dotnet test --no-build</c>, then read the diff before committing it.
 /// </summary>
-[Collection(ConsoleBoundCollection.Name)]
 public class DenialGoldenTests : IDisposable
 {
     private readonly string _testDir;

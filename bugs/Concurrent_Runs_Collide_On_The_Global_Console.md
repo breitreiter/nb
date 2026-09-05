@@ -2,16 +2,17 @@
 kind: bug
 title: 'Two runs in one process collide on the global console, and the loser does nothing'
 created: 2026-08-14
-updated: 2026-08-14
+updated: 2026-09-05
 status: current
-state: open
+state: fixed
 severity: medium
 cluster: library-host
 ---
 
 # Two runs in one process collide on the global console, and the loser does nothing
 
-Status: Open (2026-08-14) — found when a second test class started driving real runs and
+Status: **Fixed 2026-09-05** — both parts, plus a second collision found alongside.
+Originally: Open (2026-08-14) — found when a second test class started driving real runs and
 the existing golden-master tests began failing intermittently with *"the model was never
 invoked."*
 
@@ -78,3 +79,75 @@ for a library host. Delete it when the above lands.
 
 Two `RunAsync` calls started concurrently against a recording `IChatClient` must both
 reach the client. That reproduces it today with no model needed.
+
+---
+
+## Fix (2026-09-05)
+
+**Part 1, as specified: chrome cannot fail a run.** The spinner call moved behind
+`ConversationManager.WithThinkingSpinnerAsync`, which claims the process's single
+live-display slot with an interlocked flag. The loser runs *without a spinner* instead of
+losing its turn.
+
+The flag is doing something a `try/catch` around `StartAsync` could not. Catching cannot
+distinguish *"the display refused to open"* from *"the work threw"*, and retrying on the
+latter would issue a **second model call** — turning a chrome bug into a double-billed
+round-trip. Claiming the slot up front never runs the work twice. It is also exact rather
+than heuristic: this is the only live display in the codebase (`grep` for
+`AnsiConsole.Status|Live|Progress` finds one call site), so the flag and the real slot
+cannot disagree.
+
+**Part 2 folded into part 1.** The report asks for the spinner to be gated on the
+chrome-suppressed flag as well. That turned out to be unnecessary: a suppressed-chrome
+host writes to `TextWriter.Null`, and with the slot claimed correctly a live display on a
+null writer is harmless. Adding a second gate would have been a second thing to keep in
+sync with no behaviour to show for it.
+
+## A second collision, found while fixing this one
+
+`Nb.RunAsync` redirects the process-global `AnsiConsole.Console` to the caller's
+diagnostics sink and restored it from a plain local:
+
+```csharp
+var savedConsole = AnsiConsole.Console;   // A saves the real console
+AnsiConsole.Console = …;                  // B then saves *A's* console
+finally { AnsiConsole.Console = savedConsole; }
+```
+
+Two overlapping runs each save what the other set, so the last one out restores a writer
+belonging to a **finished run**. The process console is then permanently pointed at a
+dead sink — and unlike the spinner bug, this outlives the runs: every later
+`AnsiConsole` write in that process, including a CLI's, goes nowhere.
+
+Confirmed before fixing: six concurrent `Nb.RunAsync` calls, then
+`Assert.Same(original, AnsiConsole.Console)` — red.
+
+The swap is now refcounted under a lock: first in redirects, last out restores, nobody
+restores a stale value.
+
+**Residual, stated rather than hidden.** Concurrent hosts now share the *first* one's
+`DiagnosticsWriter`, because one global cannot serve two sinks. That is a real limitation
+and it is still an improvement, because the previous behaviour was not "correct routing"
+— it was A's own diagnostics escaping to the real console mid-run once B swapped, *plus*
+the permanent corruption. Giving each run its own sink needs the reporter seam that stops
+engine classes writing to a global at all (`TODO.md`, *"engine chrome still lives in
+nb.Core"*), which is the same root this report already names.
+
+## Tests
+
+Three in `nb.Tests/ConcurrentRunTests.cs`, all confirmed failing first.
+
+The race is made **deterministic rather than probable**, which is why this got a real
+red test where the triage plan predicted none was possible. A gated `IChatClient` blocks
+inside the first run's streaming call, so that run provably owns the live display before
+the second starts; the second therefore always meets an open display, which is the losing
+condition. No sleeps, no timing margin, nothing to flake.
+
+**The load-bearing verification is the deletion, though.** `ConsoleBoundCollection` — the
+xunit collection that serialised every run-driving test class — is **gone**, along with
+its ten `[Collection]` attributes. Ten classes now race for real, and the suite is green
+across repeated runs. That is a stronger signal than the three tests, and it is what the
+triage plan named as the real one.
+
+Side effect worth having: the suite dropped from ~37s to ~25s, because those ten classes
+now run in parallel instead of one at a time.

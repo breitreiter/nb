@@ -13,7 +13,6 @@ namespace nb.Tests;
 /// not (an OpenAI entry with no ApiKey, which `CanCreate` rejects). Every test here was
 /// confirmed failing against the unfixed evaluator.
 /// </summary>
-[Collection(ConsoleBoundCollection.Name)]
 public class ProviderSubstitutionTests
 {
     // Mock answers "from-mock"; "Broken" names a real implementation that cannot be

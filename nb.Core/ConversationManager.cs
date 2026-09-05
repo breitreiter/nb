@@ -359,10 +359,8 @@ public class ConversationManager
             ChatResponse response;
             try
             {
-                var hasMore = await AnsiConsole.Status()
-                    .Spinner(Spinner.Known.Dots)
-                    .SpinnerStyle(Style.Parse(UIColors.SpectreMuted))
-                    .StartAsync("Thinking...", async _ => await enumerator.MoveNextAsync());
+                var hasMore = await WithThinkingSpinnerAsync(
+                    async () => await enumerator.MoveNextAsync());
 
                 while (hasMore)
                 {
@@ -727,6 +725,41 @@ public class ConversationManager
 
     private static void RenderMarkdown(string markdown) =>
         MarkdownRenderer.Render(markdown);
+
+    /// <summary>
+    /// Owns the process's single live-display slot for the "Thinking…" spinner.
+    ///
+    /// <para>Spectre's <c>AnsiConsole</c> is process-global and permits one live display at
+    /// a time: a second concurrent <c>Status().StartAsync</c> throws. That throw used to
+    /// land in the turn's own catch and be handled as a failed turn, so the enumerator was
+    /// never advanced and the run returned having never called the model — a run that
+    /// quietly did nothing, which reads as a product bug rather than a collision.</para>
+    ///
+    /// <para>The slot is claimed with an interlocked flag rather than by catching the
+    /// throw, because catching it cannot distinguish "the display refused to open" from
+    /// "the work threw" — and retrying on the latter would issue a second model call. The
+    /// loser simply runs without a spinner. Chrome must never be able to fail a run.
+    /// bugs/Concurrent_Runs_Collide_On_The_Global_Console.md</para>
+    /// </summary>
+    private static int _liveDisplayHeld;
+
+    private static async Task<T> WithThinkingSpinnerAsync<T>(Func<Task<T>> work)
+    {
+        if (Interlocked.CompareExchange(ref _liveDisplayHeld, 1, 0) != 0)
+            return await work();
+
+        try
+        {
+            return await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(Style.Parse(UIColors.SpectreMuted))
+                .StartAsync("Thinking...", async _ => await work());
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _liveDisplayHeld, 0);
+        }
+    }
 
     private static Dictionary<string, object?> SnapshotUpdate(ChatResponseUpdate update, int index)
     {
