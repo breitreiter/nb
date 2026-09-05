@@ -2,16 +2,17 @@
 kind: bug
 title: 'With `Trust: true` and `sandbox bwrap`, a bare `find … 2>/dev/null` is still denied'
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 status: current
-state: open
+state: fixed
 severity: low
 cluster: approval-diagnosability
 ---
 
 # With `Trust: true` and `sandbox bwrap`, a bare `find … 2>/dev/null` is still denied
 
-Status: Open (2026-09-04) — **isolated 2026-09-04**; the repro script was never needed.
+Status: **Fixed 2026-09-05** — candidate 1 taken, candidate 2 declined; see Resolution.
+Originally: Open (2026-09-04) — **isolated 2026-09-04**; the repro script was never needed.
 Found while building a documentation-retrieval eval harness; provider
 `LocalCoder`/`qwen3-coder-next`. Same work as
 [`No_Match_Denial_Does_Not_Name_The_Trust_Rung.md`](No_Match_Denial_Does_Not_Name_The_Trust_Rung.md).
@@ -142,3 +143,49 @@ not to carry a redirect.
 Both are behaviour changes to the trust rung, so they want the decision made deliberately
 rather than folded into a diagnosability fix. Left open on that basis, not on lack of
 information.
+
+
+## Resolution, 2026-09-05 — candidate 1 taken, candidate 2 declined
+
+**Candidate 1.** `/dev/null` is a trusted path. `TrustSandbox` short-circuits on it in
+both entry points (`IsPathTrusted` and `CheckPath`, so bash and the file tools agree),
+which clears every command carrying a `2>/dev/null` without touching the classifier.
+
+**Candidate 2 — declined.** Stopping a redirect target from standing in for the
+command's path is the change that makes the classification honest, and it is the change
+this repo will not get value from now:
+
+- Its blast radius is the approval *display*, which is a model- and human-visible string
+  and the subject of the whole approval-diagnosability cluster. Rewriting what
+  `bash (Write): /dev/null` says is a design decision about the observation channel, not
+  a bug fix, and it wants to be made once.
+- `plans/approval-is-not-a-boundary.md` (accepted) retires the cwd heuristic *inside a
+  container*, which is where the reported measurement ran. The general problem candidate
+  2 addresses — a redirect to a real path outside cwd classifying the whole command as a
+  write there — only produces a **denial**, and inside a container the trust rung will
+  not be the thing deciding. Building it now risks writing code the `boundary` directive
+  deletes.
+
+**Why the whole report was not closed `wontfix` on that reasoning.** Because it would
+have been wrong. The accepted plan keeps trust for the REPL — it is explicit that trust
+is the right default *there*, where a watching human exists, and wrong only inside a
+container. So `boundary` does **not** dissolve this bug; it dissolves it in one of the
+two deployments. A REPL user with `Trust: true` typing `find . -name x 2>/dev/null` would
+have kept hitting it indefinitely. Candidate 1 is five lines and fixes both deployments,
+which is a poor thing to defer to a plan that was never going to reach it.
+
+**Scope kept narrow on purpose.** Only the literal `/dev/null` is trusted, not redirects
+in general and not `/dev/*`. A redirect to a real path outside cwd still refuses, and
+`sudo rm -rf / 2>/dev/null` is still denied — the sink is not a laundering channel,
+because the danger check runs before the path check.
+
+**Tests.** `nb.Tests/TrustRedirectTests.cs`, five. Exactly one was red — the report's own
+command — and the four controls passed before and after, including the same `find`
+*without* the redirect. That control is the report's isolation claim restated as an
+assertion: the redirect was the entire cause, and the `find` had nothing to do with it.
+
+**What is still true and not fixed:** the console still classifies this as
+`bash (Write): /dev/null` for what is plainly a read. It is now an allowed call rather
+than a denial, so it costs a reader accuracy rather than costing a run its turns. That is
+candidate 2's remaining value, and it belongs with the Tier 2 relabelling in the boundary
+plan rather than here.

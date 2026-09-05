@@ -19,6 +19,9 @@ public static class TrustSandbox
     /// </summary>
     public static (bool Trusted, bool SymlinkEscape) CheckPath(string path, string cwd)
     {
+        if (path.Equals(NullSink, StringComparison.Ordinal))
+            return (true, false);
+
         try
         {
             var logical = Path.GetFullPath(path);
@@ -60,8 +63,22 @@ public static class TrustSandbox
         }
     }
 
+    /// <summary>
+    /// The null sink. `CommandClassifier` reports a redirect target as the command's
+    /// path, so `find . -name x 2>/dev/null` classifies as a *write to /dev/null* — and
+    /// the trust rung then refused it for sitting outside cwd, which denied any command
+    /// carrying a `2>/dev/null` (bugs/Trust_Rung_Denies_A_Bare_Find_With_A_Redirect.md).
+    /// Discarding output is not an escape from anything, so the sink is trusted.
+    /// Deliberately just this one path: a redirect to a *real* path outside cwd still
+    /// refuses, because classifying that as a write is arguably right.
+    /// </summary>
+    private const string NullSink = "/dev/null";
+
     public static bool IsPathTrusted(string path, string cwd)
     {
+        if (path.Equals(NullSink, StringComparison.Ordinal))
+            return true;
+
         try
         {
             var resolved = Path.GetFullPath(path);

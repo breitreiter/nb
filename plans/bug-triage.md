@@ -496,8 +496,33 @@ than the report's two, which is what let the resolution live in a single helper.
 both reasons for an interface change evaporated. `ProviderConfig` went into
 `nb.Providers.Abstractions` so an out-of-tree provider gets the same three lines.
 
-That leaves **1 open** of the 14 this sweep started with:
-`Trust_Rung_Denies_A_Bare_Find_With_A_Redirect`, held deliberately — it is diagnosed and
-has two candidate fixes, but `plans/approval-is-not-a-boundary.md` may dissolve it by
-retiring the cwd heuristic inside a container, and fixing it now risks writing code the
-`boundary` directive deletes.
+## `Trust_Rung_Denies_A_Bare_Find_With_A_Redirect` — fixed 2026-09-05
+
+Closed by taking candidate 1 (trust `/dev/null`) and declining candidate 2 (stop a
+redirect target standing in for the command's path).
+
+**This section previously argued for holding it, and that argument was wrong.** It read:
+the boundary plan "may dissolve it by retiring the cwd heuristic inside a container, so
+fixing it now risks writing code the `boundary` directive deletes." The plan does retire
+the heuristic inside a container — but it is equally explicit that trust stays for the
+REPL, where a watching human exists. `boundary` therefore dissolves this bug in one of
+two deployments, and a REPL user with `Trust: true` would have hit it indefinitely.
+Deferring a five-line fix to a plan that was never going to reach it is not a deferral,
+it is a decision not to fix.
+
+Candidate 2 is still declined, on its own merits rather than by appeal to the plan: it
+changes the approval *display*, which is model-visible and the subject of the whole
+diagnosability cluster, and it now costs a reader accuracy rather than costing a run its
+turns. It belongs with the Tier 2 relabelling.
+
+**The test shape is the finding.** Five tests, exactly one red — the report's own
+command — and the same `find` *without* the redirect green throughout. That control
+turns the report's isolation claim into an assertion rather than a sentence.
+
+That closes the queue this sweep opened with: **14 → 0**. One new report was filed on the
+way out, from the cluster-2 work rather than from the queue:
+`Effective_Model_Is_Not_On_The_Trailer` (open, medium) — `provider` went onto the trailer
+so a corpus could not be mis-attributed, and `model` is the same argument one field over.
+The mechanism is already available: `IChatClient.GetService<ChatClientMetadata>()
+?.DefaultModelId`, verified to report the value even when it came from a provider
+plugin's own hard-coded fallback.
