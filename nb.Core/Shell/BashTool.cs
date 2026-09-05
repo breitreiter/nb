@@ -19,6 +19,7 @@ public class BashTool
     private readonly int _outputThresholdBytes;
     private readonly int _sandwichHeadLines;
     private readonly int _sandwichTailLines;
+    private readonly long _outputByteCeiling;
 
     public BashTool(
         ShellEnvironment env,
@@ -26,7 +27,8 @@ public class BashTool
         int outputThresholdLines = 200,
         int outputThresholdBytes = 10240,
         int sandwichHeadLines = 50,
-        int sandwichTailLines = 20)
+        int sandwichTailLines = 20,
+        long outputByteCeiling = 8L * 1024 * 1024)
     {
         _env = env;
         _defaultTimeoutSeconds = defaultTimeoutSeconds;
@@ -34,6 +36,7 @@ public class BashTool
         _outputThresholdBytes = outputThresholdBytes;
         _sandwichHeadLines = sandwichHeadLines;
         _sandwichTailLines = sandwichTailLines;
+        _outputByteCeiling = outputByteCeiling;
     }
 
     /// <summary>
@@ -99,9 +102,11 @@ public class BashTool
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
         using var process = new Process { StartInfo = psi };
 
-        var stdoutLines = new List<string>();
-        var stderrLines = new List<string>();
-        var totalBytes = 0;
+        // One budget for the whole call, shared by both streams: a runaway producer is a
+        // property of the command, not of which pipe it happens to be writing to.
+        using var budget = new ByteBudget(_outputByteCeiling);
+        var stdoutLines = new OutputCollector(RetainedHeadLines, _sandwichTailLines, budget);
+        var stderrLines = new OutputCollector(RetainedHeadLines, _sandwichTailLines, budget);
         var truncated = false;
         var timedOut = false;
 
@@ -115,10 +120,20 @@ public class BashTool
             // VBCSCompiler daemons don't outlive us on Windows.
             ProcessJob.Assign(process);
 
-            stdoutTask = ReadLinesAsync(process.StandardOutput, stdoutLines, cts.Token);
-            stderrTask = ReadLinesAsync(process.StandardError, stderrLines, cts.Token);
+            // Readers stop on either the timeout or the byte ceiling; the process only ever
+            // stops on the timeout, so `timedOut` stays a statement about the clock.
+            using var reading = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, budget.Token);
+            stdoutTask = ReadLinesAsync(process.StandardOutput, stdoutLines, reading.Token);
+            stderrTask = ReadLinesAsync(process.StandardError, stderrLines, reading.Token);
 
             await Task.WhenAll(stdoutTask, stderrTask);
+            if (budget.Exhausted)
+            {
+                // Nothing further will be read, so leaving the child running only burns the
+                // rest of the timeout. Kill it and say so, rather than reporting a truncated
+                // result that looks like the command finished.
+                try { process.Kill(entireProcessTree: true); } catch { }
+            }
             await process.WaitForExitAsync(cts.Token);
         }
         catch (OperationCanceledException)
@@ -132,14 +147,18 @@ public class BashTool
             }
         }
 
-        // Calculate total bytes
-        totalBytes = stdoutLines.Sum(l => Encoding.UTF8.GetByteCount(l) + 1) +
-                     stderrLines.Sum(l => Encoding.UTF8.GetByteCount(l) + 1);
-
-        // Apply sandwich truncation if needed
+        // Totals accumulated during the read, so they stay exact even though the lines
+        // behind them were dropped as they arrived.
         var (stdout, stdoutTruncated) = ApplySandwich(stdoutLines);
         var (stderr, stderrTruncated) = ApplySandwich(stderrLines);
         truncated = stdoutTruncated || stderrTruncated;
+
+        if (budget.Exhausted)
+        {
+            stdout += $"\n[Output limit reached at {FormatBytes(budget.Charged)} - process killed. " +
+                      "Narrow the command's output (grep/head/tail) and try again.]";
+            truncated = true;
+        }
 
         // Add timeout message if needed
         if (timedOut)
@@ -166,7 +185,7 @@ public class BashTool
             timedOut);
     }
 
-    private async Task ReadLinesAsync(StreamReader reader, List<string> lines, CancellationToken ct)
+    private static async Task ReadLinesAsync(StreamReader reader, OutputCollector lines, CancellationToken ct)
     {
         try
         {
@@ -174,7 +193,9 @@ public class BashTool
             {
                 var line = await reader.ReadLineAsync(ct);
                 if (line == null) break;
-                lines.Add(line);
+                // Add returns false once the call's byte budget is spent: stop reading rather
+                // than keep draining a producer whose output can no longer be reported.
+                if (!lines.Add(line)) break;
             }
         }
         catch (OperationCanceledException)
@@ -183,25 +204,30 @@ public class BashTool
         }
     }
 
-    private (string result, bool truncated) ApplySandwich(List<string> lines)
+    private (string result, bool truncated) ApplySandwich(OutputCollector lines)
     {
-        var totalBytes = lines.Sum(l => Encoding.UTF8.GetByteCount(l) + 1);
+        var totalBytes = lines.TotalBytes;
 
-        // Check if truncation is needed
-        if (lines.Count <= _outputThresholdLines && totalBytes <= _outputThresholdBytes)
+        // Check if truncation is needed. Under the threshold every line is still in Head —
+        // RetainedHeadLines is sized so that the whole untruncated case fits there.
+        if (lines.TotalLines <= _outputThresholdLines && totalBytes <= _outputThresholdBytes)
         {
-            return (string.Join("\n", lines), false);
+            return (string.Join("\n", lines.Head), false);
         }
 
-        // Apply sandwich: head + omission message + tail
-        var head = lines.Take(_sandwichHeadLines);
-        var tail = lines.TakeLast(_sandwichTailLines);
-        var omittedCount = lines.Count - _sandwichHeadLines - _sandwichTailLines;
+        // Apply sandwich: head + omission message + tail. When the output stayed within the
+        // retained head, Head holds everything and the tail comes off its end; past that the
+        // ring is the only place the last lines still exist.
+        var head = lines.Head.Take(_sandwichHeadLines);
+        var tail = lines.TotalLines <= lines.HeadCapacity
+            ? lines.Head.TakeLast(_sandwichTailLines)
+            : lines.Tail;
+        var omittedCount = lines.TotalLines - _sandwichHeadLines - _sandwichTailLines;
 
         if (omittedCount <= 0)
         {
             // Not enough lines to sandwich, just return all
-            return (string.Join("\n", lines), false);
+            return (string.Join("\n", lines.Head), false);
         }
 
         var sb = new StringBuilder();
@@ -213,7 +239,87 @@ public class BashTool
         return (sb.ToString(), true);
     }
 
-    private static string FormatBytes(int bytes)
+    /// <summary>
+    /// How many leading lines to retain. The untruncated case returns every line, so the head
+    /// must be able to hold a whole under-threshold output; past that only the sandwich's head
+    /// is ever read back.
+    /// </summary>
+    private int RetainedHeadLines => Math.Max(_outputThresholdLines, _sandwichHeadLines);
+
+    /// <summary>
+    /// A per-call output budget shared by stdout and stderr. Charged from two concurrent
+    /// reader tasks, hence the interlocked add.
+    /// </summary>
+    private sealed class ByteBudget(long ceiling) : IDisposable
+    {
+        private readonly CancellationTokenSource _spent = new();
+        private long _charged;
+
+        public long Charged => Interlocked.Read(ref _charged);
+        public bool Exhausted => Charged >= ceiling;
+
+        /// <summary>
+        /// Fires when the budget runs out. Both readers wait on it, because only one stream
+        /// need be the runaway: the other is parked on a pipe that will not reach EOF while
+        /// the child lives, so stopping just the noisy reader still waits out the timeout.
+        /// </summary>
+        public CancellationToken Token => _spent.Token;
+
+        /// <summary>Charge <paramref name="bytes"/>; false once the ceiling is reached.</summary>
+        public bool TryCharge(long bytes)
+        {
+            if (Interlocked.Add(ref _charged, bytes) < ceiling) return true;
+            try { _spent.Cancel(); } catch (ObjectDisposedException) { }
+            return false;
+        }
+
+        public void Dispose() => _spent.Dispose();
+    }
+
+    /// <summary>
+    /// Collects a stream's output in fixed memory: the first <c>headCap</c> lines, the last
+    /// <c>tailCap</c> in a ring, and running totals for everything else.
+    ///
+    /// <para>The result of a bash call can never exceed head + tail lines, so retaining the
+    /// whole output to throw away all but ~70 lines of it made peak memory a function of what
+    /// the child chose to emit — an unbounded quantity that the timeout does not bound, since
+    /// the timeout limits duration and memory is the resource at risk
+    /// (bugs/Bash_Buffers_Unbounded_Output_Before_Truncating.md). Totals accumulate as lines
+    /// arrive, so the reported size stays exact even though the lines themselves are gone.</para>
+    /// </summary>
+    private sealed class OutputCollector(int headCap, int tailCap, ByteBudget budget)
+    {
+        private readonly List<string> _head = new();
+        private readonly Queue<string> _tail = new();
+
+        public int TotalLines { get; private set; }
+        public long TotalBytes { get; private set; }
+        public int HeadCapacity => headCap;
+        public IReadOnlyList<string> Head => _head;
+        public IEnumerable<string> Tail => _tail;
+
+        /// <summary>Record a line. Returns false once the call's byte budget is spent.</summary>
+        public bool Add(string line)
+        {
+            TotalLines++;
+            var bytes = Encoding.UTF8.GetByteCount(line) + 1;
+            TotalBytes += bytes;
+
+            if (_head.Count < headCap)
+            {
+                _head.Add(line);
+            }
+            else if (tailCap > 0)
+            {
+                _tail.Enqueue(line);
+                if (_tail.Count > tailCap) _tail.Dequeue();
+            }
+
+            return budget.TryCharge(bytes);
+        }
+    }
+
+    private static string FormatBytes(long bytes)
     {
         return bytes switch
         {

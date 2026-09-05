@@ -270,17 +270,28 @@ configured default must raise the timeout. That is currently impossible via
 `Math.Min(requested, _defaultTimeoutSeconds)` (`BashTool.cs:86`) and stays impossible
 after the dispatch wiring alone — so it is the one assertion that catches the half-fix.
 
-### 4. Bash as a boundary — 2 files, a *decision* not a fix
+### 4. Bash as a boundary — ~~2 files~~ **BOTH CLOSED 2026-09-05**
 `shell-tool-no-filesystem-sandbox` (live since the `ArgumentList` fix removed the
 accidental control) · `Bash_Buffers_Unbounded_Output_Before_Truncating`
 
-`plans/approval-is-not-a-boundary.md` already argues the answer: the container is the
-boundary, approval is not. If that plan is accepted, the sandbox report closes as
-*answered by design* with a doc change, and only the unbounded-buffer bug needs code
-(stream-and-discard rather than accumulate-then-truncate — it currently leans on catching
-`OutOfMemoryException`). **Blocked on a human decision, not on engineering.**
+**Decision taken 2026-09-05: the plan is accepted.** `shell-tool-no-filesystem-sandbox`
+closed as *accepted by design* (`state: wontfix`) together with the narrative pass that
+makes the close honest — CLAUDE.md, README, §5.3 and the `ApprovalPolicy` XML docs no
+longer describe trust as a sandbox. `Bash_Buffers_Unbounded_Output_Before_Truncating`
+closed as *fixed*: a bounded head+ring collector plus a shared per-call byte ceiling.
 
-**Tests: no for the sandbox, partial for the buffer.** `shell-tool-no-filesystem-sandbox`
+The decision also grew a constructive half the original plan deferred, recorded as a
+Revisions section on it: the standard shape is **one container, nb inside it, one
+filesystem**, plus a `boundary` directive, endpoint printing from `--resolve`, and a
+reference topology shipped in-tree. bwrap is scheduled for deletion (deprecated in the
+docs here; machinery comes out in its own commit).
+
+**Follow-on work now queued from that plan, none of it blocking:** the `boundary`
+directive and its retirement of the cwd heuristic inside a container; `boundary:` and
+endpoints in `--resolve` and the result trailer; the podman reference topology; the
+bwrap deletion; Tier 2 relabelling.
+
+**Tests: no for the sandbox, partial for the buffer — both as predicted.** `shell-tool-no-filesystem-sandbox`
 resolves as *accepted by design* — the behaviour does not change, so there is no red state
 to observe; what it needs is the threat-model doc that plan calls work item 0, not a test.
 `Bash_Buffers_Unbounded_Output` cannot be reproduced honestly at proportionate cost (the
