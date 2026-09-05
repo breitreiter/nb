@@ -312,8 +312,13 @@ public sealed class ClaudeCodeHarness : NbHarness
     /// The nb tail is appended rather than substituted: the verbatim string names no tool
     /// and gives no remedy, so a run whose transcript is being read later would otherwise
     /// record a refusal with nothing identifying what was refused.
+    
+    /// <para>The near-miss (bugs/Denials_Do_Not_Name_The_Near_Miss.md) is accepted but not
+    /// spoken: this string is a reproduction of what the real harness says, and nb's ladder
+    /// detail is not part of it. The detail still reaches the operator's stderr line and the
+    /// transcript's <c>approval_reason</c>, which is where a harness reads it.</para>
     /// </summary>
-    protected override string RefusalText(string tool, string rung, string remedy) =>
+    protected override string RefusalText(string tool, string rung, string remedy, string? miss = null) =>
         "The user doesn't want to proceed with this tool use. The tool use was rejected. " +
         "STOP what you are doing and wait for the user to tell you how to proceed.\n\n" +
         $"({tool} — {Because(rung)}.)";

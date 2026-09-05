@@ -149,7 +149,7 @@ Two failure modes this is guarding against, both visible in the closed reports:
 
 ## The six clusters, ranked
 
-### 1. Approval diagnosability — 4 files, 1-2 fixes
+### 1. Approval diagnosability — ~~4 files~~ **3 FIXED, 1 diagnosed, 2026-09-04**
 `Denials_Do_Not_Name_The_Near_Miss` (parent) · `Approval_Bash_Glob_Does_Not_Match_Newlines` ·
 `No_Match_Denial_Does_Not_Name_The_Trust_Rung` · `Trust_Rung_Denies_A_Bare_Find_With_A_Redirect`
 
@@ -163,6 +163,30 @@ the third into a question instead of a repro script.
 The glob/newline behaviour is arguably a real bug underneath the diagnosability one
 (`approval bash *` genuinely should match a heredoc) — decide whether near-miss reporting
 alone closes it, or whether the matcher changes too.
+
+**Outcome.** Two fixes, exactly as scoped: `RegexOptions.Singleline` on approval globs
+(so `*` crosses a newline), and a `Miss` channel out of `DecideBash` carrying the near
+miss. Three reports closed; the fourth is diagnosed and deliberately left open.
+
+The near-miss channel paid for itself immediately: it diagnosed
+`Trust_Rung_Denies_A_Bare_Find_With_A_Redirect` on the first run, no repro script needed.
+`find /etc -name hosts 2>/dev/null` classifies as **Write → /dev/null**, because
+`CommandClassifier` takes the redirect target as the command's path — so trust
+sandbox-checks `/dev/null` and refuses. Any command carrying `2>/dev/null` is denied under
+trust for that reason, which also explains why the original arm's denial rate fell but
+never reached zero. That report now names two candidate fixes; both are behaviour changes
+to the trust rung, so they were not folded into a diagnosability fix.
+
+Two things worth carrying forward:
+
+- **The greppability rule needs pinning, not remembering.** `approval_reason` keeps the
+  rung as its leading token and appends the detail in parentheses. One existing test
+  asserted the reason with `Assert.Equal`; it now asserts `StartsWith` plus the detail,
+  with a comment saying that *is* the contract.
+- **Costumes accept the near miss and deliberately do not speak it.** Their `RefusalText`
+  reproduces what the real harness says, and nb's ladder detail is not part of that. The
+  detail still reaches the operator's stderr line and `approval_reason`, so fidelity and
+  diagnosability did not have to trade off.
 
 **Tests: yes, first — the best red-green candidate in the queue.** The wrong behaviour
 *is a string*: `approval_reason` naming the tier that refused instead of the rung that
@@ -307,7 +331,7 @@ alongside, not first; there is no wrong behaviour to pin, only an absent capabil
 1. ~~Step 0 hygiene + Step 1 verify-and-close~~ — both done 2026-09-04. Step 1 closed
    nothing; see above for what it changed instead.
 2. ~~Cluster 2 (silent provider substitution)~~ — done 2026-09-04.
-3. Cluster 1 (near-miss reporting) — retires 3-4 files, unblocks the eval harness.
+3. ~~Cluster 1 (near-miss reporting)~~ — done 2026-09-04; retired 3, diagnosed the 4th.
 4. Cluster 4 decision — costs a conversation, may close 1 file for free.
 5. Cluster 3 (schema/dispatch seam) — structural, do it once, guard it with the golden test.
 6. Cluster 5 with the TODO console-seam item.

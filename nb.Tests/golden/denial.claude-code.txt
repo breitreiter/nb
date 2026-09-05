@@ -1,12 +1,13 @@
 === ladder-miss / shell / Bash
 --- ledger
-deny / no-match
+deny / no-match (default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false))
 --- model
 The user doesn't want to proceed with this tool use. The tool use was rejected. STOP what you are doing and wait for the user to tell you how to proceed.
 
 (Bash (Read): /etc/passwd — nothing in the approval policy allows it.)
 --- human (stderr)
 [nb] denied: Bash (Read): /etc/passwd — nothing in the approval policy allows it.
+       near miss: default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false)
        authorize with: approval bash cat *
 
 === ladder-miss / write-outside-cwd / Write
@@ -44,13 +45,14 @@ The user doesn't want to proceed with this tool use. The tool use was rejected. 
 
 === default-deny / shell / Bash
 --- ledger
-deny / default-deny
+deny / default-deny (default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through)
 --- model
 The user doesn't want to proceed with this tool use. The tool use was rejected. STOP what you are doing and wait for the user to tell you how to proceed.
 
 (Bash (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.)
 --- human (stderr)
 [nb] denied: Bash (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.
+       near miss: default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through
        authorize with: approval bash cat *
 
 === default-deny / write-outside-cwd / Write

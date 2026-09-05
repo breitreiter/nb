@@ -1,10 +1,11 @@
 === ladder-miss / shell / run_shell_command
 --- ledger
-deny / no-match
+deny / no-match (default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false))
 --- model
 Qwen Code requires permission to use "run_shell_command", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "no-match". Refused: run_shell_command (Read): /etc/passwd. Granting it would require: approval bash cat *.
 --- human (stderr)
 [nb] denied: run_shell_command (Read): /etc/passwd — nothing in the approval policy allows it.
+       near miss: default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false)
        authorize with: approval bash cat *
 
 === ladder-miss / write-outside-cwd / write_file
@@ -36,11 +37,12 @@ Qwen Code requires permission to use "read_file", but that permission was declin
 
 === default-deny / shell / run_shell_command
 --- ledger
-deny / default-deny
+deny / default-deny (default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through)
 --- model
 Qwen Code requires permission to use "run_shell_command", but that permission was declined (non-interactive mode cannot prompt for confirmation). Matching deny rule: "default-deny". Refused: run_shell_command (Read): /etc/passwd. Granting it would require: approval bash cat *.
 --- human (stderr)
 [nb] denied: run_shell_command (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.
+       near miss: default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through
        authorize with: approval bash cat *
 
 === default-deny / write-outside-cwd / write_file

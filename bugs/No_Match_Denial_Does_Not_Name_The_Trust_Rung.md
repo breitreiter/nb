@@ -4,14 +4,14 @@ title: 'A `no-match` denial says "nothing in the approval policy allows it", but
 created: 2026-09-04
 updated: 2026-09-04
 status: current
-state: open
+state: fixed
 severity: low
 cluster: approval-diagnosability
 ---
 
 # A `no-match` denial says "nothing in the approval policy allows it", but the gate is `Trust` in the config
 
-Status: Open (2026-09-04) — found while building a documentation-retrieval eval
+Status: **Fixed 2026-09-04** — by the near-miss channel, as predicted. Originally: Open (2026-09-04) — found while building a documentation-retrieval eval
 harness, same work as [`Approval_Bash_Glob_Does_Not_Match_Newlines.md`](Approval_Bash_Glob_Does_Not_Match_Newlines.md).
 Provider `LocalCoder`/`qwen3-coder-next`.
 
@@ -111,3 +111,21 @@ explicit and pre-emptive about it —
 my own harness explaining it to the next reader. `approval default lenient` /
 `strict`, keeping `prompt` / `deny` as aliases, would remove the trap without
 breaking a single existing program.
+
+
+## Fix
+
+Retired by [`Denials_Do_Not_Name_The_Near_Miss.md`](Denials_Do_Not_Name_The_Near_Miss.md)
+without needing a change of its own. The denial that read *"nothing in the approval policy
+allows it"* now reads:
+
+```
+[nb] denied: bash (Read): /etc/passwd — nothing in the approval policy allows it.
+       near miss: default=prompt; no approval bash pattern matched (none configured);
+                  not on the safe-command list; trust rung skipped (Trust=false)
+       authorize with: approval bash cat *
+```
+
+`Trust=false` — the gate that was set in a config file in another repo — is now named at
+the point of denial. The behaviour still matches the documented ladder exactly, as this
+report said; only its legibility changed, which was the entire ask.

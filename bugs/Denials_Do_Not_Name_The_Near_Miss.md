@@ -4,14 +4,14 @@ title: 'A denial names the tier that refused, never the rung that nearly matched
 created: 2026-09-04
 updated: 2026-09-04
 status: current
-state: open
+state: fixed
 severity: medium
 cluster: approval-diagnosability
 ---
 
 # A denial names the tier that refused, never the rung that nearly matched
 
-Status: Open (2026-09-04) — cross-cutting. Read against `c7a3c93`.
+Status: **Fixed 2026-09-04** — the suggested shape, taken as written. Originally: Open (2026-09-04) — cross-cutting. Read against `c7a3c93`.
 **Severity: medium** — no wrong answers, but it is the reason two separate
 experiment arms were voided rather than debugged, and it generalises past both.
 
@@ -156,3 +156,58 @@ no reason channel whatsoever — worth the same treatment, but not the same urge
 ([`Resolve_Does_Not_Show_The_Costumed_Wire_Surface.md`](Resolve_Does_Not_Show_The_Costumed_Wire_Surface.md))
 is the same *family* — nb declining to show what it already computed — but a
 different code path, and it is filed separately on purpose.
+
+
+## Fix
+
+`DecideBash` returns a third element, `Miss`: the composed near miss, null on an allow.
+Both deny paths now populate it, and `TrustRefusalCause` names why a trust rung that was
+actually *evaluated* said no.
+
+Both properties the report asked to preserve are preserved:
+
+- **Greppable.** `Deny` records `rung (detail)`, so `no-match` still matches by prefix.
+  `ApprovalDenialTests` asserts that with `StartsWith` and a comment saying why, so the
+  compatibility rule is pinned rather than remembered.
+- **Skipped vs refused.** The load-bearing half. `trust rung skipped (Trust=false)` and
+  `trust rung refused: <cause>` are different strings for different fixes.
+
+Actual output for the report's three motivating cases:
+
+```
+no-match (default=prompt; no approval bash pattern matched (none configured);
+          not on the safe-command list; trust rung skipped (Trust=false))
+
+no-match (default=prompt; no approval bash pattern matched (none configured);
+          not on the safe-command list; trust rung refused: path '/dev/null' is
+          outside the trust sandbox (cwd '…' + system temp))
+
+default-deny (default=deny; no approval bash pattern matched (none configured);
+              the safe-command list and the trust rung are suppressed under default
+              deny, so an explicit pattern is the only way through)
+```
+
+The detail reaches three readers: the operator's stderr line (a new `near miss:` line),
+the model's refusal text, and `approval_reason` in the transcript.
+
+**Costumes deliberately do not speak it.** The three `RefusalText` overrides accept the
+parameter and ignore it: those strings reproduce what the real harness says, and nb's
+ladder detail is not part of that. The detail still reaches the operator line and
+`approval_reason`, which is where a harness reads it — so costume fidelity and
+diagnosability do not have to trade off.
+
+**Scope, as filed.** Bash only. `DecidePath`, `DecideMcp`, `DecideFetch` and `DecideSearch`
+still deny with no reason channel; their ladders are one rung, so the tier *is* the
+reason, which is why they were the lower priority in this report and remain unfixed.
+
+**What it retired.** [`Approval_Bash_Glob_Does_Not_Match_Newlines.md`](Approval_Bash_Glob_Does_Not_Match_Newlines.md)
+was fixed at the same time (by the matcher change it asked for, not by this).
+[`No_Match_Denial_Does_Not_Name_The_Trust_Rung.md`](No_Match_Denial_Does_Not_Name_The_Trust_Rung.md)
+is answered outright. [`Trust_Rung_Denies_A_Bare_Find_With_A_Redirect.md`](Trust_Rung_Denies_A_Bare_Find_With_A_Redirect.md)
+was diagnosed in one read, exactly as this report predicted — see that report.
+
+**Tests.** `nb.Tests/ApprovalNearMissTests.cs`, six tests, written before the channel
+existed. The surface was added returning null first, so they failed on behaviour rather
+than on a missing symbol. The denial goldens across all four harnesses re-baselined; the
+diff is confined to bash denials, with path/fetch/search denials unchanged — which is the
+scope statement above, mechanically confirmed.

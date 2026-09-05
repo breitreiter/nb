@@ -104,4 +104,48 @@ public class ApprovalPatternsTests
         patterns.Add("ls");
         Assert.True(patterns.HasPatterns);
     }
+
+    // ---- bugs/Approval_Bash_Glob_Does_Not_Match_Newlines.md ----
+    // `*` did not cross a newline, so `approval bash *` silently meant "every command
+    // that fits on one line". It partitioned an eval arm by whether the model's chosen
+    // method was multi-line, which is a selection effect on method — the arm was voided.
+
+    [Fact]
+    public void IsApproved_StarMatchesANewline_HeredocUnderMatchAll()
+    {
+        var patterns = new ApprovalPatterns(new[] { "*" });
+
+        Assert.True(patterns.IsApproved("python3 << 'EOF'\nimport csv\nprint(1)\nEOF"));
+    }
+
+    [Fact]
+    public void IsApproved_StarMatchesANewline_KeyedToAProgram()
+    {
+        var patterns = new ApprovalPatterns(new[] { "python3 *" });
+
+        Assert.True(patterns.IsApproved("python3 << 'EOF'\nimport csv\nEOF"));
+    }
+
+    [Fact]
+    public void IsApproved_MultilineCommand_StillAnchoredAtTheStart()
+    {
+        // The anchoring that makes a rule safe is untouched: a pattern still has to match
+        // from the first character, so it cannot be escaped by burying the program on a
+        // later line. Only the wildcard's reach changed.
+        var patterns = new ApprovalPatterns(new[] { "git *" });
+
+        Assert.False(patterns.IsApproved("rm -rf /tmp/x\ngit status"));
+    }
+
+    [Fact]
+    public void IsApproved_TrailingStar_SpansSeparators_NewlineIsNotSpecial()
+    {
+        // A trailing `*` already permitted chaining on one line long before this change;
+        // a newline is simply another separator. Pinned so the widening is a recorded
+        // decision rather than something rediscovered as a surprise.
+        var patterns = new ApprovalPatterns(new[] { "git *" });
+
+        Assert.True(patterns.IsApproved("git status && rm -rf /tmp/x"));   // true before and after
+        Assert.True(patterns.IsApproved("git status\nrm -rf /tmp/x"));    // false before, true after
+    }
 }

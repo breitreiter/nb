@@ -221,8 +221,13 @@ public sealed class QwenCodeHarness : NbHarness
     ///
     /// nb has no rule *names*, so the ledger rung stands in — it is what actually decided,
     /// and it is the same token the transcript records in `approval_reason`.
+    
+    /// <para>The near-miss (bugs/Denials_Do_Not_Name_The_Near_Miss.md) is accepted but not
+    /// spoken: this string is a reproduction of what the real harness says, and nb's ladder
+    /// detail is not part of it. The detail still reaches the operator's stderr line and the
+    /// transcript's <c>approval_reason</c>, which is where a harness reads it.</para>
     /// </summary>
-    protected override string RefusalText(string tool, string rung, string remedy) =>
+    protected override string RefusalText(string tool, string rung, string remedy, string? miss = null) =>
         $"Qwen Code requires permission to use \"{ToolName}\", but that permission was declined " +
         $"(non-interactive mode cannot prompt for confirmation). Matching deny rule: \"{rung}\". " +
         $"Refused: {tool}. " +

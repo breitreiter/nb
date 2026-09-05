@@ -763,15 +763,21 @@ public class NbHarness
     /// grammar is <c>bash | mcp | search | fetch | default | sandbox</c>, and there is no
     /// <c>approval path</c>.
     /// </param>
-    public ToolOutcome Deny(string callId, string tool, string rung, string remedy)
+    public ToolOutcome Deny(string callId, string tool, string rung, string remedy, string? miss = null)
     {
-        _approvals?.RecordDeny(callId, rung);
+        // The ledger keeps the bare rung as the leading token so `approval_reason` stays
+        // greppable by prefix — `no-match` still matches `no-match (…)`. The detail is
+        // strictly additional information, not a renamed value.
+        // bugs/Denials_Do_Not_Name_The_Near_Miss.md
+        _approvals?.RecordDeny(callId, miss is null ? rung : $"{rung} ({miss})");
 
         var pasteable = IsDirective(remedy);
         Console.Error.WriteLine($"[nb] denied: {tool} — {Because(rung)}.");
+        if (miss is not null)
+            Console.Error.WriteLine($"       near miss: {miss}");
         Console.Error.WriteLine(pasteable ? $"       authorize with: {remedy}" : $"       {remedy}");
 
-        return ToolOutcome.Fail(callId, RefusalText(tool, rung, remedy));
+        return ToolOutcome.Fail(callId, RefusalText(tool, rung, remedy, miss));
     }
 
     /// <summary>Why the call was refused, in nb's own terms. Shared by both audiences.</summary>
@@ -795,8 +801,9 @@ public class NbHarness
     /// gives up. Handing every costume nb's class would erase a real difference
     /// (plans/approval-without-prompts.md step 6).
     /// </summary>
-    protected virtual string RefusalText(string tool, string rung, string remedy) =>
-        $"Error: {tool} was denied — {Because(rung)}. This will not succeed on retry; nothing in this run " +
+    protected virtual string RefusalText(string tool, string rung, string remedy, string? miss = null) =>
+        $"Error: {tool} was denied — {Because(rung)}.{(miss is null ? "" : $" Near miss: {miss}.")} " +
+        "This will not succeed on retry; nothing in this run " +
         $"will grant it. {(IsDirective(remedy) ? $"It would require this directive in the program: {remedy}." : remedy)} " +
         "Continue with what you are authorized to do, or report that the operation is not permitted.";
 
@@ -826,7 +833,7 @@ public class NbHarness
             // The approval policy owns the auto-approve precedence (--approve → safe
             // allowlist → trust+sandbox). Allow carries a reason for the log line.
             var cwd = Bash?.GetCwd() ?? "";
-            var (decision, approveReason) = _approvalPolicy.DecideBash(command, classified, cwd, Bash != null);
+            var (decision, approveReason, miss) = _approvalPolicy.DecideBash(command, classified, cwd, Bash != null);
             if (decision == ApprovalDecision.Allow)
             {
                 _approvals?.RecordAllow(callId, approveReason ?? ApprovalLedger.Safe);
@@ -856,7 +863,7 @@ public class NbHarness
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: {classified.DangerReason}[/]");
 
             return Deny(callId, $"{ToolLabel("bash")} ({classified.Category}): {classified.DisplayText}",
-                DenyRung, BashRemedy(command));
+                DenyRung, BashRemedy(command), miss);
         }
         catch (Exception ex)
         {

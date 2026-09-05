@@ -7,8 +7,11 @@ public class ApprovalPolicyTests
     private static ApprovalPolicy Policy(bool trust = false, IEnumerable<string>? approve = null, Func<string, bool>? mcp = null) =>
         new(trust, approve is null ? new ApprovalPatterns() : new ApprovalPatterns(approve), mcp ?? (_ => false));
 
-    private static (ApprovalDecision, string?) Bash(ApprovalPolicy p, string command) =>
-        p.DecideBash(command, CommandClassifier.Classify(command), cwd: "/tmp/work", bashPresent: true);
+    private static (ApprovalDecision, string?) Bash(ApprovalPolicy p, string command)
+    {
+        var (decision, reason, _) = p.DecideBash(command, CommandClassifier.Classify(command), cwd: "/tmp/work", bashPresent: true);
+        return (decision, reason);
+    }
 
     [Fact]
     public void Bash_ApprovePatternWins()

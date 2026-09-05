@@ -1,10 +1,11 @@
 === ladder-miss / shell / bash
 --- ledger
-deny / no-match
+deny / no-match (default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false))
 --- model
-Error: bash (Read): /etc/passwd was denied — nothing in the approval policy allows it. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
+Error: bash (Read): /etc/passwd was denied — nothing in the approval policy allows it. Near miss: default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false). This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
 --- human (stderr)
 [nb] denied: bash (Read): /etc/passwd — nothing in the approval policy allows it.
+       near miss: default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false)
        authorize with: approval bash cat *
 
 === ladder-miss / write-outside-cwd / write_file
@@ -36,11 +37,12 @@ Error: read_file → /etc/hostname was denied — nothing in the approval policy
 
 === default-deny / shell / bash
 --- ledger
-deny / default-deny
+deny / default-deny (default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through)
 --- model
-Error: bash (Read): /etc/passwd was denied — the approval policy default is deny, and no allow-rule matched. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
+Error: bash (Read): /etc/passwd was denied — the approval policy default is deny, and no allow-rule matched. Near miss: default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through. This will not succeed on retry; nothing in this run will grant it. It would require this directive in the program: approval bash cat *. Continue with what you are authorized to do, or report that the operation is not permitted.
 --- human (stderr)
 [nb] denied: bash (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.
+       near miss: default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through
        authorize with: approval bash cat *
 
 === default-deny / write-outside-cwd / write_file

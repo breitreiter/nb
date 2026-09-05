@@ -241,8 +241,13 @@ public sealed class CodexHarness : NbHarness
     /// model may reasonably retry against) without naming a parameter it cannot send.
     /// Under `approval_policy=never` real Codex also just fails back to the model, which
     /// is the case this most resembles.
+    
+    /// <para>The near-miss (bugs/Denials_Do_Not_Name_The_Near_Miss.md) is accepted but not
+    /// spoken: this string is a reproduction of what the real harness says, and nb's ladder
+    /// detail is not part of it. The detail still reaches the operator's stderr line and the
+    /// transcript's <c>approval_reason</c>, which is where a harness reads it.</para>
     /// </summary>
-    protected override string RefusalText(string tool, string rung, string remedy) =>
+    protected override string RefusalText(string tool, string rung, string remedy, string? miss = null) =>
         $"{tool} — command failed in sandbox: {Because(rung)}. " +
         (IsDirective(remedy)
             ? $"Escalated execution requires this directive in the program: {remedy}."

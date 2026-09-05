@@ -106,21 +106,57 @@ public sealed class ApprovalPolicy
     /// the safe list (which includes <c>make</c>, <c>npx</c>, <c>go build</c>: arbitrary
     /// code, not just reads) silently outranks it.
     /// </summary>
-    public (ApprovalDecision Decision, string? Reason) DecideBash(string command, ClassifiedCommand classified, string cwd, bool bashPresent)
+    public (ApprovalDecision Decision, string? Reason, string? Miss) DecideBash(string command, ClassifiedCommand classified, string cwd, bool bashPresent)
     {
         if (_bashPatterns.IsApproved(command))
-            return (ApprovalDecision.Allow, "pre-approved");
+            return (ApprovalDecision.Allow, "pre-approved", null);
+
+        var patternClause = _bashPatterns.HasPatterns
+            ? $"no approval bash pattern matched ({_bashPatterns.Count} configured)"
+            : "no approval bash pattern matched (none configured)";
 
         if (_default == ApprovalDefault.Deny)
-            return (ApprovalDecision.Deny, null);
+            return (ApprovalDecision.Deny, null,
+                $"default=deny; {patternClause}; the safe-command list and the trust rung are " +
+                "suppressed under default deny, so an explicit pattern is the only way through");
+
+        var safeClause = classified.IsDangerous
+            ? "safe-command list skipped (command classified dangerous)"
+            : "not on the safe-command list";
 
         if (!classified.IsDangerous && IsSafeCommand(command))
-            return (ApprovalDecision.Allow, "safe");
+            return (ApprovalDecision.Allow, "safe", null);
 
-        if (_trust && !classified.IsDangerous && bashPresent && IsBashCommandTrusted(classified, cwd))
-            return (ApprovalDecision.Allow, "trust");
+        string trustClause;
+        if (!_trust)
+            trustClause = "trust rung skipped (Trust=false)";
+        else if (classified.IsDangerous)
+            trustClause = "trust rung refused: command classified dangerous";
+        else if (!bashPresent)
+            trustClause = "trust rung skipped (no bash tool on this surface)";
+        else if (IsBashCommandTrusted(classified, cwd))
+            return (ApprovalDecision.Allow, "trust", null);
+        else
+            trustClause = $"trust rung refused: {TrustRefusalCause(classified, cwd)}";
 
-        return (NonMatch, null);
+        return (NonMatch, null, $"default=prompt; {patternClause}; {safeClause}; {trustClause}");
+    }
+
+    /// <summary>
+    /// Why the trust rung refused a command it actually evaluated. Distinguishing this
+    /// from "the rung was switched off" is the load-bearing half of a near-miss: one is
+    /// fixed in config, the other by changing the command.
+    /// bugs/Denials_Do_Not_Name_The_Near_Miss.md
+    /// </summary>
+    private static string TrustRefusalCause(ClassifiedCommand classified, string cwd)
+    {
+        if (classified.Category is not (CommandCategory.Read or CommandCategory.Write or CommandCategory.Copy or CommandCategory.Run))
+            return $"command category {classified.Category} is never trust-approved";
+
+        var target = classified.DisplayText;
+        return string.IsNullOrEmpty(target)
+            ? "no path could be extracted from the command, so the sandbox check could not clear it"
+            : $"path '{target}' is outside the trust sandbox (cwd '{cwd}' + system temp)";
     }
 
     /// <summary>MCP: an <c>alwaysAllow</c>- or <c>Approval.McpTools</c>-matched tool auto-approves, else <see cref="Default"/>.</summary>

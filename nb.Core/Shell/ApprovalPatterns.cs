@@ -23,9 +23,16 @@ public class ApprovalPatterns
     {
         if (pattern.Contains('*'))
         {
-            // Convert glob to regex
+            // Convert glob to regex. Singleline so `.` crosses a newline: without it
+            // `approval bash *` silently means "every command that fits on one line",
+            // and a heredoc is denied by a rule that reads as matching everything.
+            // Anchoring is untouched — a pattern still has to match from the first
+            // character — so this widens the wildcard's reach, not the rule's escape
+            // surface. A trailing `*` already spanned `;` and `&&` on one line; a
+            // newline is another separator, not a new class of hole.
+            // bugs/Approval_Bash_Glob_Does_Not_Match_Newlines.md
             var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$";
-            _globPatterns.Add(new Regex(regexPattern, RegexOptions.Compiled));
+            _globPatterns.Add(new Regex(regexPattern, RegexOptions.Compiled | RegexOptions.Singleline));
         }
         else
         {

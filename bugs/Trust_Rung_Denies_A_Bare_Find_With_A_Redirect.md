@@ -11,7 +11,7 @@ cluster: approval-diagnosability
 
 # With `Trust: true` and `sandbox bwrap`, a bare `find … 2>/dev/null` is still denied
 
-Status: Open (2026-09-04), **not isolated** — repro script written and not yet run.
+Status: Open (2026-09-04) — **isolated 2026-09-04**; the repro script was never needed.
 Found while building a documentation-retrieval eval harness; provider
 `LocalCoder`/`qwen3-coder-next`. Same work as
 [`No_Match_Denial_Does_Not_Name_The_Trust_Rung.md`](No_Match_Denial_Does_Not_Name_The_Trust_Rung.md).
@@ -101,3 +101,44 @@ to me than the denials going away.
 *(Related and verified fine: the `result` trailer's `denied` count matches the
 `tool_call` events with `approved: "deny"` in all 76 transcripts I have, including
 the 14 runs with at least one denial. No mismatches. Worth not chasing.)*
+
+
+## Diagnosis, 2026-09-04 — the redirect target is what gets sandbox-checked
+
+The near-miss channel from
+[`Denials_Do_Not_Name_The_Near_Miss.md`](Denials_Do_Not_Name_The_Near_Miss.md) answered
+this on the first run, with no repro script and no bisect. That report predicted it would
+turn this into "a five-minute question instead of a repro script"; recording that it did.
+
+```console
+$ nb --config trust.json f.nb     # Trust: true, program unchanged
+[nb] denied: bash (Write): /dev/null — nothing in the approval policy allows it.
+       near miss: default=prompt; no approval bash pattern matched (none configured);
+                  not on the safe-command list; trust rung refused: path '/dev/null'
+                  is outside the trust sandbox (cwd '…' + system temp)
+```
+
+**Cause.** `find /etc -name hosts 2>/dev/null` is classified as **`Write` → `/dev/null`**.
+`CommandClassifier` takes the *redirect target* as the command's path, so the trust rung
+sandbox-checks `/dev/null` rather than anything the command reads, finds it outside cwd +
+system temp, and refuses. The `find` is incidental: any command with a `2>/dev/null` on it
+gets classified as a write to `/dev/null` and denied under trust.
+
+That also explains the shape of the original measurement — the denial rate fell under
+`Trust: true` but did not reach zero, and the survivors were the commands that happened
+not to carry a redirect.
+
+**Two candidate fixes, and they are not the same decision.**
+
+1. **Treat `/dev/null` as a trusted write target.** Narrow, obvious, and fixes the
+   observed case: writing to the null sink is not an escape from any sandbox. It leaves
+   the general problem — a redirect to a real path outside cwd still classifies the whole
+   command as a write to that path, which is arguably *correct*.
+2. **Stop letting a redirect target stand in for the command's path.** Broader, and it
+   touches `CommandClassifier`, which the approval display also reads (the console line
+   said `bash (Write): /dev/null` for what is plainly a read). This is the one that makes
+   the classification honest, and the one with the wider blast radius.
+
+Both are behaviour changes to the trust rung, so they want the decision made deliberately
+rather than folded into a diagnosability fix. Left open on that basis, not on lack of
+information.

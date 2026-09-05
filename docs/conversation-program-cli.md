@@ -223,7 +223,7 @@ subsequent runs.
 
 | Key | Value | Effect |
 | --- | --- | --- |
-| `bash` | a command pattern | Auto-approve bash commands matching it (glob-ish). Matched against the **whole command string**, not the invocation inside it: `approval bash go *` allows `go mod tidy` but *not* `cd /work && go mod tidy`, since a rule matching anywhere in the line would be trivially escapable. Write the pattern against the line the model will actually send (`approval bash cd * && go *`), or allow the bare program and expect simple invocations. |
+| `bash` | a command pattern | Auto-approve bash commands matching it (glob-ish). Matched against the **whole command string**, not the invocation inside it: `approval bash go *` allows `go mod tidy` but *not* `cd /work && go mod tidy`, since a rule matching anywhere in the line would be trivially escapable. Write the pattern against the line the model will actually send (`approval bash cd * && go *`), or allow the bare program and expect simple invocations. `*` **does** cross a newline, so `approval bash *` covers a heredoc or any other multi-line command; a trailing `*` already spanned `;` and `&&`, and a newline is another separator, not a new escape. |
 | `mcp` | an allow glob | Auto-approve MCP tools matching it (matched against `{server}_{tool}`; `/` aliases `_`, so `weather/*` matches `weather_current`). |
 | `search` | `allow` \| `prompt` | Auto-approve `search_web`. Needed by any run that means to search: an unapproved tool can never execute, so without this the search intent is recorded but the call reads as a denial. The `prompt` spelling is historical and means "not auto-approved" — nothing prompts. (`Approval.Search` in config does the same.) |
 | `fetch` | `allow` \| `prompt` | Auto-approve `fetch_url`. Separate from `search` on purpose: reaching an arbitrary URL and running a web search are different grants, and allowing one should not silently confer the other. (`Approval.Fetch` in config does the same.) |
@@ -370,7 +370,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `system` | `text` \| `content` | System-role message. |
 | `user` | `text` \| `content` | User-role message. |
 | `assistant_text` | `text` \| `content` | Assistant prose. |
-| `tool_call` | `id`, `name`, `arguments` (JSON obj, types preserved), `approved`?, `approval_reason`? | A tool invocation. `id` is the join key. `approved` is `allow`/`deny`; `approval_reason` names the ladder rung that decided it (`pre-approved`, `safe`, `trust`, `default-deny`, `no-match`). |
+| `tool_call` | `id`, `name`, `arguments` (JSON obj, types preserved), `approved`?, `approval_reason`? | A tool invocation. `id` is the join key. `approved` is `allow`/`deny`; `approval_reason` names the ladder rung that decided it (`pre-approved`, `safe`, `trust`, `default-deny`, `no-match`). A **denial** appends the near miss in parentheses — which rungs were consulted, and for each whether it was *skipped* (switched off elsewhere, e.g. `Trust=false`) or *refused* (evaluated and said no, with the cause). The rung stays the leading token, so filtering on `no-match` by prefix keeps working. |
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
 | `run` | `prompt`? | Invocation directive. On output, a past run appears as the `assistant_text` it produced. |
 | `provider` / `model` | `name` | Config directive. |

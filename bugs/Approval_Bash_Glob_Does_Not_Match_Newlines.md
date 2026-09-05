@@ -4,14 +4,14 @@ title: '`approval bash *` allows only single-line commands, so a heredoc is deni
 created: 2026-09-04
 updated: 2026-09-04
 status: current
-state: open
+state: fixed
 severity: medium
 cluster: approval-diagnosability
 ---
 
 # `approval bash *` allows only single-line commands, so a heredoc is denied
 
-Status: Open (2026-09-04) — found while building a documentation-retrieval eval
+Status: **Fixed 2026-09-04** — suggestion 1, the one you ranked first. Originally: Open (2026-09-04) — found while building a documentation-retrieval eval
 harness that hands an agent a markdown tree and asks a question, one nb call per
 question. Measured against a published `nb-publish` build outside this tree,
 provider `LocalCoder`/`qwen3-coder-next`.
@@ -82,3 +82,42 @@ it took reading a transcript.
    into a one-line fix. This is the cheap one and it generalises past this bug.
 
 Happy to test a patch — the corpora are pinned and the arm is reproducible.
+
+
+## Fix
+
+**Suggestion 1, taken as written.** `ApprovalPatterns.Add` compiles its glob with
+`RegexOptions.Singleline`, so `.` crosses a newline. Anchoring is untouched — a pattern
+still has to match from the first character — so this widens the wildcard's reach, not
+the rule's escape surface.
+
+The widening is real and worth stating plainly: `approval bash git *` now also matches
+
+```
+git status
+rm -rf /tmp/x
+```
+
+That is not a new class of hole. The same pattern already matched
+`git status && rm -rf /tmp/x` before this change, because a trailing `*` has always
+spanned command separators; a newline is simply another separator, and the
+whole-string anchoring that the docs justify is what stops a rule being escaped by
+burying the program on a later line. `IsApproved_MultilineCommand_StillAnchoredAtTheStart`
+pins that, and passed before and after.
+
+Suggestion 2 (a sentence in the `bash` row) landed too, inverted — the row now says `*`
+*does* cross a newline, since that is the behaviour a reader needs to know.
+Suggestion 3 (name the near miss) is
+[`Denials_Do_Not_Name_The_Near_Miss.md`](Denials_Do_Not_Name_The_Near_Miss.md), fixed
+alongside this.
+
+One consequence worth noting for the sibling report: `BashRemedy` synthesises
+`approval bash python3 *` for a heredoc, and that suggestion **now works**. The parent
+report flagged it as "confidently actionable and the action does not work, which is
+strictly worse than saying nothing" — that is resolved by this fix rather than by
+changing the remedy.
+
+**Tests.** Four in `nb.Tests/ApprovalPatternsTests.cs`; the three asserting new behaviour
+were confirmed failing beforehand, and the anchoring control passed both before and after.
+Verified end to end: the heredoc program that voided the arm now records
+`"approved":"allow"`.

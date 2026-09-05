@@ -156,8 +156,15 @@ public class ApprovalDenialTests
         Assert.Contains("the approval policy default is deny", DenialText(defaultDeny));
         Assert.NotEqual(DenialText(ladderMiss), DenialText(defaultDeny));
 
-        Assert.Equal(ApprovalLedger.NoMatch, Reason(ladderMiss));
-        Assert.Equal(ApprovalLedger.DefaultDeny, Reason(defaultDeny));
+        // The rung stays the leading token so `approval_reason` remains greppable by
+        // prefix — a harness filtering on "no-match" keeps working — while the near-miss
+        // detail rides behind it in parentheses. That compatibility rule is the whole
+        // reason the detail is appended rather than replacing the value.
+        // bugs/Denials_Do_Not_Name_The_Near_Miss.md
+        Assert.StartsWith(ApprovalLedger.NoMatch, Reason(ladderMiss));
+        Assert.StartsWith(ApprovalLedger.DefaultDeny, Reason(defaultDeny));
+        Assert.Contains("trust rung skipped (Trust=false)", Reason(ladderMiss));
+        Assert.Contains("suppressed under default deny", Reason(defaultDeny));
 
         static string? Reason(RunResult r) =>
             r.Events.OfType<ToolCallEvent>().Single().ApprovalReason;

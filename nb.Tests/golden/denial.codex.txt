@@ -1,10 +1,11 @@
 === ladder-miss / shell / shell_command
 --- ledger
-deny / no-match
+deny / no-match (default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false))
 --- model
 shell_command (Read): /etc/passwd — command failed in sandbox: nothing in the approval policy allows it. Escalated execution requires this directive in the program: approval bash cat *.
 --- human (stderr)
 [nb] denied: shell_command (Read): /etc/passwd — nothing in the approval policy allows it.
+       near miss: default=prompt; no approval bash pattern matched (none configured); not on the safe-command list; trust rung skipped (Trust=false)
        authorize with: approval bash cat *
 
 === ladder-miss / patch-outside-cwd / apply_patch
@@ -18,11 +19,12 @@ apply_patch (path outside working directory) — command failed in sandbox: noth
 
 === default-deny / shell / shell_command
 --- ledger
-deny / default-deny
+deny / default-deny (default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through)
 --- model
 shell_command (Read): /etc/passwd — command failed in sandbox: the approval policy default is deny, and no allow-rule matched. Escalated execution requires this directive in the program: approval bash cat *.
 --- human (stderr)
 [nb] denied: shell_command (Read): /etc/passwd — the approval policy default is deny, and no allow-rule matched.
+       near miss: default=deny; no approval bash pattern matched (none configured); the safe-command list and the trust rung are suppressed under default deny, so an explicit pattern is the only way through
        authorize with: approval bash cat *
 
 === default-deny / patch-outside-cwd / apply_patch
