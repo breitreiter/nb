@@ -6,8 +6,19 @@ namespace nb.Shell;
 // directory while they watch. It is a convenience default, NOT a boundary — a path check
 // cannot bound reads, because the command that reads the file need not name it in a form
 // this sees (bugs/shell-tool-no-filesystem-sandbox.md, closed as accepted by design).
-// Right for the REPL, where the watching human exists. Wrong inside a container, where it
-// only yields false denials on legitimate work — see plans/approval-is-not-a-boundary.md.
+//
+// It is now wrong everywhere, and scheduled for removal. The "watching human" it was
+// built for was the REPL user, and the REPL is being retired (plans/retire-the-repl.md)
+// because nobody drives it — nb's consumers are file-based runs and library hosts, and a
+// coding agent cannot use a TTY line editor at all. With no human watching in any
+// deployment, this rule has none of its benefit and all of its cost: it produces false
+// denials on legitimate work, which corrupts an eval by making a run that failed on a
+// harness artifact look like a run where the model failed.
+//
+// plans/approval-is-not-a-boundary.md (§1b, and the 2026-09-07 revision) retires the
+// cwd rule outright rather than conditionally. Until that lands this stays as-is; do not
+// build new behaviour on the path scoping.
+// bugs/Trust_Rung_Denies_A_Bare_Find_With_A_Redirect.md is one instance of the cost.
 
 public static class TrustSandbox
 {

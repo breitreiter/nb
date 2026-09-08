@@ -2,7 +2,7 @@
 kind: plan
 title: Approval is not a boundary — the container is
 created: 2026-08-12
-updated: 2026-09-05
+updated: 2026-09-07
 status: current
 state: accepted
 touches:
@@ -209,6 +209,9 @@ The spec above is the ruler. Everything below contradicts it somewhere.
 
 ### Tier 2 — structural residue (quarantine and label)
 
+> **Superseded in part by the 2026-09-07 revision**: the REPL leg of the
+> `TrustSandbox` argument below is gone. Read that entry before acting on this one.
+
 - **`TrustSandbox.cs` and the cwd+temp path rule.** Load-bearing: `DecidePath`
   routes every file tool through it, and the interactive REPL still has a human
   who reasonably wants "don't touch things outside what I pointed you at."
@@ -276,6 +279,9 @@ a fresh reader — or a fresh Claude session — takes as the spec:
 ## Grill list — decide these before writing code
 
 Ordered by how much they change the work. Each has a recommended answer.
+
+> **Items 2 and 3 are dissolved by the 2026-09-07 revision** — both existed only to
+> protect a REPL user who no longer exists. Do not answer them; read that entry.
 
 1. **Does the operator assertion in 1b exist, and what is it called?**
    Recommend: yes, one flag + config key, and it must name the *deployment*, not
@@ -551,3 +557,114 @@ The original done test still holds ("nb does not confine the tools it runs; run 
 inside something that does"), but it is now only half. Add: a reader who wants to
 build an eval harness should find **one obvious shape to copy**, and should not
 have to invent the network policy themselves.
+
+
+### 2026-09-07 — the REPL is being retired, and this plan gets simpler
+
+`plans/retire-the-repl.md` (proposed 2026-09-05) removes nb's interactive mode: the
+owner no longer uses it, and coding agents — nb's other consumer class — cannot drive a
+TTY line editor at all. That is a decision about a different subsystem, but it lands
+squarely on this plan, because **the REPL is load-bearing in three of its conclusions**.
+
+This entry records the consequences. No code has changed; this is the amendment stage 1
+of that plan calls for, made now because it shapes work that has not started and is far
+cheaper to decide than to unwind.
+
+#### The Tier 2 argument loses a leg
+
+Tier 2 keeps `TrustSandbox` on a two-sided claim: the cwd+temp rule is "the right default
+for the REPL and the wrong one for a container," so *keep the code, retarget it*. Remove
+the REPL and there is no watching human in any deployment. The rule then has **none of
+its benefit and all of its cost, everywhere** — it protects nobody while still producing
+the false denials §1b was written about.
+
+`bugs/Trust_Rung_Denies_A_Bare_Find_With_A_Redirect.md` is the empirical support and it
+arrived after this plan was accepted: a `find` denied because `2>/dev/null` classified as
+a write to a path outside cwd, found in a **file-based eval harness**, not at a REPL.
+Fixed 2026-09-05 by trusting the null sink, which was a patch on one instance of a rule
+that has no remaining justification.
+
+#### Grill items 2 and 3 dissolve
+
+Both were about protecting the REPL user:
+
+> **2. Should it be the default when nb detects a container?** Recommend: no. […] a wrong
+> guess silently removes the REPL user's expected behavior.
+>
+> **3. Does the REPL keep the cwd default?** Recommend: yes. There is a real human
+> watching, so the convenience default is right there and only there.
+
+**#3 has no subject** and is withdrawn. **#2's stated reason is void**, but its answer
+survives on the other half of its own argument, which was never about the REPL: detection
+by `/.dockerenv` or cgroup sniffing is heuristic, and a wrong guess that silently changes
+policy is worse than no guess. Detection continues to feed **reporting only, never
+behaviour** — work-list item 5, unchanged.
+
+#### Work-list item 4 becomes unconditional
+
+Item 4 currently retires the cwd heuristic *for a run that declares `boundary container`*,
+and closes "The REPL keeps the cwd default (grill #3, unchanged)." Revised:
+
+> **Retire the cwd trust heuristic outright.** Not conditional on `boundary`, not
+> conditional on container detection. One code path, no override, no tests for the
+> interaction between a heuristic and its escape hatch.
+
+That is strictly less code than the accepted version, and it removes the need to build
+and test a conditional whose only purpose was to preserve behaviour for a user who is
+gone.
+
+#### What this costs: item 4 was also the directive's incentive
+
+Naming this plainly rather than presenting the change as free. Item 4 was doing double
+duty — it retired the heuristic *and* it was the reason `boundary container` earned its
+keep:
+
+> This is what makes the directive earn its keep rather than nag — you declare because it
+> *helps*.
+
+If the heuristic is gone unconditionally, declaring `boundary container` no longer buys a
+behavioural reward, and a purely declarative directive is exactly the kind of thing that
+decays into ceremony or gets skipped.
+
+**Recommendation: accept that, and let the directive be declarative.** Two reasons it
+still earns its place:
+
+1. **The record is the product.** grill #6 (confirmed both) puts `boundary:` in
+   `--resolve` *and* the `result` trailer. A transcript that cannot say whether its run
+   was confined is a transcript whose results cannot be interpreted years later, which is
+   the same argument that put `provider` on the trailer and is currently putting `model`
+   there (`bugs/Effective_Model_Is_Not_On_The_Trailer.md`).
+2. **The startup warning is the forcing function, not the reward.** Item 5 already warns
+   loudly when bash is enabled and no boundary is declared. With no reward to offer, that
+   warning is the whole steer — which makes it more important, not less, and argues for
+   keeping it prominent rather than softening it later.
+
+The alternative — keep the heuristic solely so the directive has something to switch off —
+would be preserving a rule that protects nobody in order to motivate declaring it away.
+That is worse than a declarative directive.
+
+#### Item 5's REPL clause is void
+
+Item 5 justifies warn-don't-hard-fail partly as "a hard fail breaks every existing program
+and **every REPL user**." The program half stands on its own and is sufficient. The REPL
+half is struck.
+
+#### What `Trust` still is, corrected
+
+An earlier framing of this consequence (in conversation, not in this file) said `Trust`
+"collapses to roughly bump `MaxToolCalls`." **That was wrong**, and the code says so:
+`ApprovalPolicy.IsBashCommandTrusted` filters by category, is gated on the caller's
+danger check, and auto-approves a `Run` command with no extractable path — `dotnet build`,
+`git status` — before any path check happens. Removing the cwd rule removes the **path
+scoping** and leaves the rung otherwise intact.
+
+So `Trust` remains a meaningful implicit-grant rung: *non-dangerous, non-destructive
+categories auto-approve*. What it stops claiming is that it confines them to a directory.
+Whether the key keeps the name `Trust` is grill #4's territory, unchanged.
+
+#### Not changed by this entry
+
+The topology (one container, nb inside it, one filesystem), the threat model, the egress
+ownership split, podman, the `boundary` directive's existence and grammar, the reference
+Dockerfile, Tier 1's bwrap deletion, and grill items 1 and 4–8 other than as noted. This
+entry narrows one rule and dissolves two questions; it does not reopen the plan.

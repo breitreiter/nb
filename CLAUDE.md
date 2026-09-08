@@ -258,9 +258,22 @@ a control.
 Auto-approves file tools and non-dangerous bash commands whose paths fall under the
 working directory. **This is a UX default, not a sandbox** — its shape is inherited
 from nb's coding-agent era, where it kept an agent out of a watching human's home
-directory. It is the right default for the REPL, where that human exists. It is the
-wrong one inside a container, where it only produces false denials on legitimate
-work (see `plans/approval-is-not-a-boundary.md` §1b).
+directory.
+
+**The path scoping is scheduled for removal — don't build on it.** The watching human
+it was written for was the REPL user, and the REPL is being retired
+(`plans/retire-the-repl.md`): nobody drives it, and a coding agent can't use a TTY line
+editor at all. With no human watching in any deployment the rule protects nobody while
+still producing false denials on legitimate work — which corrupts an eval, because a run
+that failed on a harness artifact is indistinguishable from a run where the model failed
+(`plans/approval-is-not-a-boundary.md` §1b; `bugs/Trust_Rung_Denies_A_Bare_Find_With_A_Redirect.md`
+is a filed instance). The 2026-09-07 revision of that plan retires the cwd rule outright
+rather than conditionally on a `boundary` declaration.
+
+What survives the removal is the rest of the rung: non-dangerous, non-destructive
+categories auto-approve, and a `Run` command with no extractable path (`dotnet build`,
+`git status`) is trusted before any path check happens. Trust stops claiming it confines
+those to a directory; it does not stop being an implicit-grant rung.
 
 **Activation:** `"Trust": true` in appsettings.json, or `NbOptions.Trust` for library hosts. There is no `--trust` flag — trust is a posture, set in config, not per-invocation. Note that `approval default deny` suppresses it (see `ApprovalPolicy.DecideBash`)
 

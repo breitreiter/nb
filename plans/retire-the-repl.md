@@ -2,7 +2,7 @@
 kind: plan
 title: Retire the REPL
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-07
 status: current
 state: proposed
 touches:
@@ -114,12 +114,17 @@ the boundary work: `nb.Core/Shell/TrustSandbox.cs`'s header comment, CLAUDE.md's
 
 Ordered so that each stage is independently correct and the risky one is last.
 
-1. **Amend `plans/approval-is-not-a-boundary.md`** — add a Revisions entry retiring the
+1. ~~**Amend `plans/approval-is-not-a-boundary.md`**~~ — **DONE 2026-09-07** — add a Revisions entry retiring the
    REPL leg, dissolving open questions 2 and 3, and making heuristic retirement
    unconditional. Do this **first**: it is the decision that shapes unstarted code, and it
    is free to make now and expensive to unwind after the boundary work is built against
    the conditional design.
-2. **Correct the three prose sites** that justify trust by the REPL. No behaviour change.
+2. ~~**Correct the three prose sites** that justify trust by the REPL.~~ — **DONE
+   2026-09-07**. Two sites, not three: `nb.Core/Shell/TrustSandbox.cs` and CLAUDE.md's
+   `## Trust Mode`. The third (the boundary plan's Tier 2) was handled by stage 1's
+   Revisions entry plus an inline pointer, which is that file's own convention. README
+   needed nothing — it describes trust's behaviour without justifying it by the REPL, so
+   it stays accurate until the code changes.
 3. **Delete the REPL from the CLI** — `RunReplAsync`, the `runRepl` branch,
    `_lineEditor`/`CreateLineEditor`, `FileMentionSource.cs`, `FileMentionSourceTests.cs`,
    and the `UglyPrompt` package reference. Decide what `nb` with no arguments on a TTY
@@ -161,3 +166,27 @@ It does not claim the REPL was a mistake. It was the authoring surface while nb 
 built, and `plans/composable-cli-reorientation.md` is the record of nb becoming something
 else — a stateless evaluator that agents drive from files. The REPL is not being removed
 because it was wrong; it is being removed because the program it belonged to is gone.
+
+
+## Stage 1–2 outcome, 2026-09-07
+
+Both landed; no behaviour change, no code touched beyond a comment.
+
+**What stage 1 turned up that this plan had not anticipated.** Retiring the cwd heuristic
+unconditionally is not purely a simplification: work-list item 4 of the boundary plan was
+doing double duty, and it was also the *incentive* for the `boundary` directive — "you
+declare because it helps." Remove the heuristic everywhere and `boundary container` no
+longer buys a behavioural reward, which risks a declarative directive decaying into
+ceremony. The revision names that cost rather than hiding it, and resolves it: the
+directive stays declarative, earning its place through the transcript record (grill #6
+puts `boundary:` in `--resolve` and the trailer) with item 5's startup warning as the
+forcing function instead of a reward. Keeping a rule that protects nobody just so the
+directive has something to switch off would be the worse trade.
+
+**One correction to my own earlier claim.** I had said in conversation that removing the
+path rule collapses `Trust` to "roughly bump `MaxToolCalls`." Wrong:
+`ApprovalPolicy.IsBashCommandTrusted` filters by category, sits behind the caller's danger
+check, and trusts a `Run` command with no extractable path before any path check runs.
+Trust remains a real implicit-grant rung; it loses the path scoping, not its purpose.
+
+Stage 3 (the deletion) is unchanged and still proposed.
