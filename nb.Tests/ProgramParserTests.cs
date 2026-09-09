@@ -188,6 +188,60 @@ public class ProgramParserTests
     }
 
     [Fact]
+    public void Oracle_AtFile_CarriesResolvedSheetNotThePath()
+    {
+        // The whole point of the directive's wire shape: a transcript that recorded only
+        // the filename would record a run nobody can reproduce once the file moves.
+        var events = ProgramParser.Parse("oracle @answers.md",
+            path => path == "answers.md" ? "## deploy-target\nStaging only.\n" : "?");
+
+        var e = Assert.IsType<OracleEvent>(events[0]);
+        Assert.Equal("## deploy-target\nStaging only.\n", e.Sheet);
+        Assert.DoesNotContain("answers.md", e.Sheet);
+    }
+
+    [Fact]
+    public void Oracle_InlineSingleLineSheet_StaysLiteral()
+    {
+        var e = Assert.IsType<OracleEvent>(ProgramParser.Parse("oracle ## t")[0]);
+        Assert.Equal("## t", e.Sheet);
+    }
+
+    // A sheet is a multi-line markdown document, and source syntax is line-oriented: a
+    // bare newline starts a new directive, so the second line parses as a verb. The sheet
+    // therefore arrives by @file in practice (or by backslash continuation, below), which
+    // is the authoring story the design assumes anyway — a human-authored .md attached to
+    // the program. Pinned so the constraint is discovered here rather than by a user
+    // whose second heading turns into "unknown directive '##'".
+    [Fact]
+    public void Oracle_InlineMultiLineSheet_IsNotExpressible()
+    {
+        var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("oracle ## t\nbody"));
+        Assert.Contains("unknown directive", ex.Message);
+    }
+
+    [Fact]
+    public void Oracle_InlineSheet_CanUseLineContinuation()
+    {
+        var e = Assert.IsType<OracleEvent>(ProgramParser.Parse("oracle ## t\\\nbody")[0]);
+        Assert.Equal("## t\nbody", e.Sheet);
+    }
+
+    [Fact]
+    public void Oracle_WithNoContent_Throws()
+    {
+        Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("oracle"));
+    }
+
+    [Fact]
+    public void Budget_OracleTurns_Parses()
+    {
+        var e = Assert.IsType<BudgetEvent>(ProgramParser.Parse("budget oracle_turns 8")[0]);
+        Assert.Equal("oracle_turns", e.Key);
+        Assert.Equal(8, e.Value);
+    }
+
+    [Fact]
     public void AtFile_WithTrailingText_StaysLiteral()
     {
         var events = ProgramParser.Parse("user @base.md and more", _ => "SHOULD NOT BE USED");

@@ -43,6 +43,18 @@ public abstract record MessageEvent : TranscriptEvent
 public sealed record UserEvent : MessageEvent
 {
     public override string Type => "user";
+
+    /// <summary>
+    /// Enrichment: who authored this turn when it was not the program. <c>"oracle"</c>
+    /// for a turn the answer sheet supplied (plans/oracle-resolver.md). Omitted for an
+    /// ordinary user turn, so a plain transcript is unchanged; ignored on seed-load, like
+    /// every enrichment field — the turn replays as an ordinary user message, which is
+    /// what makes a resolved run reproducible.
+    /// </summary>
+    public string? Source { get; init; }
+
+    /// <summary>Enrichment: the sheet entry ids the oracle selected for this turn.</summary>
+    public IReadOnlyList<string>? Keys { get; init; }
 }
 
 public sealed record AssistantTextEvent : MessageEvent
@@ -159,6 +171,30 @@ public sealed record HarnessEvent : TranscriptEvent
 }
 
 /// <summary>
+/// Attach an answer sheet: the scripted user who services a halt when the model stops
+/// and asks for information mid-run. See plans/oracle-resolver.md.
+///
+/// The event carries the sheet's <em>resolved body</em>, not the path it came from.
+/// <c>oracle @answers.md</c> is expanded at parse time by the same whole-content
+/// include the message directives use, and the text travels on the event — following
+/// the costume preamble, which materialises as ordinary system messages so a
+/// <c>--seed</c> replay reproduces the run even after the source file moves or changes.
+/// An answer sheet has exactly that property: it is an input to the run's behaviour, so
+/// a transcript recording only a filename records a run nobody can reproduce.
+///
+/// A program that attaches a sheet and never triggers a resolution runs, seeds and
+/// replays identically to one that doesn't; one that does gets the oracle's answers as
+/// ordinary <see cref="UserEvent"/>s marked <c>source: oracle</c>.
+/// </summary>
+public sealed record OracleEvent : TranscriptEvent
+{
+    public override string Type => "oracle";
+
+    /// <summary>The answer sheet's markdown body — headed sections keyed by topic.</summary>
+    public required string Sheet { get; init; }
+}
+
+/// <summary>
 /// A tool-surface directive with delta semantics: <see cref="Add"/> /
 /// <see cref="Remove"/> toggle named members and <see cref="Reset"/> (the source
 /// <c>none</c> token) clears the surface. Presets establish a baseline; a program
@@ -219,8 +255,10 @@ public sealed record LoopEvent : TranscriptEvent
 /// <summary>
 /// A resource-budget directive: <c>budget &lt;key&gt; &lt;value&gt;</c> where key is
 /// <c>tokens</c> (session-cumulative token ceiling — the run aborts with
-/// <see cref="ExitReasons.TokenBudget"/> once total usage crosses it) or
-/// <c>tool_calls</c> (a per-turn override of the tool-call cap). Run-level.
+/// <see cref="ExitReasons.TokenBudget"/> once total usage crosses it),
+/// <c>tool_calls</c> (a per-turn override of the tool-call cap), <c>wall_ms</c>
+/// (wall-clock ceiling) or <c>oracle_turns</c> (how many times an
+/// <see cref="OracleEvent"/> may resolve a halt and continue the run). Run-level.
 /// </summary>
 public sealed record BudgetEvent : TranscriptEvent
 {
@@ -265,6 +303,12 @@ public sealed record ResultEvent : TranscriptEvent
     /// envelope without replaying it call by call.
     /// </summary>
     public int? Denied { get; init; }
+
+    /// <summary>
+    /// How many times the oracle resolved a halt and continued the run. Omitted when zero,
+    /// so a run without an oracle (or one that never asked) has an unchanged trailer.
+    /// </summary>
+    public int? OracleTurns { get; init; }
 }
 
 /// <summary>Token usage on the run-level <see cref="ResultEvent"/> trailer.</summary>

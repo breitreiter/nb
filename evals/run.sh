@@ -126,6 +126,69 @@ echo ""
 run_prog_contains "mock provider returns response" 0 "OK" "run any prompt"
 run_prog_contains "mock respects MOCK:response instruction" 0 "custom response here" "run MOCK:response=custom response here"
 
+# The oracle convention (plans/oracle-resolver.md step 2). The resolver does not issue
+# oracle calls yet, so these drive an oracle-SHAPED call: a run whose prompt opens with
+# the sentinel, which is the contract step 3 must honour when it builds the real call.
+# These assert on model-visible strings — the verdict vocabulary — which is exactly what
+# evals are for, and what a unit suite cannot check against the deployed provider DLL.
+ORACLE="[nb:oracle-resolver:1]"
+run_prog_contains "oracle rider selects a sheet entry" 0 "deploy-target" \
+    "run $ORACLE judge: which environment? MOCK:oracle=deploy-target"
+run_prog_contains "oracle rider carries multiple ids" 0 "deploy-target,customer-name" \
+    "run $ORACLE judge: two things. MOCK:oracle=deploy-target,customer-name and prose"
+run_prog_contains "oracle rider carries DONE" 0 "DONE" "run $ORACLE judge: a reply. MOCK:oracle=DONE"
+run_prog_contains "oracle rider carries MISS" 0 "MISS" "run $ORACLE judge: a reply. MOCK:oracle=MISS"
+# Conservative default: an unscripted program must not continue by accident.
+run_prog_contains "oracle with no rider defaults to DONE" 0 "DONE" "run $ORACLE judge: nothing scripted here"
+# The rider is inert without the sentinel, which is what lets ONE program line script
+# both halves — the subject's reply passes through verbatim, carrying the rider to the
+# oracle that will later be shown it.
+run_prog_contains "oracle rider is inert on an ordinary turn" 0 \
+    "Which environment should I deploy to? MOCK:oracle=deploy-target" \
+    "run MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target"
+
+# The resolver itself (plans/oracle-resolver.md steps 3-5): a declared sheet services a
+# clear ask and the run continues; anything else ends it. Assertions are on the
+# model-visible strings — exit_reason, source, keys, the oracle_turns trailer field.
+SHEET="$FIX/oracle-sheet.md"
+run_prog_jsonl "oracle: a hit appends the sheet body as a user turn and runs again" \
+    '[.[]|select(.type=="user" and .source=="oracle")|.text]|first' \
+    "Staging only. Never touch prod during this exercise." \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target'
+run_prog_jsonl "oracle: a hit records the selected keys" \
+    '[.[]|select(.type=="user" and .source=="oracle")|.keys[0]]|first' "deploy-target" \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target'
+run_prog_jsonl "oracle: the trailer counts oracle_turns" \
+    '[.[]|select(.type=="result")|.oracle_turns]|first' "1" \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target'
+run_prog_jsonl "oracle: asks chain through the sheet" \
+    '[.[]|select(.type=="user" and .source=="oracle")|.keys[0]]|join(",")' "customer-name,deploy-target" \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=Customer? MOCK:oracle=customer-name'
+run_prog_jsonl "oracle: a miss ends the run as oracle_miss" \
+    '[.[]|select(.type=="result")|.exit_reason]|first' "oracle_miss" \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=What is the meaning of life? MOCK:oracle=MISS'
+run_prog "oracle: oracle_miss exits 0 — only the label differs" 0 \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=What is the meaning of life? MOCK:oracle=MISS'
+run_prog_jsonl "oracle: DONE ends the run as ok with no continuation" \
+    '[.[]|select(.type=="result")|[.exit_reason, (.oracle_turns//0)]]|first|join(":")' "ok:0" \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=Done. Want me to also do X? MOCK:oracle=DONE'
+run_prog_jsonl "oracle: budget oracle_turns ends a re-asking model as oracle_budget" \
+    '[.[]|select(.type=="result")|[.exit_reason, .oracle_turns]]|first|join(":")' "oracle_budget:3" \
+    $'oracle @'"$SHEET"$'\nbudget oracle_turns 3\nrun MOCK:response=And again? MOCK:oracle=again'
+run_prog "oracle: oracle_budget exits 3 like every other limit" 3 \
+    $'oracle @'"$SHEET"$'\nbudget oracle_turns 3\nrun MOCK:response=And again? MOCK:oracle=again'
+run_prog_jsonl "oracle: no directive, no continuation — the trailer is unchanged" \
+    '[.[]|select(.type=="result")|has("oracle_turns")]|first' "false" \
+    "run MOCK:response=Which environment? MOCK:oracle=deploy-target"
+# The oracle-aware repetition-breaker: the same nudge, but it no longer tells a model
+# nobody is home when a sheet is attached.
+run_prog_jsonl "oracle: loop nudge says nobody is home without a sheet" \
+    '[.[]|select(.type=="user").text//""|test("No one is available")]|any' "true" \
+    $'budget tool_calls 8\nrun MOCK:loop=bash echo hi'
+run_prog_jsonl "oracle: loop nudge says to ask plainly with a sheet" \
+    '[.[]|select(.type=="user").text//""|test("end the turn and ask")]|any' "true" \
+    $'oracle @'"$SHEET"$'\nbudget tool_calls 8\nrun MOCK:loop=bash echo hi'
+
 echo ""
 echo "--- Transcript Schema (jsonl / --seed) ---"
 echo ""

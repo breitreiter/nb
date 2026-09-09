@@ -51,6 +51,11 @@ public static class ProgramParser
                 case "harness":
                     events.Add(ParseHarness(RequireContent(verb, content, lineNo), lineNo));
                     break;
+                case "oracle":
+                    // The sheet body travels on the event, not the path it came from, so a
+                    // seed replays honestly once the file moves (plans/oracle-resolver.md).
+                    events.Add(new OracleEvent { Sheet = ResolveContent(RequireContent(verb, content, lineNo), includeResolver) });
+                    break;
                 case "mcp":
                     events.Add(ParseSurface(new McpEvent(), content, lineNo));
                     break;
@@ -83,7 +88,7 @@ public static class ProgramParser
                     throw new ProgramParseException($"line {lineNo}: '{verb}' has structured fields — author it as JSONL bytecode, not source syntax.");
                 default:
                     throw new ProgramParseException(
-                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, harness, mcp, tools, approval, loop, budget, system, user, assistant, run.");
+                        $"line {lineNo}: unknown directive '{verb}'. Known: provider, model, harness, oracle, mcp, tools, approval, loop, budget, system, user, assistant, run.");
             }
         }
 
@@ -207,13 +212,15 @@ public static class ProgramParser
         return new LoopEvent { Enabled = true, Threshold = n };
     }
 
-    // Parse "budget <key> <value>": key is tokens|tool_calls (validated semantically),
-    // value is a non-negative integer.
+    // Parse "budget <key> <value>": the key is validated semantically by
+    // ProgramEvaluator.ApplyBudget, not here — this only enforces the two-token shape
+    // and an integer value. Keep the key list in the error message and that switch in
+    // step, or the parse error advertises a set the evaluator does not honour.
     private static BudgetEvent ParseBudget(string content, int lineNo)
     {
         var tokens = content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length != 2)
-            throw new ProgramParseException($"line {lineNo}: 'budget' needs '<key> <value>' (tokens | tool_calls) — got '{content}'.");
+            throw new ProgramParseException($"line {lineNo}: 'budget' needs '<key> <value>' (tokens | tool_calls | wall_ms | oracle_turns) — got '{content}'.");
         if (!long.TryParse(tokens[1], out var value))
             throw new ProgramParseException($"line {lineNo}: 'budget {tokens[0]}' needs an integer value — got '{tokens[1]}'.");
         return new BudgetEvent { Key = tokens[0].ToLowerInvariant(), Value = value };

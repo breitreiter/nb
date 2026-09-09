@@ -30,6 +30,13 @@ public class MockChatClient : IChatClient
     public const int UsageOutput = 5;
     public const int UsageTotal = 15;
 
+    // Mirrors nb.Transcript.OracleProtocol. Duplicated across the ALC boundary by
+    // necessity, not by preference — see the comment on that class.
+    public const string OracleSentinel = "[nb:oracle-resolver:1]";
+    public const string OracleSubjectMarker = "[nb:oracle-resolver:1:subject]";
+    public const string OracleRider = "MOCK:oracle=";
+    public const string OracleDone = "DONE";
+
     private readonly string _defaultResponse;
     private readonly string? _model;
     private int _rateLimitHits;
@@ -53,6 +60,37 @@ public class MockChatClient : IChatClient
         var lastUserMessage = chatMessages
             .LastOrDefault(m => m.Role == ChatRole.User)?
             .Text ?? "";
+
+        // An ORACLE side call, not a turn of the subject conversation. nb opens that
+        // call's last user message with this sentinel (nb.Core's OracleProtocol.Sentinel
+        // — duplicated here because the Mock loads in its own AssemblyLoadContext and
+        // cannot reference nb.Core; keep the two in step). Checked before every other
+        // MOCK: form, because it selects a *mode* rather than a scripted behaviour: the
+        // oracle prompt is nb's own text, so none of the riders below would match it.
+        //
+        // Why a rider rather than the usual last-user-message dispatch: on an oracle
+        // call the last user message is nb's oracle prompt, so every MOCK: directive the
+        // program scripted is out of scope and the call would fall through to the default
+        // response — which is not a parseable verdict. Instead the verdict travels as
+        // "MOCK:oracle=<ids|DONE|MISS>" riding on the subject's own scripted reply, which
+        // is precisely what the oracle is shown. So one program line scripts both halves:
+        //
+        //     run MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target
+        //
+        // The rider is scanned for anywhere within the JUDGED text (unlike the StartsWith
+        // forms below), because it arrives embedded in quoted prose rather than at the
+        // head of a message. The judged text is what follows the LAST subject marker; the
+        // answer sheet precedes it in the same prompt and may carry riders of its own
+        // (a sheet body is the subject's next scripted turn when a test chains asks), so
+        // a scan over the whole prompt would hit the sheet on every call and never DONE.
+        // With no marker at all (an oracle-shaped probe), the whole prompt is scanned.
+        if (lastUserMessage.StartsWith(OracleSentinel, StringComparison.Ordinal))
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, ScriptedOracleVerdict(chatMessages)))
+            {
+                // Measured usage, like every other Mock reply — a resolved run should
+                // not flip to "estimated" only because its side call went unmetered.
+                Usage = new UsageDetails { InputTokenCount = UsageInput, OutputTokenCount = UsageOutput, TotalTokenCount = UsageTotal },
+            };
 
         // MOCK:throw simulates a mid-turn provider/model failure so the
         // exit-code contract's provider_error path (exit 2) is testable.
@@ -148,6 +186,29 @@ public class MockChatClient : IChatClient
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
     public void Dispose() { }
+
+    // Pull the scripted oracle verdict out of whatever the oracle call was shown.
+    // Absent a rider the verdict is DONE — the conservative default the design calls for
+    // ("when in doubt, DONE"), so an unscripted program cannot accidentally continue.
+    private static string ScriptedOracleVerdict(IEnumerable<ChatMessage> chatMessages)
+    {
+        foreach (var whole in chatMessages.Select(m => m.Text).Where(t => !string.IsNullOrEmpty(t)))
+        {
+            var marker = whole!.LastIndexOf(OracleSubjectMarker, StringComparison.Ordinal);
+            var text = marker < 0 ? whole : whole[(marker + OracleSubjectMarker.Length)..];
+            var i = text.IndexOf(OracleRider, StringComparison.OrdinalIgnoreCase);
+            if (i < 0) continue;
+
+            // The verdict runs to the first whitespace: a comma-separated id list, or
+            // DONE / MISS. Trailing punctuation is not stripped — ids are authored in the
+            // program, so a stray period is a fixture bug worth seeing rather than hiding.
+            var rest = text[(i + OracleRider.Length)..];
+            var end = rest.IndexOfAny(new[] { ' ', '\t', '\r', '\n' });
+            var verdict = (end < 0 ? rest : rest[..end]).Trim();
+            if (verdict.Length > 0) return verdict;
+        }
+        return OracleDone;
+    }
 
     // Maps a scripted tool name + raw arg to the argument dictionary that tool
     // expects. Only the tools exercised by tests need entries.

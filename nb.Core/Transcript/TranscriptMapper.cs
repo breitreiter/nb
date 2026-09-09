@@ -28,7 +28,13 @@ public static class TranscriptMapper
     /// in from the run rather than recovered from the messages. Omit it and the mapping is
     /// exactly what it was before — core events, no enrichment.
     /// </param>
-    public static List<TranscriptEvent> FromHistory(IEnumerable<ChatMessage> history, ApprovalLedger? approvals = null)
+    /// <param name="oracleAnswers">
+    /// Optional: the user messages the oracle authored from the answer sheet, keyed by
+    /// message identity, each with the sheet ids it selected. Same route as approvals —
+    /// live instrumentation, not recovered from the message.
+    /// </param>
+    public static List<TranscriptEvent> FromHistory(IEnumerable<ChatMessage> history, ApprovalLedger? approvals = null,
+        IReadOnlyDictionary<ChatMessage, IReadOnlyList<string>>? oracleAnswers = null)
     {
         var events = new List<TranscriptEvent>();
         int turn = 0;
@@ -74,7 +80,10 @@ public static class TranscriptMapper
             else
             {
                 // User (and any unexpected role) — a plain message, multipart if it carries images.
-                events.Add(BuildMessage(msg, turn));
+                var user = BuildMessage(msg, turn);
+                if (oracleAnswers is not null && oracleAnswers.TryGetValue(msg, out var keys))
+                    user = user with { Source = "oracle", Keys = keys };
+                events.Add(user);
             }
         }
 
@@ -86,7 +95,7 @@ public static class TranscriptMapper
     /// from the emitted events; usage is passed in from the live response (it is
     /// not in history).
     /// </summary>
-    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0, string? provider = null)
+    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0, string? provider = null, int oracleTurns = 0)
     {
         // "turns" = assistant rounds: distinct turns carrying an assistant message.
         // (Counting distinct turns rather than the max keeps the number meaningful
@@ -106,6 +115,7 @@ public static class TranscriptMapper
             Provider = provider,
             Harness = harness,
             Denied = deniedCount > 0 ? deniedCount : null,
+            OracleTurns = oracleTurns > 0 ? oracleTurns : null,
         };
     }
 

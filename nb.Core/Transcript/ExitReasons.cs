@@ -23,12 +23,24 @@ public static class ExitReasons
     public const string TokenBudget = "token_budget";         // 3: run aborted — token budget exhausted
     public const string TimeBudget = "time_budget";           // 3: run aborted — wall-clock budget exhausted
     public const string ApprovalDenied = "approval_denied";   // 4: approval required but policy denied
+    public const string OracleBudget = "oracle_budget";       // 3: run aborted — oracle_turns exhausted
+
+    /// <summary>
+    /// The model clearly asked the user for information and the answer sheet had no
+    /// entry for it. Exit code <b>0</b>: the run ended exactly as it would have without
+    /// an oracle, and only the label differs — it is a maintenance signal (the sheet
+    /// needs an entry, or the prompt produced a question nobody anticipated) rather
+    /// than a failure. Listed explicitly in <see cref="ToExitCode"/> even though the
+    /// <c>_ => 0</c> fallback would produce the same number, because a reason exiting 0
+    /// by accident is indistinguishable from one exiting 0 by decision.
+    /// </summary>
+    public const string OracleMiss = "oracle_miss";           // 0: asked something the sheet does not answer
 
     public static int ToExitCode(string reason) => reason switch
     {
-        Ok => 0,
+        Ok or OracleMiss => 0,
         ProviderError => 2,
-        MaxToolCalls or ToolErrorLimit or TokenBudget or TimeBudget or RateLimited => 3,
+        MaxToolCalls or ToolErrorLimit or TokenBudget or TimeBudget or RateLimited or OracleBudget => 3,
         ApprovalDenied => 4,
         _ => 0,
     };

@@ -208,6 +208,66 @@ public class ConversationManager
     /// </summary>
     public void AppendHistory(IEnumerable<AIChatMessage> messages) => _conversationHistory.AddRange(messages);
 
+    // ---- Oracle seams (plans/oracle-resolver.md). The loop itself lives in
+    // ProgramEvaluator; these are the three things it needs from the conversation:
+    // a side call on the current client, a way to append the scripted user's turn
+    // so the transcript can tell it apart, and a way to end the run with a reason.
+
+    // The user messages the oracle authored from the answer sheet, by message identity,
+    // each with the ids it selected. Live instrumentation, like the approval ledger:
+    // history carries no enrichment, so the mapper is handed this alongside it.
+    private readonly Dictionary<AIChatMessage, IReadOnlyList<string>> _oracleAnswers = new(ReferenceEqualityComparer.Instance);
+    private bool _oracleAvailable;
+
+    public IReadOnlyDictionary<AIChatMessage, IReadOnlyList<string>> OracleAnswers => _oracleAnswers;
+
+    /// <summary>The last assistant prose in history, or empty — what the oracle is shown.</summary>
+    public string LastAssistantText =>
+        _conversationHistory.LastOrDefault(m => m.Role == ChatRole.Assistant && !string.IsNullOrEmpty(m.Text))?.Text ?? "";
+
+    /// <summary>
+    /// Whether an <c>oracle</c> is declared for subsequent runs. Only the doom-loop
+    /// reminder reads it: "No one is available to answer a question mid-run" is true on a
+    /// bare program and false the moment a sheet is attached, and the reminder is a string
+    /// a model reads and acts on.
+    /// </summary>
+    public void SetOracleAvailable(bool available) => _oracleAvailable = available;
+
+    /// <summary>
+    /// A model call OUTSIDE the conversation, on the current client — the oracle
+    /// verdict. Same move as the summarisation call: its own message list, nothing
+    /// appended to history. Its tokens count toward the session total like every other
+    /// round-trip the run paid for.
+    /// </summary>
+    public async Task<ChatResponse> SideCallAsync(IList<AIChatMessage> messages, ChatOptions options, CancellationToken cancellationToken = default)
+    {
+        if (_client == null) return new ChatResponse();
+        var response = await _client.GetResponseAsync(messages, options, cancellationToken);
+        var (input, output, total) = MeasureOrEstimateUsage(response, options.Tools);
+        _sessionInputTokens += input;
+        _sessionOutputTokens += output;
+        _sessionTotalTokens += total;
+        _sessionHadUsage = true;
+        return response;
+    }
+
+    /// <summary>
+    /// Append the scripted user's reply — the sheet bodies the oracle selected — as an
+    /// ordinary user message, and remember which message it was so the transcript can
+    /// mark it <c>source: oracle</c>. It is a plain user turn on the wire on purpose:
+    /// that is what lets a resolved run replay from its own transcript.
+    /// </summary>
+    public void AppendOracleAnswer(string text, IReadOnlyList<string> keys)
+    {
+        var message = new AIChatMessage(ChatRole.User, text);
+        _conversationHistory.Add(message);
+        _oracleAnswers[message] = keys;
+        RenderMarkdown($"*(oracle: {string.Join(", ", keys)})* {text}");
+    }
+
+    /// <summary>End the run with a reason the conversation itself did not produce (<c>oracle_miss</c>, <c>oracle_budget</c>).</summary>
+    public void SetOutcome(string reason) => LastOutcome = reason;
+
     /// <summary>Summed token usage across the whole invocation (all runs, all tool-loop round-trips), or null if no run happened.</summary>
     public (long input, long output, long total)? TotalUsage =>
         _sessionHadUsage ? (_sessionInputTokens, _sessionOutputTokens, _sessionTotalTokens) : null;
@@ -659,7 +719,9 @@ public class ConversationManager
                 string? nextInjectedReminder = null;
                 if (_doomLoopEnabled && _doomLoopDetector.DetectLoop() is int reps)
                 {
-                    var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and end the turn, stating plainly what is blocked and what you would need to proceed. No one is available to answer a question mid-run.</system_reminder>";
+                    var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and end the turn, stating plainly what is blocked and what you would need to proceed. " + (_oracleAvailable
+                        ? "If you need information from the user, end the turn and ask for it plainly; an answer may follow."
+                        : "No one is available to answer a question mid-run.") + "</system_reminder>";
                     _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Loop detected ({reps} reps); reminding model[/]");
                     _doomLoopDetector.Reset();

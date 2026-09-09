@@ -21,6 +21,12 @@ public sealed class NbProgramBuilder
     public NbProgramBuilder User(string text) { _events.Add(new UserEvent { Text = text }); return this; }
     public NbProgramBuilder Assistant(string text) { _events.Add(new AssistantTextEvent { Text = text }); return this; }
 
+    /// <summary>
+    /// Attach an answer sheet (the <c>oracle</c> directive) — the resolved markdown body,
+    /// headed sections keyed by topic, not a path. See plans/oracle-resolver.md.
+    /// </summary>
+    public NbProgramBuilder Oracle(string sheet) { _events.Add(new OracleEvent { Sheet = sheet }); return this; }
+
     /// <summary>Set the doom-loop detector threshold for subsequent runs (the <c>loop &lt;n&gt;</c> directive).</summary>
     public NbProgramBuilder Loop(int threshold) { _events.Add(new LoopEvent { Enabled = true, Threshold = threshold }); return this; }
 

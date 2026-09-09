@@ -198,4 +198,192 @@ public class NbFacadeTests
 
         Assert.Equal("", captured.ToString());
     }
+
+    // ---- The Mock oracle convention (plans/oracle-resolver.md, build order step 2) ----
+    //
+    // Settled BEFORE the resolver exists, because it is what makes steps 3-4 testable at
+    // all: discovering the convention doesn't work after the loop is built means
+    // rewriting both. The resolver does not issue oracle calls yet, so these drive an
+    // oracle-SHAPED call directly — a run whose prompt opens with the sentinel, which is
+    // exactly the contract step 3 must honour when it builds the real call.
+
+    private static async Task<string?> OracleVerdict(string shownToTheOracle)
+        => (await Nb.Program()
+                .Run(OracleProtocol.Sentinel + "\nJudge this:\n" + shownToTheOracle)
+                .RunAsync(MockConfig(), Options())).Answer;
+
+    [Fact]
+    public async Task Oracle_RiderSelectsSheetEntries()
+        => Assert.Equal("deploy-target", await OracleVerdict("Which environment? MOCK:oracle=deploy-target"));
+
+    [Fact]
+    public async Task Oracle_RiderCarriesMultipleIds()
+        => Assert.Equal("deploy-target,customer-name",
+            await OracleVerdict("Two questions. MOCK:oracle=deploy-target,customer-name and more prose"));
+
+    [Theory]
+    [InlineData(OracleProtocol.Done)]
+    [InlineData(OracleProtocol.Miss)]
+    public async Task Oracle_RiderCarriesTheTerminalVerdicts(string verdict)
+        => Assert.Equal(verdict, await OracleVerdict($"Some reply. MOCK:oracle={verdict}"));
+
+    [Fact]
+    public async Task Oracle_WithNoRider_DefaultsToDone()
+    {
+        // The design's "when in doubt, DONE": an unscripted program must not continue by
+        // accident. Without this the call falls through to the Mock's default response,
+        // which is not a parseable verdict.
+        Assert.Equal(OracleProtocol.Done, await OracleVerdict("An ordinary reply with nothing scripted."));
+    }
+
+    [Fact]
+    public async Task Oracle_RiderIsInert_OnAnOrdinaryTurn()
+    {
+        // The rider only means anything on a call the sentinel marks as an oracle call.
+        // On a normal turn it is just text, so the subject's scripted reply is unchanged
+        // — which is what lets one program line script both halves.
+        var result = await Nb.Program()
+            .Run("MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target")
+            .RunAsync(MockConfig(), Options());
+
+        Assert.Equal("ok", result.ExitReason);
+        Assert.Equal("Which environment should I deploy to? MOCK:oracle=deploy-target", result.Answer);
+    }
+
+    [Fact]
+    public async Task Oracle_OneProgramLineScriptsBothHalves()
+    {
+        // The end-to-end property step 3 will lean on: the subject's scripted reply is
+        // what the oracle gets shown, and the rider rides along inside it. Asserted as
+        // two halves joined by hand, because nothing issues the real call yet.
+        var subject = await Nb.Program()
+            .Run("MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target")
+            .RunAsync(MockConfig(), Options());
+
+        Assert.Equal("deploy-target", await OracleVerdict(subject.Answer!));
+    }
+
+    // ---- The oracle-aware repetition-breaker (plans/oracle-resolver.md, step 4) ----
+    //
+    // The doom-loop reminder tells a stuck model "No one is available to answer a
+    // question mid-run." That is true on a bare program and false the moment an oracle is
+    // declared — so the reminder has to know, and the string a model reads is the thing
+    // to pin.
+
+    private static async Task<string> LoopReminder(NbProgramBuilder program)
+    {
+        var result = await program.Budget("tool_calls", 8).Run("MOCK:loop=bash echo hi").RunAsync(MockConfig(), Options());
+        return result.Events.OfType<UserEvent>().First(e => e.Text?.Contains("repetitive loop") == true).Text!;
+    }
+
+    [Fact]
+    public async Task LoopReminder_WithoutAnOracle_SaysNobodyIsHome()
+        => Assert.Contains("No one is available to answer a question mid-run.", await LoopReminder(Nb.Program()));
+
+    [Fact]
+    public async Task LoopReminder_WithAnOracle_SaysToAskPlainly()
+    {
+        var text = await LoopReminder(Nb.Program().Oracle("## t\nbody\n"));
+        Assert.DoesNotContain("No one is available", text);
+        Assert.Contains("end the turn and ask", text);
+    }
+
+    // ---- The resolver end to end (plans/oracle-resolver.md, steps 3-4) ----
+    //
+    // Each sheet body is also the subject's next scripted turn, so a body that opens with
+    // MOCK:response= chains one scripted question into the next; a body without one gets
+    // the Mock's default reply, which carries no rider and so judges DONE.
+
+    private const string Sheet = """
+        ## deploy-target
+        Staging only. Never touch prod during this exercise.
+
+        ## customer-name
+        MOCK:response=Thanks. Which environment? MOCK:oracle=deploy-target
+
+        ## again
+        MOCK:response=And again? MOCK:oracle=again
+        """;
+
+    private static Task<RunResult> Oracle(string prompt, long? turns = null)
+    {
+        var program = Nb.Program().Oracle(Sheet);
+        if (turns is { } t) program.Budget("oracle_turns", t);
+        return program.Run(prompt).RunAsync(MockConfig(), Options());
+    }
+
+    [Fact]
+    public async Task Oracle_Hit_AppendsTheSheetBodyAsAUserTurn_AndRunsAgain()
+    {
+        var r = await Oracle("MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target");
+
+        Assert.Equal("ok", r.ExitReason);
+        Assert.Equal(1, r.OracleTurns);
+        var answer = Assert.Single(r.Events.OfType<UserEvent>(), u => u.Source == "oracle");
+        Assert.Equal("Staging only. Never touch prod during this exercise.", answer.Text);
+        Assert.Equal(new[] { "deploy-target" }, answer.Keys);
+        // The subject ran again on the answer: a second assistant turn follows it.
+        Assert.Equal("OK", r.Answer);
+        // Ordinary user turns carry no enrichment.
+        Assert.Null(r.Events.OfType<UserEvent>().First().Source);
+    }
+
+    [Fact]
+    public async Task Oracle_ChainsThroughSeveralAsks()
+    {
+        var r = await Oracle("MOCK:response=Customer? MOCK:oracle=customer-name");
+        Assert.Equal("ok", r.ExitReason);
+        Assert.Equal(2, r.OracleTurns);
+        Assert.Equal(new[] { "customer-name", "deploy-target" },
+            r.Events.OfType<UserEvent>().Where(u => u.Source == "oracle").Select(u => u.Keys!.Single()));
+    }
+
+    [Fact]
+    public async Task Oracle_Miss_EndsTheRun_ExitZero_LabelDiffers()
+    {
+        var r = await Oracle("MOCK:response=What is the meaning of life? MOCK:oracle=MISS");
+        Assert.Equal("oracle_miss", r.ExitReason);
+        Assert.Equal(0, r.ExitCode);
+        Assert.Equal(0, r.OracleTurns);
+        // Never paper over the ask: the question is the last thing in the transcript.
+        Assert.Equal("What is the meaning of life? MOCK:oracle=MISS", r.Answer);
+        Assert.Contains(r.Warnings, w => w.Contains("oracle_miss"));
+    }
+
+    [Fact]
+    public async Task Oracle_Done_EndsTheRunAsOk_WithNoOracleTurns()
+    {
+        var r = await Oracle("MOCK:response=Done. Want me to also do X? MOCK:oracle=DONE");
+        Assert.Equal("ok", r.ExitReason);
+        Assert.Equal(0, r.OracleTurns);
+        Assert.DoesNotContain(r.Events.OfType<UserEvent>(), u => u.Source == "oracle");
+    }
+
+    [Fact]
+    public async Task Oracle_Budget_EndsTheRun_Exit3()
+    {
+        var r = await Oracle("MOCK:response=And again? MOCK:oracle=again", turns: 3);
+        Assert.Equal("oracle_budget", r.ExitReason);
+        Assert.Equal(3, r.ExitCode);
+        Assert.Equal(3, r.OracleTurns);
+        Assert.Equal(3, r.Events.OfType<UserEvent>().Count(u => u.Source == "oracle"));
+    }
+
+    [Fact]
+    public async Task Oracle_WithoutADirective_TheRiderIsInertAndNothingContinues()
+    {
+        var r = await Nb.Program().Run("MOCK:response=Which environment? MOCK:oracle=deploy-target").RunAsync(MockConfig(), Options());
+        Assert.Equal("ok", r.ExitReason);
+        Assert.Equal(0, r.OracleTurns);
+        Assert.Equal(2, r.Events.Count);
+    }
+
+    [Fact]
+    public async Task Oracle_IsNotConsulted_WhenTheRunDidNotEndOk()
+    {
+        // A provider failure is the reason to keep; the oracle would only be noise on it.
+        var r = await Nb.Program().Oracle(Sheet).Run("MOCK:throw").RunAsync(MockConfig(), Options());
+        Assert.Equal("provider_error", r.ExitReason);
+        Assert.Equal(0, r.OracleTurns);
+    }
 }

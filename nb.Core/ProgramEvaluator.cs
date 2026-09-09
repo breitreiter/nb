@@ -42,6 +42,28 @@ public sealed class ProgramEvaluator
     /// <summary>The harness in effect — nb's own surface unless a <c>harness</c> directive says otherwise.</summary>
     public string Harness { get; private set; } = HarnessRegistry.Default;
 
+    /// <summary>
+    /// The answer sheet an <c>oracle</c> directive attached, or null when the program
+    /// declared none (plans/oracle-resolver.md). With one attached, every run that ends
+    /// <c>ok</c> is judged by <see cref="OracleResolver"/> and continues on a hit.
+    /// </summary>
+    public string? Oracle { get; private set; }
+
+    /// <summary>How many times the oracle resolved a halt and continued the run.</summary>
+    public int OracleTurnsUsed { get; private set; }
+
+    private AnswerSheet? _sheet;
+
+    /// <summary>
+    /// How many times the oracle may resolve a halt and continue the run before the run
+    /// ends with <see cref="ExitReasons.OracleBudget"/>. Modest by default rather than
+    /// unlimited: vague resolution → re-ask → vague resolution is the obvious infinite.
+    /// Set by <c>budget oracle_turns &lt;n&gt;</c>, n positive like every other budget.
+    /// </summary>
+    public long OracleTurns { get; private set; } = DefaultOracleTurns;
+
+    private const long DefaultOracleTurns = 8;
+
     public ProgramEvaluator(ConversationManager conversation, Func<string?, string?, IChatClient?> clientFactory, IList<string>? warnings = null)
     {
         _conversation = conversation;
@@ -62,9 +84,12 @@ public sealed class ProgramEvaluator
 
     /// <summary>
     /// Evaluate one directive against the running state, WITHOUT the end-of-program
-    /// flush — so the REPL can drive the same evaluator one entered line at a time.
+    /// flush — so a library host can drive the same evaluator one directive at a time.
     /// A <c>run</c> flushes buffered turns and invokes; trailing turns are flushed by
-    /// <see cref="EvaluateAsync"/> (or left to the session end for a REPL).
+    /// <see cref="EvaluateAsync"/>.
+    ///
+    /// (This was the REPL's entry point until it was deleted 2026-09-09; it stays public
+    /// for the incremental library host — plans/retire-the-repl.md, open question 3.)
     /// </summary>
     public async Task EvaluateEventAsync(TranscriptEvent ev, CancellationToken cancellationToken = default)
     {
@@ -84,6 +109,13 @@ public sealed class ProgramEvaluator
                 // tool instances the runtime wired.
                 Harness = h.Name;
                 ApplyHarness(h.Name);
+                break;
+            case OracleEvent o:
+                Oracle = o.Sheet;
+                _sheet = AnswerSheet.Parse(o.Sheet);
+                if (_sheet.Entries.Count == 0)
+                    _warnings.Add("oracle: the answer sheet has no headed entries — nothing can be selected, so every ask will be a miss");
+                _conversation.SetOracleAvailable(true);
                 break;
             case SurfaceDirectiveEvent sd:
                 _surfaceDirectives.Add(sd);
@@ -105,8 +137,54 @@ public sealed class ProgramEvaluator
                 FlushTurns();
                 _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
                 await _conversation.RunAsync(r.Prompt, cancellationToken);
+                await ResolveWithOracleAsync(cancellationToken);
                 break;
             // ThinkingEvent / AssistantJsonEvent / ResultEvent: output-only, ignored on input.
+        }
+    }
+
+    // The oracle loop (plans/oracle-resolver.md, "Continuation rule"). After a run ends ok:
+    // ask the oracle whether the model was clearly waiting on the user for something the
+    // sheet covers. Continue ONLY on a confident hit; everything else ends the run. So a
+    // false positive costs nothing — the run ends as it would have without an oracle —
+    // and a false negative needs the oracle to miss a clear question that has an entry.
+    //
+    // A run that ends any other way (budget, error, denial) is not judged: it did not
+    // halt on the user, and the reason it did halt is the more important one to keep.
+    private async Task ResolveWithOracleAsync(CancellationToken cancellationToken)
+    {
+        if (_sheet is null) return;
+
+        while (_conversation.LastOutcome == ExitReasons.Ok)
+        {
+            var last = _conversation.LastAssistantText;
+            if (last.Length == 0) return;
+
+            var reply = await _conversation.SideCallAsync(OracleResolver.BuildPrompt(_sheet, last), OracleResolver.Options(), cancellationToken);
+            var verdict = OracleResolver.ParseVerdict(reply, _sheet, _warnings);
+
+            switch (verdict.Kind)
+            {
+                case OracleVerdictKind.Done:
+                    return;
+                case OracleVerdictKind.Miss:
+                    // The unanswered question is already in the transcript as the last
+                    // assistant_text — never paper over the ask. Only the label changes.
+                    _warnings.Add("oracle: the model asked for something the answer sheet does not cover — the run ended as oracle_miss");
+                    _conversation.SetOutcome(ExitReasons.OracleMiss);
+                    return;
+            }
+
+            if (OracleTurnsUsed >= OracleTurns)
+            {
+                _warnings.Add($"oracle: {OracleTurns} resolutions spent and the model asked again — the run ended as oracle_budget");
+                _conversation.SetOutcome(ExitReasons.OracleBudget);
+                return;
+            }
+
+            OracleTurnsUsed++;
+            _conversation.AppendOracleAnswer(_sheet.Compose(verdict.Keys), verdict.Keys);
+            await _conversation.RunAsync(null, cancellationToken);
         }
     }
 
@@ -225,8 +303,16 @@ public sealed class ProgramEvaluator
             case "wall_ms":
                 _conversation.SetWallBudget(bg.Value <= 0 ? null : bg.Value);
                 break;
+            case "oracle_turns":
+                // Positive, like every other budget key — Program.cs rejects <= 0 for all
+                // of them before the evaluator sees it. (Whether `oracle_turns 0` should
+                // become a legal way to detect asks without servicing them is a real
+                // question, but it is not this step's; it would need its own exit-reason
+                // story rather than a quiet exception to a uniform rule.)
+                OracleTurns = bg.Value;
+                break;
             default:
-                _warnings.Add($"budget key '{bg.Key}' unknown (tokens | tool_calls | wall_ms) — ignored");
+                _warnings.Add($"budget key '{bg.Key}' unknown (tokens | tool_calls | wall_ms | oracle_turns) — ignored");
                 break;
         }
     }

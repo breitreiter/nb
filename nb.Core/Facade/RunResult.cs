@@ -47,6 +47,12 @@ public sealed record RunResult
     /// </summary>
     public int Denied { get; init; }
 
+    /// <summary>
+    /// How many times the oracle resolved a halt and continued the run. Mirrors
+    /// <c>oracle_turns</c> on the transcript trailer; zero without an <c>oracle</c>.
+    /// </summary>
+    public int OracleTurns { get; init; }
+
     /// <summary>Non-fatal evaluator warnings (unknown directive value, unbuildable client, …).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }

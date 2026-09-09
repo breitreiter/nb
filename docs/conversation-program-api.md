@@ -97,7 +97,8 @@ Builder methods (each returns the builder):
 | `.Assistant(text)` | assistant | Append an assistant-role message (premise). |
 | `.Run(prompt?)` | run | Invoke the model. `Run("x")` = `User("x")` then `Run()`. Multiple runs allowed; usage sums across them. |
 | `.Loop(n)` / `.LoopOff()` | loop | Doom-loop detector for subsequent runs — threshold `n` (≥ 2), or off. On by default. |
-| `.Budget(key, value)` | budget | Resource budget: `("tokens", n)` = session-cumulative token ceiling (abort `token_budget`), `("tool_calls", n)` = per-turn tool-call cap, `("wall_ms", n)` = wall-clock ceiling in ms (abort `time_budget`, cancels the in-flight call). |
+| `.Budget(key, value)` | budget | Resource budget: `("tokens", n)` = session-cumulative token ceiling (abort `token_budget`), `("tool_calls", n)` = per-turn tool-call cap, `("wall_ms", n)` = wall-clock ceiling in ms (abort `time_budget`, cancels the in-flight call), `("oracle_turns", n)` = how many halts an answer sheet may service (abort `oracle_budget`; default 8). |
+| `.Oracle(sheet)` | oracle | Attach an answer sheet — the markdown **body** (headed sections keyed by topic), not a path. After each run that ends `ok`, a side call judges the model's last message against it; on a confident hit the selected bodies are appended verbatim as a user turn and the run continues, otherwise the run ends (`ok`, or `oracle_miss` when it clearly asked for something the sheet lacks). Write bodies as the full answer a real user would give; the oracle is strict about whether an entry *covers* the ask. See the CLI reference §4.1 and `plans/oracle-resolver.md`. |
 | `.Add(events)` | (any) | Append pre-built `TranscriptEvent`s — for directives the builder has no shortcut for (tool-surface, approval, fabricated tool rounds) and for seeding (§4). |
 
 The builder deliberately covers the common directives. For **tool-surface**
@@ -122,7 +123,9 @@ fabricating multi-event rounds; null for run-level events).
 
 **Message events** (`MessageEvent` base: `string? Text` or
 `IReadOnlyList<ContentPart>? Content`):
-- `SystemEvent`, `UserEvent`, `AssistantTextEvent` — `{ Turn, Text }`.
+- `SystemEvent`, `UserEvent`, `AssistantTextEvent` — `{ Turn, Text }`. `UserEvent` also
+  carries output-only enrichment `string? Source` / `IReadOnlyList<string>? Keys`, set to
+  `"oracle"` and the selected entry ids on a turn an answer sheet supplied; null otherwise.
 
 **Tool round** (author these to replay a past tool exchange as premise):
 - `ToolCallEvent` — `{ Turn, string Id, string Name, JsonObject? Arguments, string? Approved, string? ApprovalReason }`.
@@ -134,7 +137,9 @@ fabricating multi-event rounds; null for run-level events).
 - `RunEvent` — `{ Turn, string? Prompt }`. `Prompt` is the inline-user sugar.
 
 **Config directives** (run-level, `Turn` null):
-- `ProviderEvent { Name }`, `ModelEvent { Name }`.
+- `ProviderEvent { Name }`, `ModelEvent { Name }`, `HarnessEvent { Name }`.
+- `OracleEvent { string Sheet }` — the answer sheet's resolved markdown body (the builder's
+  `.Oracle(sheet)`).
 - `McpEvent` / `ToolsEvent` (both `SurfaceDirectiveEvent`): `{ IReadOnlyList<string> Add, IReadOnlyList<string> Remove, bool Reset }`.
   - `tools` baseline is all-on: `new ToolsEvent { Remove = ["bash"] }`, or
     `new ToolsEvent { Reset = true }` to clear. Native names: `bash`, `read_file`,
@@ -152,7 +157,8 @@ fabricating multi-event rounds; null for run-level events).
 - `BudgetEvent { string Key, long Value }` — `Key` in `tokens` (session-cumulative
   ceiling -> abort `token_budget`), `tool_calls` (per-turn cap, overrides `MaxToolCalls`),
   `wall_ms` (session-cumulative wall-clock ceiling in ms -> cancel the in-flight call,
-  abort `time_budget`).
+  abort `time_budget`), `oracle_turns` (resolutions an answer sheet may make -> abort
+  `oracle_budget`).
 
 **Output-only enrichment** (present in `RunResult.Events`, ignored if you replay
 them as input): `ThinkingEvent`, `AssistantJsonEvent`, `ResultEvent` (the run
@@ -259,6 +265,7 @@ public sealed record RunResult
     public string? Provider   { get; init; }    // the entry that actually answered
     public string? Harness    { get; init; }    // the costume worn, null for nb's own
     public int     Denied     { get; init; }    // tool calls the approval policy refused
+    public int     OracleTurns { get; init; }   // halts an answer sheet serviced (0 without one)
     public IReadOnlyList<string> Warnings { get; init; } // non-fatal evaluator warnings
 }
 ```
@@ -269,8 +276,9 @@ turn, or an approval denial come back as `ExitReason`/`ExitCode`:
 | `ExitReason` | `ExitCode` | Meaning |
 | --- | --- | --- |
 | `ok` | 0 | A final answer was produced. |
+| `oracle_miss` | 0 | The model clearly asked the user for something the attached answer sheet does not cover. The run ended as it would have without an oracle; only the label differs. Read `Answer` for the question, then add the entry. |
 | `provider_error` | 2 | The provider/model failed mid-turn. |
-| `max_tool_calls` / `tool_error_limit` / `token_budget` / `time_budget` | 3 | Aborted on a budget/limit (tool-call cap / repeated tool failure / token or wall-clock budget spent). |
+| `max_tool_calls` / `tool_error_limit` / `token_budget` / `time_budget` / `oracle_budget` | 3 | Aborted on a budget/limit (tool-call cap / repeated tool failure / token or wall-clock budget spent / answer-sheet resolutions exhausted). |
 | `approval_denied` | 4 | A tool needed approval and policy denied it. |
 
 **Exceptions are for things that stop a run from happening at all:**
@@ -327,3 +335,9 @@ catch (TranscriptFormatException e) { /* the program you built is malformed */ }
   substitution / `$VAR` expansion don't run there; a bwrap sandbox
   (`ApprovalEvent{Key="sandbox",Value="bwrap"}`, Linux) passes the command raw.
 - **Cancellation.** `RunAsync` takes a `CancellationToken`; pass one for long runs.
+- **Answer-sheet verdicts cost a model call each.** With `.Oracle(...)` every run that
+  ends `ok` makes one side call on the same client; on a reasoning model that is a few
+  hundred output tokens, counted in `Usage`. A verdict truncated before any text is a
+  `Warnings` entry and ends the run `ok` — the model needed more room, not a different
+  sheet. Write sheet bodies as the full answer a user would give: an entry that names
+  the topic without answering the question is judged a miss.

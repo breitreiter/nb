@@ -187,6 +187,49 @@ public class TranscriptSerializerTests
     }
 
     [Fact]
+    public void OracleEvent_RoundTrips()
+    {
+        var ev = new OracleEvent { Sheet = "## deploy-target\nStaging only.\n" };
+        var line = TranscriptSerializer.SerializeEvent(ev);
+        Assert.Contains("\"type\":\"oracle\"", line);
+
+        var back = Assert.IsType<OracleEvent>(TranscriptSerializer.Parse(line)[0]);
+        Assert.Equal("## deploy-target\nStaging only.\n", back.Sheet);
+    }
+
+    [Fact]
+    public void UserEvent_OracleEnrichment_RoundTrips_AndIsOmittedWhenAbsent()
+    {
+        var plain = TranscriptSerializer.SerializeEvent(new UserEvent { Text = "hi" });
+        Assert.DoesNotContain("source", plain);
+        Assert.DoesNotContain("keys", plain);
+
+        var line = TranscriptSerializer.SerializeEvent(new UserEvent { Text = "Staging.", Source = "oracle", Keys = new[] { "deploy-target" } });
+        Assert.Contains("\"source\":\"oracle\"", line);
+        Assert.Contains("\"keys\":[\"deploy-target\"]", line);
+
+        var back = Assert.IsType<UserEvent>(TranscriptSerializer.Parse(line)[0]);
+        Assert.Equal("oracle", back.Source);
+        Assert.Equal(new[] { "deploy-target" }, back.Keys);
+        Assert.Null(Assert.IsType<UserEvent>(TranscriptSerializer.Parse(plain)[0]).Keys);
+    }
+
+    [Fact]
+    public void ResultEvent_OracleTurns_RoundTrips_AndIsOmittedWhenZero()
+    {
+        Assert.DoesNotContain("oracle_turns", TranscriptSerializer.SerializeEvent(new ResultEvent()));
+        var line = TranscriptSerializer.SerializeEvent(new ResultEvent { OracleTurns = 2 });
+        Assert.Contains("\"oracle_turns\":2", line);
+        Assert.Equal(2, Assert.IsType<ResultEvent>(TranscriptSerializer.Parse(line)[0]).OracleTurns);
+    }
+
+    [Fact]
+    public void OracleEvent_WithoutSheet_Throws()
+    {
+        Assert.ThrowsAny<Exception>(() => TranscriptSerializer.Parse("{\"type\":\"oracle\"}"));
+    }
+
+    [Fact]
     public void AllEventTypes_RoundTrip()
     {
         var events = new TranscriptEvent[]
@@ -207,6 +250,7 @@ public class TranscriptSerializerTests
             },
             new LoopEvent { Enabled = true, Threshold = 4 },
             new BudgetEvent { Key = "tokens", Value = 50000 },
+            new OracleEvent { Sheet = "## k\nv\n" },
             new RunEvent { Prompt = "go" },
             new ResultEvent
             {

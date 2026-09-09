@@ -116,7 +116,8 @@ CLI Exe (repo root):
 - `Facade/` - In-process library surface: `Nb.RunAsync(config, program, options) → RunResult` (the "one contract, three surfaces" entry point), `NbProgramBuilder` (fluent program authoring), `NbRuntime` (the shared engine assembler — throws `NbStartupException` rather than exiting, suppresses chrome), `NbOptions` (incl. `ProvidersDirectory` for library hosts).
 - `ConversationManager.cs` - LLM interactions via Microsoft.Extensions.AI, MCP tool integration
 - `ProviderManager.cs` - AI provider discovery/loading (plugin architecture; injectable providers dir)
-- `ProgramEvaluator.cs` - Evaluates a conversation-program (the TranscriptEvent stream)
+- `ProgramEvaluator.cs` - Evaluates a conversation-program (the TranscriptEvent stream), including the oracle continuation loop
+- `AnswerSheet.cs` / `OracleResolver.cs` - The `oracle` directive's answer sheet and the side call that judges a finished turn against it (`plans/oracle-resolver.md`). The Mock provider's scripted verdict rides on `MOCK:oracle=`; the sentinel/marker literals are duplicated in `Providers/Mock` across the ALC boundary on purpose
 - `Transcript/` - The wire schema (events, serializer, mapper, loader, program parser)
 - `Harness/` - The advertised tool surface. `NbHarness` (nb's own surface + the tool-execution capabilities), `HarnessRegistry` (the closed set of costume names), and one subclass per costume (`QwenCodeHarness`, `CodexHarness`, `ClaudeCodeHarness`). A costume swaps names, schemas, result strings and prompt furniture; the tools behind it are the same instances. Preambles are deployed data files in `nb.Core/prompts/harness/*.md`, not embedded resources. Design: `plans/harness-emulation.md`
 - `MCP/` - `McpManager` (client lifecycle, layered mcp.json), `FakeToolManager`

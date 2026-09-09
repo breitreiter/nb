@@ -242,7 +242,7 @@ public class Program
     // Emit a facade RunResult in the resolved mode.
     private static void EmitResult(RunResult result, string mode)
     {
-        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied, result.Provider);
+        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied, result.Provider, result.OracleTurns);
         if (mode == "porcelain") EmitPorcelain(result.Events, trailer);
         else EmitJsonl(result.Events, trailer);
     }
@@ -405,8 +405,11 @@ public class Program
                 case LoopEvent { Enabled: true } l when l.Threshold < 2:
                     errors.Add($"invalid loop threshold '{l.Threshold}'. Use an integer >= 2, or 'loop off'.");
                     break;
-                case BudgetEvent b when b.Key is not ("tokens" or "tool_calls" or "wall_ms"):
-                    errors.Add($"invalid budget key '{b.Key}'. Valid: tokens, tool_calls, wall_ms.");
+                // Third of three places the budget key set is written down (the others are
+                // ProgramParser's parse error and ProgramEvaluator.ApplyBudget's switch).
+                // This one is load-bearing: it hard-errors, where ApplyBudget only warns.
+                case BudgetEvent b when b.Key is not ("tokens" or "tool_calls" or "wall_ms" or "oracle_turns"):
+                    errors.Add($"invalid budget key '{b.Key}'. Valid: tokens, tool_calls, wall_ms, oracle_turns.");
                     break;
                 case BudgetEvent b when b.Value <= 0:
                     errors.Add($"invalid budget value '{b.Value}' for '{b.Key}'. Use a positive integer.");

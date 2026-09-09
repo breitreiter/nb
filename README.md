@@ -156,9 +156,11 @@ nb flow.nb 2>/dev/null | jq -r 'select(.type=="assistant_text").text'
 ```
 
 Color is disabled automatically when stdout is redirected or `NO_COLOR` is set. Exit
-codes are meaningful: `0` success, `2` provider error, `3` turn aborted (tool-call
-budget or repeated failures), `4` approval denied — so a caller can classify failures
-without parsing text.
+codes are meaningful: `0` success, `2` provider error, `3` turn aborted (a budget or
+limit — tool calls, tokens, wall-clock, oracle turns — or repeated failures), `4`
+approval denied — so a caller can classify failures without parsing text. The
+fine-grained reason (`token_budget`, `oracle_miss`, …) is on the transcript's `result`
+trailer as `exit_reason`.
 
 The program format and the transcript format are the **same schema**: `--output jsonl`
 emits it and `--seed` loads it.
@@ -167,8 +169,8 @@ emits it and `--seed` loads it.
 
 Each line is `<verb> <content>`:
 
-- **Config directives** (`provider`, `model`, `harness`, `mcp`, `tools`, `approval`,
-  `loop`, `budget`) set the envelope going forward.
+- **Config directives** (`provider`, `model`, `harness`, `oracle`, `mcp`, `tools`,
+  `approval`, `loop`, `budget`) set the envelope going forward.
 - **Turn directives** (`system`, `user`, `assistant`) append messages.
 - **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a
   `user` turn followed by `run`).
@@ -297,12 +299,64 @@ loop 5                  # doom-loop threshold: nudge after 5 repeated tool-call 
 budget tokens 200000    # session-cumulative token ceiling; abort with exit_reason token_budget
 budget tool_calls 40    # per-turn tool-call cap for subsequent runs
 budget wall_ms 120000   # session wall-clock ceiling; cancels the in-flight call
+budget oracle_turns 8   # how many halts an answer sheet may service (see below)
 ```
 
 The doom-loop detector is a *soft* guard — it injects a `<system_reminder>` and the run
 continues (on by default, threshold 3). The budgets are *hard* ceilings that abort with
 exit 3, which is what bounds a runaway loop or a hung provider. All are additive: a
 program that names none behaves as before.
+
+### Answer sheets — servicing a model's questions
+
+nb has no user. When a model ends its turn with *"which environment should I deploy
+to?"*, the run has halted on a dependency nobody is there to satisfy. An **answer
+sheet** is the program's declaration of what that user would have said:
+
+```
+oracle @answers.md
+run Please deploy the api service.
+```
+
+```markdown
+## deploy-target
+The target environment is the staging Kubernetes cluster on AWS (EKS, eu-west-1).
+Never touch production during this exercise.
+
+## customer-name
+The customer is Acme Logistics.
+```
+
+After every run that ends normally, nb makes one small side call on the same provider:
+it is shown the sheet and the model's last message, and replies with the ids of the
+entries that answer what the model is clearly asking for, or `DONE` (not clearly waiting
+on the user), or `MISS` (clearly asking, but nothing on the sheet covers it). On a hit the
+selected bodies go in **verbatim** as a `user` turn and the run continues; the oracle
+selects, never writes. Anything else ends the run: `DONE` as `ok`, `MISS` as
+`oracle_miss` (still exit 0 — only the label differs, and the unanswered question is the
+last thing in the transcript). `budget oracle_turns` bounds the loop (`oracle_budget`,
+exit 3).
+
+The rule is *continue only on a confident hit*, and it is shaped that way because "is
+the model done, or asking?" is hard in general. Under this rule a wrong "not asking"
+costs nothing — the run ends as it would have anyway — while a wrong "asking" would
+inject an answer into finished work. Nothing is added to the system prompt and no
+ask-user tool is advertised, so the prompt under test is not perturbed.
+
+**Writing a sheet.** Key entries by **topic**, not by question — the model will phrase
+one question ten ways. Write each body as the **full answer a real user would give**,
+with enough detail to satisfy the question however it is asked. The oracle judges
+whether an entry *covers* the ask, and it is strict: in testing, a model asked *"please
+specify the cloud provider and platform"* and a sheet whose entry said only *"Deploy to
+staging"* was — correctly — judged a miss. The entry above, which says what the
+environment actually is, was a hit. Keep the rubric out: a sheet holds what the user
+*knows*, never how the task should be solved, or asking questions becomes a side channel
+to the answer key. Every `oracle_miss` is a maintenance signal — either the sheet needs an
+entry, or the prompt produced a question nobody anticipated.
+
+On the wire an oracle-supplied turn is an ordinary `user` event carrying
+`source: "oracle"` and `keys: [...]`; the `result` trailer gains `oracle_turns`. Design
+and measurements: [`plans/oracle-resolver.md`](plans/oracle-resolver.md).
 
 ### Approval policy
 

@@ -77,10 +77,10 @@ clean, parseable stdout.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | `ok` — a final answer was produced. |
+| `0` | `ok` — a final answer was produced. Also `oracle_miss` — the model asked the user for something the attached answer sheet does not cover; the run ended as it would have without an oracle, only the label differs (§4.1, *On `oracle`*). |
 | `1` | Startup/config error (bad config, unparseable/invalid program, unassemblable engine, missing program/seed file) — emitted before any transcript. |
 | `2` | `provider_error` — the provider/model failed mid-turn. |
-| `3` | Aborted on a budget/limit — tool-call cap exhausted (`max_tool_calls`), a tool failed repeatedly (`tool_error_limit`), a token/wall-clock budget was spent (`token_budget` / `time_budget`), or the provider throttled us past the retry budget (`rate_limited`). |
+| `3` | Aborted on a budget/limit — tool-call cap exhausted (`max_tool_calls`), a tool failed repeatedly (`tool_error_limit`), a token/wall-clock budget was spent (`token_budget` / `time_budget`), the provider throttled us past the retry budget (`rate_limited`), or the oracle's resolution budget ran out (`oracle_budget`). |
 | `4` | `approval_denied` — a tool needed approval and policy denied it. |
 
 The fine-grained reason also rides on the transcript's `result` trailer
@@ -156,6 +156,7 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 | `provider` | `provider <name>` | Select the active provider (matched against `ChatProviders[].Name` in config) for subsequent runs. |
 | `model` | `model <name>` | Select the model for subsequent runs. Overrides the active provider's model field in memory (both `Model` and `ChatDeploymentName`). |
 | `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Defaults to `nb` (nb's own surface). Registered names: `nb`, `qwen-code`, `codex`, `claude-code`. An unknown one is a parse error, not a warning. |
+| `oracle` | `oracle @<sheet.md>` | Attach an answer sheet: a scripted user that services the halt when a model ends its turn asking for information. After every run that ends `ok`, one small side call judges the model's last message against the sheet; on a confident hit the selected entries are appended verbatim as a `user` turn and the run continues. Anything else ends the run. See *On `oracle`* below and `plans/oracle-resolver.md`. |
 
 **On `harness`.** It is a program directive rather than provider config because the
 experiment worth running is *one model across two harnesses*, and that has to be
@@ -167,6 +168,74 @@ Runs that wear a non-default harness record it on the `result` trailer as `harne
 (omitted for the default). A costume also reports what it knowingly does not reproduce,
 as run warnings, so a surprising result arrives with a suspect list attached. Further
 costumes are planned; see `plans/harness-emulation.md`.
+
+**On `oracle`.** nb has no user, so a model that ends its turn with *"which environment
+should I deploy to?"* has halted on an unsatisfied dependency. An answer sheet is the
+program's declaration of what that user would have said — a markdown file of headed
+sections, each heading an entry id and its body the verbatim reply:
+
+```markdown
+## deploy-target
+Staging only. Never touch prod during this exercise.
+
+## customer-name
+Acme Logistics.
+```
+
+**Authoring a sheet.** Key entries by **topic**, not by question — models phrase one
+question ten ways. Write each body as the **full answer a real user would give**, with
+enough detail to satisfy the question however the model chooses to ask it: the oracle
+judges whether an entry *covers* the ask, and it is strict. Measured on a local model: a
+subject asked *"please specify the cloud provider and platform"*, and a sheet whose
+`deploy-target` entry said only *"Deploy to staging."* was judged `MISS` — defensibly,
+since "staging" does not answer "AWS or Azure?". The entry above, which says what the
+environment actually is, was a hit. A topic id names the entry; the body has to do the
+work. The sheet holds what a user *knows* (facts, constraints, preferences), never how
+the task should be solved: a sheet that carries the rubric turns question-asking into a
+side channel to the answer key.
+
+**The continuation rule: continue only on a confident hit; everything else ends the
+run.** After a run ends `ok`, nb makes one small side call on the current provider. It is
+shown the sheet and the model's last message and replies with entry ids, `DONE` or
+`MISS`. The oracle *selects, never authors* — the reply the model then sees is composed
+from the sheet bodies verbatim, so the transcript stays auditable.
+
+| Verdict | Effect | `exit_reason` |
+| --- | --- | --- |
+| entries selected | their bodies join as one `user` turn; the run continues | (continues) |
+| `MISS` — clearly asking, nothing on the sheet | run ends | `oracle_miss` (exit **0**) |
+| `DONE` — not clearly waiting on the user | run ends | `ok` |
+
+`oracle_miss` exits 0 on purpose: the run ended exactly as it would have without an
+oracle, and only the label differs. It is the maintenance signal — the sheet needs an
+entry, or the prompt produced a question nobody anticipated. The unanswered question is
+the last `assistant_text` in the transcript; nothing papers over the ask. An oracle is
+only consulted after `ok` — a run that ended on a budget, an error or a denial keeps that
+reason.
+
+Why the rule is shaped this way: *"is the model done, or asking?"* is hard in general,
+because the ambiguous turns (*"Done — want me to also do X?"*) are most of the
+population. Under this rule a false positive costs nothing (the run ends as it would
+have) and a false negative needs the oracle to miss a *clear* question that *has* an
+entry. The loop is bounded by `budget oracle_turns` (§4.4). There is no deflection and no
+"I'm not sure" reply — those exist to handle the ambiguous middle, and the rule removes it.
+
+On the wire, an oracle-supplied turn is an ordinary `user` event carrying two enrichment
+fields, `source: "oracle"` and `keys: [...]` (the ids selected). Enrichment is ignored on
+seed-load, so a resolved run replays from its own transcript as a plain conversation —
+which is what makes it reproducible. The `result` trailer gains `oracle_turns` (omitted
+when zero). Nothing is injected into the system prompt and no ask tool is advertised: a
+steer toward one would perturb the prompt under test, no costume in this repo carries
+one, and a model holding one still asks in prose anyway. The one prompt change is the
+doom-loop nudge, which stops telling a model that nobody is home once a sheet is attached.
+
+The directive carries the sheet's *resolved body*, not the path it came from:
+`@answers.md` is expanded at parse time by the same whole-content include the turn
+directives use (§4.5), and the text travels on the event, so a stored JSONL program stays
+runnable after the file moves. (The sheet is not echoed into a captured transcript — the
+oracle's *answers* are, as user turns, and those are what replay.) In practice the sheet
+always arrives by `@file`: source syntax is line-oriented, so a multi-line sheet written
+inline would parse its second line as a directive.
 
 Output format is **not** a directive — it's the `--output` flag / caller's choice
 (the program computes a conversation; delivery format is the caller's business).
@@ -266,6 +335,7 @@ Run-level guards that layer onto config; they govern every run after them.
 | `budget` | `budget tokens <n>` | Session-cumulative token ceiling. Once total usage crosses `<n>`, the run aborts with `exit_reason token_budget` (exit 3). Summed across all runs and tool-loop round-trips. Enforced against *estimated* counts when the provider reports none (§8) — it never silently stops enforcing. Default unlimited (config `TokenBudget`). |
 | `budget` | `budget tool_calls <n>` | Per-turn tool-call cap for subsequent runs — overrides config `MaxToolCalls` and the trust-mode floor. Exhausting it ends the turn with `max_tool_calls`. |
 | `budget` | `budget wall_ms <n>` | Session-cumulative wall-clock ceiling in milliseconds. Once elapsed time (from the first run) crosses `<n>`, the in-flight model call is **cancelled** and the run aborts with `exit_reason time_budget` (exit 3). This bounds a hung provider, not just a runaway loop. Default unlimited (config `WallClockBudgetMs`). |
+| `budget` | `budget oracle_turns <n>` | How many times an `oracle` may resolve a halt and continue the run. When the model asks again with a hit after `<n>` resolutions, the run ends with `exit_reason oracle_budget` (exit 3). Default 8. |
 
 The doom-loop nudge is a *soft* guard (it keeps the run going); `budget tokens` /
 `budget wall_ms` are the *hard* ceilings for a runaway or hung model. All are purely
@@ -409,7 +479,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `type` | Fields | Meaning |
 | --- | --- | --- |
 | `system` | `text` \| `content` | System-role message. |
-| `user` | `text` \| `content` | User-role message. |
+| `user` | `text` \| `content` | User-role message. Enrichment: `source: "oracle"` + `keys[]` when an answer sheet supplied the turn (§4.1). |
 | `assistant_text` | `text` \| `content` | Assistant prose. |
 | `tool_call` | `id`, `name`, `arguments` (JSON obj, types preserved), `approved`?, `approval_reason`? | A tool invocation. `id` is the join key. `approved` is `allow`/`deny`; `approval_reason` names the ladder rung that decided it (`pre-approved`, `safe`, `trust`, `default-deny`, `no-match`). A **denial** appends the near miss in parentheses — which rungs were consulted, and for each whether it was *skipped* (switched off elsewhere, e.g. `Trust=false`) or *refused* (evaluated and said no, with the cause). The rung stays the leading token, so filtering on `no-match` by prefix keeps working. |
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
@@ -419,7 +489,8 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `mcp` / `tools` | `reset`?, `add`[], `remove`[] | Tool-surface delta. |
 | `approval` | `key`, `value` | Approval-policy directive. |
 | `loop` | `enabled`, `threshold`? | Doom-loop directive. `threshold` present only when `enabled`. |
-| `budget` | `key`, `value` | Resource-budget directive (`tokens` \| `tool_calls` \| `wall_ms`). |
+| `budget` | `key`, `value` | Resource-budget directive (`tokens` \| `tool_calls` \| `wall_ms` \| `oracle_turns`). |
+| `oracle` | `sheet` | Answer sheet body (resolved, not a path). See §4.1. |
 
 **Enrichment events** (emitted on output, **ignored on seed-load**): `thinking`
 (`text`), `assistant_json` (`value`), and the `approved`/`approval_reason`/`result` fields.
@@ -431,7 +502,8 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 ```
 
 Fields: `exit_reason` (§2), `usage{input,output,total,estimated?}`, `turns`,
-`tool_calls`, `duration_ms`?, `provider`, `harness`?. `harness` names the costume the run
+`tool_calls`, `duration_ms`?, `provider`, `harness`?, `oracle_turns`? (how many halts an
+answer sheet serviced; omitted when zero). `harness` names the costume the run
 wore and is **omitted for nb's own** — so a default run's trailer is unchanged.
 `provider` names the entry that actually answered and is **always emitted**, unlike
 `harness`: it is the field a corpus is attributed by, and omitting it when it matches the
@@ -494,6 +566,27 @@ approval bash "git diff*"
 run review the staged changes and summarize them
 ```
 
+**Service a model's questions from an answer sheet:**
+```
+tools none
+oracle @answers.md
+system You are a deployment assistant. If the target environment is not stated, ask for it and stop.
+run Please deploy the api service.
+```
+with `answers.md`:
+```markdown
+## deploy-target
+The target environment is the staging Kubernetes cluster on AWS (EKS, eu-west-1).
+Never touch production during this exercise.
+```
+The model asks, the oracle selects `deploy-target`, the body enters as a `user` turn
+(`"source":"oracle","keys":["deploy-target"]`), and the model finishes:
+```bash
+nb deploy.nb 2>/dev/null | jq -c 'if .type=="user" and .source=="oracle" then .keys elif .type=="result" then [.exit_reason, .oracle_turns] else empty end'
+```
+A `MISS` ends the run `oracle_miss`; read the last `assistant_text` to see what was
+asked, then add the entry.
+
 **Inspect before running:**
 ```bash
 nb --resolve flow.nb    # print provider/model/output/surface/approval per run
@@ -531,6 +624,15 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
   provider — but a tool already executing (bash/MCP) still runs to its own per-op timeout
   before the run stops. `loop`/`budget` values below their floor (threshold < 2,
   non-positive) are rejected by `--validate` (exit 1).
+- **`oracle` verdicts on a reasoning model.** The side call gives the model ~4k output
+  tokens because a thinking model spends its reasoning inside the cap: at 200 tokens a
+  local GLM returned an empty verdict every time. A verdict cut off before any text
+  arrives is reported as a warning and treated as `DONE`, so the run ends `ok` rather
+  than continuing on a guess — if you see that warning, the model needs more room, not a
+  different sheet. Expect a verdict to cost a few hundred output tokens on such models;
+  `budget tokens` bounds it like everything else. And a sheet entry that names the topic
+  but does not actually answer the question is a `MISS`, not a hit (§4.1, *Authoring a
+  sheet*).
 - **`approval sandbox bwrap` on a non-Linux / no-bwrap host** → hard-fail, exit 1.
 - **`mcp +server` naming a server that failed to start** → hard-fail, exit 1 (the
   program selected tools that will never arrive). A configured server that fails but
