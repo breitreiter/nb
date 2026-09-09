@@ -123,8 +123,9 @@ single manifest hermetically.
 ```bash
 nb flow.nb                           # run a program file
 echo 'run summarize this' | nb -     # a one-off program on stdin
-nb                                   # (on a TTY, no input) the program REPL
 ```
+
+With no program, `nb` prints its help and exits 2 — there is no interactive mode.
 
 The positional argument is a program **file**, so `nb "some text"` goes looking for a
 file named "some text". To run a one-off prompt, wrap it in a `run`:
@@ -306,7 +307,7 @@ program that names none behaves as before.
 ### Approval policy
 
 Approval is a **declarative policy**, never an interactive prompt — an unmatched tool
-call is denied rather than asked about, in every mode including the REPL. nb does not
+call is denied rather than asked about, in every mode. nb does not
 stop mid-run to collect authorization; a program states what it is allowed to do. Set it
 with `approval` directives, or the `Approval` block (`Bash`/`McpTools`/`Default`/`Sandbox`)
 in config:
@@ -394,13 +395,6 @@ verb. Which model, which tools, and what's allowed belong to the program
 | `--dump-tools` | Write the connected MCP tool manifest to `mcp-tools.json` and exit |
 
 The program itself is the positional argument (`nb flow.nb`) or stdin (`nb -`).
-
-## The REPL
-
-`nb` on a TTY with no input starts a live interpreter of the **same source syntax**:
-each entered line is a directive, `run` invokes, Ctrl-D exits. It is the authoring and
-debugging surface — the fastest way to build an envelope up line by line and watch what
-it does before committing it to a file.
 
 ## Testing affordances
 
@@ -612,7 +606,7 @@ to an empty string. Literal values work too.
 
 ## Theming
 
-Interactive output (`--output interactive`, and the REPL) loads its color scheme from
+Interactive output (`--output interactive`) loads its color scheme from
 `theme.json` at startup. Color names come from
 [Spectre.Console](https://spectreconsole.net/appendix/colors). A high-contrast example
 (WCAG AAA on the standard Windows console background, #0C0C0C):

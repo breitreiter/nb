@@ -93,15 +93,11 @@ human reads** — `approval_reason` values, refusal text, exit reasons, trailer 
 Cheap to assert, cheap to see red, and `evals/` already asserts on exactly those.
 
 ## Execution Modes
-nb runs a **conversation-program**, two ways:
-
-1. **File / stdin** — `nb <program-file>`, `nb -`, or piped stdin runs a program and
-   exits. Stateless; continuity is explicit via `--seed`. Default output is jsonl.
-   The positional argument is a file path, never a prompt.
-
-2. **REPL** (`nb` on a TTY, no input) — a live interpreter of the *same source syntax*:
-   each entered line is a program directive; `run` invokes. Ctrl-D exits. The
-   authoring/debug surface.
+nb runs a **conversation-program** one way: **file / stdin** — `nb <program-file>`,
+`nb -`, or piped stdin runs a program and exits. Stateless; continuity is explicit via
+`--seed`. Default output is jsonl. The positional argument is a file path, never a
+prompt. There is no interactive mode: bare `nb` prints help and exits 2 (the REPL was
+retired 2026-09-09, `plans/retire-the-repl.md`).
 
 Full grammar/semantics: `docs/conversation-program-cli.md`; library API:
 `docs/conversation-program-api.md`.
@@ -114,8 +110,7 @@ thin CLI `Exe` referencing it. Namespaces stay `nb.*` across both. A same-soluti
 consumer references `nb.Core` and calls `Nb.RunAsync` in-process.
 
 CLI Exe (repo root):
-- `Program.cs` - The CLI shell: parse flags, resolve program input (file/stdin/REPL), emit/exit. A thin shell over `nb.Core` (`Nb.RunAsync` for a run, `NbRuntime` for the REPL)
-- `FileMentionSource.cs` - Line-editor `@file` completion source (UglyPrompt)
+- `Program.cs` - The CLI shell: parse flags, resolve program input (file/stdin), emit/exit. A thin shell over `nb.Core` (`Nb.RunAsync`)
 
 `nb.Core/` library:
 - `Facade/` - In-process library surface: `Nb.RunAsync(config, program, options) → RunResult` (the "one contract, three surfaces" entry point), `NbProgramBuilder` (fluent program authoring), `NbRuntime` (the shared engine assembler — throws `NbStartupException` rather than exiting, suppresses chrome), `NbOptions` (incl. `ProvidersDirectory` for library hosts).
@@ -134,8 +129,8 @@ Other:
 - `mcp-servers/mcp-tester/` - Built-in MCP server for testing and example prompts
 
 ## Development Notes
-- The REPL parses each entered line with `ProgramParser` and feeds it to a long-lived
-  `ProgramEvaluator` via `EvaluateEventAsync` (same grammar as a source-syntax program)
+- `ProgramEvaluator.EvaluateEventAsync` evaluates one directive at a time; it stays on
+  the library surface for a host that wants to drive a program incrementally
 - Configuration is loaded from `appsettings.json`
 - MCP clients are initialized on startup and disposed on exit
 - Tool calling safety: Configurable max tool calls per message via `MaxToolCalls` in appsettings.json (default: 25)
@@ -261,8 +256,8 @@ from nb's coding-agent era, where it kept an agent out of a watching human's hom
 directory.
 
 **The path scoping is scheduled for removal — don't build on it.** The watching human
-it was written for was the REPL user, and the REPL is being retired
-(`plans/retire-the-repl.md`): nobody drives it, and a coding agent can't use a TTY line
+it was written for was the REPL user, and the REPL is now gone
+(`plans/retire-the-repl.md`): nobody drove it, and a coding agent can't use a TTY line
 editor at all. With no human watching in any deployment the rule protects nobody while
 still producing false denials on legitimate work — which corrupts an eval, because a run
 that failed on a harness artifact is indistinguishable from a run where the model failed

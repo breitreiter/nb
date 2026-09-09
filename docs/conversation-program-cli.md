@@ -43,8 +43,6 @@ nb [options] [program-file | -]
 **Input** — nb always runs a program:
 - `nb flow.nb` — run the program in that file.
 - `nb -`, or piped stdin with no positional (`… | nb`) — run the program from stdin.
-- `nb` on a TTY with no input — the **program REPL** (§3): interpret the source
-  syntax line by line.
 
 There is **no positional prompt**. `nb "some text"` is treated as a program *file*
 named `some text` (almost always a "file not found" error). To run a one-off prompt,
@@ -55,8 +53,8 @@ make it a program: `echo 'run summarize this' | nb -`.
 | Flag | Effect |
 | --- | --- |
 | `--output <mode>` | `jsonl` (default for a program), `porcelain`, or `interactive`. jsonl/porcelain put the transcript on stdout, chrome on stderr. |
-| `--seed <file>` | Prepend a transcript (jsonl) as premise history before the program (§8). |
-| `--config <file>` | Use exactly this config file (hermetic); otherwise config resolves in layers (§9). |
+| `--seed <file>` | Prepend a transcript (jsonl) as premise history before the program (§6). |
+| `--config <file>` | Use exactly this config file (hermetic); otherwise config resolves in layers (§7). |
 | `--mcp <file>` | Use this MCP manifest only; otherwise `mcp.json` resolves in layers. |
 | `--validate` | Parse + semantically check the program, run nothing. Exit 1 on any error. |
 | `--resolve` | Print the effective envelope at each run point, run nothing. Under a `harness` costume it adds a second line — `wire=` (the tool names the model is actually offered) and `dropped=` (canonical tools the costume discards) — because `tools=` echoes the directives, which under a costume are *requested*, not effective. |
@@ -71,7 +69,7 @@ not flags. That is the whole design: the program is the interface.
 all chrome (tool logs, warnings, diagnostics) goes to **stderr**. Colour is disabled
 when stdout is redirected or `NO_COLOR` is set. So `nb flow.nb 2>/dev/null` gives
 clean, parseable stdout.
-- `jsonl` — a typed event stream, one JSON object per line (§10).
+- `jsonl` — a typed event stream, one JSON object per line (§8).
 - `porcelain` — plain text: `TOOL`/`RESULT` lines plus the answer verbatim (a final
   ```` ```json ```` fence survives byte-for-byte).
 
@@ -88,7 +86,7 @@ clean, parseable stdout.
 The fine-grained reason also rides on the transcript's `result` trailer
 (`exit_reason`). An unmatched tool call is **denied**, never prompted — grant what a run
 needs with `approval` directives or config allow-lists. This does not depend on whether
-stdin is a TTY: nb never asks for authorization mid-run, at the REPL or anywhere else.
+stdin is a TTY: nb never asks for authorization mid-run, ever.
 Authorization is something a program *states*, not something a run stops to collect.
 
 **Throttling.** A provider rate-limit rejection is retried with exponential backoff
@@ -116,19 +114,7 @@ the distinction is the point — the same program re-run later may well succeed.
 
 ---
 
-## 3. The program REPL
-
-With no input on a TTY, `nb` starts a REPL that **interprets the same source syntax**
-(§4–§5) line by line — it is not a chat client. Each entered line is a program
-directive: `provider Mock`, `system be terse`, `user hi`, `run` (or `run <text>`)
-invokes the model and renders the reply live. Config directives set the envelope
-going forward; turns buffer until the next `run`; a parse error prints and continues.
-There are no slash-commands and no persona. Ctrl-D (EOF) exits, exactly as a source
-program ends. It doubles as the authoring/debugging surface for programs.
-
----
-
-## 4. Source syntax
+## 3. Source syntax
 
 One rule: **a logical line is `<verb> <content>`** — the first whitespace-delimited
 token is the verb, everything after the first space is the content (trimmed).
@@ -141,7 +127,7 @@ verb `system`, content `system design is hard`.
   (this also covers a leading `#!` shebang). Blank lines are skipped.
 - **`@file` include:** if a directive's *entire* content is `@<path>` (no
   whitespace), it's replaced by that file's contents. Paths resolve **relative to
-  the program file** (or cwd for a stdin/REPL program). Any other use of `@` is literal.
+  the program file** (or cwd for a stdin program). Any other use of `@` is literal.
 
 ```
 #!/usr/bin/env nb
@@ -158,12 +144,12 @@ errors → exit 1. Semantic errors (unknown provider) are caught by `--validate`
 
 ---
 
-## 5. Directives
+## 4. Directives
 
 Three classes: **config** (set the envelope going forward, order matters), **turns**
 (append messages), and **run** (invoke the model).
 
-### 5.1 Config directives — the envelope
+### 4.1 Config directives — the envelope
 
 | Directive | Syntax | Meaning |
 | --- | --- | --- |
@@ -176,7 +162,7 @@ experiment worth running is *one model across two harnesses*, and that has to be
 expressible as two files in a directory rather than as an edit to global config between
 runs. A named harness brings its whole costume — prompt preamble, the project instruction
 files its target reads (`AGENTS.md` under `codex`, `CLAUDE.md` under `claude-code`), and
-that harness's environment block — see §5.5.
+that harness's environment block — see §4.5.
 Runs that wear a non-default harness record it on the `result` trailer as `harness`
 (omitted for the default). A costume also reports what it knowingly does not reproduce,
 as run warnings, so a surprising result arrives with a suspect list attached. Further
@@ -186,9 +172,9 @@ Output format is **not** a directive — it's the `--output` flag / caller's cho
 (the program computes a conversation; delivery format is the caller's business).
 
 Config directives apply to **every run after them until overridden**, so one document
-can drive two models in sequence (see §11).
+can drive two models in sequence (see §9).
 
-### 5.2 Tool-surface directives — `tools` and `mcp`
+### 4.2 Tool-surface directives — `tools` and `mcp`
 
 Delta semantics. Tokens are `+name`, `-name`, or `none` (reset/clear). `none` is only
 meaningful first on the line — it clears the surface, and any `+name`/`-name` after it
@@ -227,7 +213,7 @@ run 1: … harness=codex … tools=bash,edit_file,fetch_url,find_files,grep,list
 `dropped=` is the half worth reading before spending a run: nine tools named, two
 offered, and no way to edit a file.
 
-### 5.3 Approval directives — `approval`
+### 4.3 Approval directives — `approval`
 
 `approval <key> <value>`. Layers onto the config-seeded approval policy for
 subsequent runs.
@@ -270,14 +256,14 @@ container, nb inside it, one filesystem. nb's file tools (`read_file`, `edit_fil
 give the model two sets of paths for the same files. See
 `plans/approval-is-not-a-boundary.md`.
 
-### 5.4 Loop & budget directives — `loop` and `budget`
+### 4.4 Loop & budget directives — `loop` and `budget`
 
 Run-level guards that layer onto config; they govern every run after them.
 
 | Directive | Syntax | Effect |
 | --- | --- | --- |
 | `loop` | `loop <n>` \| `loop off` | Doom-loop detector. `loop <n>` sets the repetition threshold — after N repeated tool-call sequences a `<system_reminder>` nudge is injected and the run continues. `loop off` disables it. On by default (threshold 3 / config `DoomLoopThreshold`). Threshold must be ≥ 2. |
-| `budget` | `budget tokens <n>` | Session-cumulative token ceiling. Once total usage crosses `<n>`, the run aborts with `exit_reason token_budget` (exit 3). Summed across all runs and tool-loop round-trips. Enforced against *estimated* counts when the provider reports none (§9) — it never silently stops enforcing. Default unlimited (config `TokenBudget`). |
+| `budget` | `budget tokens <n>` | Session-cumulative token ceiling. Once total usage crosses `<n>`, the run aborts with `exit_reason token_budget` (exit 3). Summed across all runs and tool-loop round-trips. Enforced against *estimated* counts when the provider reports none (§8) — it never silently stops enforcing. Default unlimited (config `TokenBudget`). |
 | `budget` | `budget tool_calls <n>` | Per-turn tool-call cap for subsequent runs — overrides config `MaxToolCalls` and the trust-mode floor. Exhausting it ends the turn with `max_tool_calls`. |
 | `budget` | `budget wall_ms <n>` | Session-cumulative wall-clock ceiling in milliseconds. Once elapsed time (from the first run) crosses `<n>`, the in-flight model call is **cancelled** and the run aborts with `exit_reason time_budget` (exit 3). This bounds a hung provider, not just a runaway loop. Default unlimited (config `WallClockBudgetMs`). |
 
@@ -285,7 +271,7 @@ The doom-loop nudge is a *soft* guard (it keeps the run going); `budget tokens` 
 `budget wall_ms` are the *hard* ceilings for a runaway or hung model. All are purely
 additive — a program that names none behaves exactly as before.
 
-### 5.5 Turn directives — `system`, `user`, `assistant`
+### 4.5 Turn directives — `system`, `user`, `assistant`
 
 `system <text>`, `user <text>`, `assistant <text>` append one message of that role.
 `system` is a plain message — **nb injects no persona a program did not ask for**. By
@@ -345,13 +331,13 @@ transcript as ordinary `system` messages,
 so everything the model was sent is on the wire record and a `--seed` replay reproduces
 it exactly, even if the costume or the project's instruction file has changed since.
 
-### 5.6 `run` — the sole invocation
+### 4.6 `run` — the sole invocation
 
 `run` sends the accumulated conversation to the model. `run <text>` is sugar for
 `user <text>` then `run`. A program may have multiple `run`s; config directives
 between them re-target the run. Token usage on the trailer **sums across all runs**.
 
-### 5.7 `tool_call` / `tool_result` — JSONL only
+### 4.7 `tool_call` / `tool_result` — JSONL only
 
 These carry structured fields and **cannot** be written in source syntax. Author them
 as JSONL to fabricate a **tool round as premise** — an assistant turn that called a
@@ -361,7 +347,7 @@ a matching `tool_result` (same `id`) before the run that consumes it, or exit 1.
 
 ---
 
-## 6. Evaluation semantics
+## 5. Evaluation semantics
 
 The evaluator walks the event stream in order: config directives update the forward
 envelope (a `provider`/`model` change rebuilds the client — mid-stream model swap is
@@ -376,11 +362,11 @@ Invariants:
 - **Completed rounds only.** Fabricated tool rounds must be well-formed (each call
   paired with a result, turns monotonic); malformed → exit 1.
 - **Usage sums** across every run and tool-loop round-trip, and is estimated (and
-  flagged) rather than dropped when a provider reports none — see §9.
+  flagged) rather than dropped when a provider reports none — see §8.
 
 ---
 
-## 7. Seeds
+## 6. Seeds
 
 `--seed <file>` prepends a transcript (jsonl events) as premise history before the
 program body. A seed's own `system` messages survive (they append as premise). The
@@ -395,7 +381,7 @@ echo 'run now finish it' | nb - --seed turn1.jsonl
 
 ---
 
-## 8. Configuration resolution
+## 7. Configuration resolution
 
 Config resolves in layers, later winning: install defaults (`appsettings.json` next
 to the binary) → user (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`) →
@@ -412,7 +398,7 @@ installation-local; `--validate` catches an unknown name before a run.
 
 ---
 
-## 9. The JSONL wire format
+## 8. The JSONL wire format
 
 `--output jsonl` emits one JSON object per line; `--seed` and JSONL programs read the
 same. Field order is stable (type, turn, then type-specific). Every event has `"type"`
@@ -429,7 +415,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
 | `run` | `prompt`? | Invocation directive. On output, a past run appears as the `assistant_text` it produced. |
 | `provider` / `model` | `name` | Config directive. |
-| `harness` | `name` | Harness-selection directive (§5.1). Registered: `nb`, `qwen-code`, `codex`, `claude-code`. |
+| `harness` | `name` | Harness-selection directive (§4.1). Registered: `nb`, `qwen-code`, `codex`, `claude-code`. |
 | `mcp` / `tools` | `reset`?, `add`[], `remove`[] | Tool-surface delta. |
 | `approval` | `key`, `value` | Approval-policy directive. |
 | `loop` | `enabled`, `threshold`? | Doom-loop directive. `threshold` present only when `enabled`. |
@@ -473,7 +459,7 @@ in v1 — the durable stand-in is `note`.
 
 ---
 
-## 10. Worked examples
+## 9. Worked examples
 
 **Run a one-off prompt and extract the answer:**
 ```bash
@@ -516,7 +502,7 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
 
 ---
 
-## 11. Failure modes to expect (the sharp edges)
+## 10. Failure modes to expect (the sharp edges)
 
 - **`nb "some text"`** → treated as a program *file* named "some text" → file-not-found,
   exit 1. There is no bare-prompt mode. Wrap it: `echo 'run some text' | nb -`.
@@ -530,8 +516,7 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
   nb refuses rather than answering from whichever client was live before it — that
   substitution used to exit 0 with a transcript indistinguishable from a working run.
   Note `--validate` catches only unknown *names*: an entry that is present but
-  unbuildable validates clean and fails at run time. In the **REPL** this is reported and
-  the session continues, since a mistyped line there should not tear down the session.
+  unbuildable validates clean and fails at run time.
 - **Malformed fabricated round** (unpaired call/result, non-monotonic turns) → exit 1.
 - **Tool call outside the advertised surface** → refused as "not found" (native tools
   are all-on; MCP is strict-empty until `mcp +server`).

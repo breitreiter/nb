@@ -2,9 +2,9 @@
 kind: plan
 title: Retire the REPL
 created: 2026-09-05
-updated: 2026-09-07
+updated: 2026-09-09
 status: current
-state: proposed
+state: done
 touches:
   files:
     - Program.cs
@@ -16,7 +16,7 @@ supersedes: []
 
 # Retire the REPL
 
-**State: proposed.** Written 2026-09-05 on the owner's call: *"I don't think anyone is
+**State: done 2026-09-09.** Written 2026-09-05 on the owner's call: *"I don't think anyone is
 using it as a repl any more. It's not super useful for me, and you (and other coding
 agents) can't use it interactively."*
 
@@ -190,3 +190,30 @@ check, and trusts a `Run` command with no extractable path before any path check
 Trust remains a real implicit-grant rung; it loses the path scoping, not its purpose.
 
 Stage 3 (the deletion) is unchanged and still proposed.
+
+## Stages 3–5 outcome, 2026-09-09
+
+Landed as planned. Deleted: `RunReplAsync`, the `runRepl` branch, `_lineEditor` /
+`CreateLineEditor`, `FileMentionSource.cs`, `FileMentionSourceTests.cs`, and the
+`UglyPrompt` package reference. Bare `nb` on a TTY prints help and exits **2** (open
+question 1's recommendation, taken as written). Open questions 2 and 3 were left alone:
+`--output interactive` keeps its name and `EvaluateEventAsync` stays public.
+
+`dotnet test` 615/615 and `evals/run.sh --skip-llm` 76/76 — neither suite referenced the
+REPL, so the deletion needed no test changes and produced no regression to catch. Stage
+2's earlier work meant nothing in `TrustSandbox` or `ApprovalPolicy` had to move.
+
+**Two things this plan under-counted.**
+
+*Docs were more than a delete.* Removing §3 from `docs/conversation-program-cli.md`
+renumbered §4–§11 down one, and the plan had not noticed the `### 5.x` subsection
+headers or the nine `§n` cross-references that ride along. Renumbering also exposed a
+pre-existing off-by-one: the flag table's `--seed`/`--config`/`jsonl` pointers and the
+"two models in sequence" pointer had each been one section high since before this work.
+Corrected in passing — they now name Seeds, Configuration resolution, the JSONL wire
+format and Worked examples respectively.
+
+*`plans/Terminal_Integration.md` needed no change.* Stage 5 flagged it for a read on the
+suspicion it was wholly about the interactive surface. It is not — it is the design doc
+for the bash tool and the environment block, both of which are untouched by the REPL's
+removal. Left as Implemented.

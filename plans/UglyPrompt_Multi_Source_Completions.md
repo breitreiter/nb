@@ -1,6 +1,12 @@
 # UglyPrompt: Generalized Completion Sources
 
-Status: Proposed
+Status: Superseded by `plans/retire-the-repl.md` (2026-09-09)
+
+Mooted, not rejected. This plan generalized completion sources for the line editor;
+stage 3 of the REPL retirement deleted the line editor, `FileMentionSource.cs` and the
+`UglyPrompt` dependency, so nb has no consumer for it. The `@file` **include** syntax
+survives — that lives in `ProgramParser` and is used by the program path. What is gone
+is tab-completion of `@` mentions while typing.
 
 ## Problem
 

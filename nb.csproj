@@ -10,11 +10,9 @@
     <ApplicationIcon>nb.ico</ApplicationIcon>
   </PropertyGroup>
 
-  <!-- The CLI shell: Program + CommandProcessor + the line-editor mention source.
-       The engine lives in nb.Core; UglyPrompt (line editor) is CLI-only. Everything
-       else (Spectre, config, MCP, Microsoft.Extensions.AI) flows transitively. -->
+  <!-- The CLI shell: Program only. The engine lives in nb.Core; everything else
+       (Spectre, config, MCP, Microsoft.Extensions.AI) flows transitively. -->
   <ItemGroup>
-    <PackageReference Include="UglyPrompt" Version="0.4.0" />
     <PackageReference Include="Spectre.Console" Version="0.52.1-preview.0.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.0" />
   </ItemGroup>

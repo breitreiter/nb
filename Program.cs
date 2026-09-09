@@ -8,7 +8,6 @@ using nb.MCP;
 using nb.Shell;
 using nb.Transcript;
 using nb.Utilities;
-using UglyPrompt;
 
 namespace nb;
 
@@ -22,27 +21,13 @@ public class Program
     private static ConfigurationService _configurationService = null!;
     private static ProviderManager _providerManager = new ProviderManager();
 
-    private static LineEditor _lineEditor = CreateLineEditor();
-
-    private static LineEditor CreateLineEditor()
-    {
-        var editor = new LineEditor();
-
-        // File mentions (@trigger): word-start, indexed once from the launch
-        // directory then filtered in memory. This is the `@file` include of the
-        // source syntax, so it stays useful in the program REPL.
-        editor.AddSource(FileMentionSource.Create(Directory.GetCurrentDirectory()));
-
-        return editor;
-    }
-
     private static bool _verbose = false;
     private static bool _dumpTools = false;
     private static bool _showHelp = false;
     private static string _outputMode = "interactive"; // interactive | porcelain | jsonl
     private static string? _seedFile = null;
     private static string? _configPath = null;
-    private static string? _programFile = null;        // program path, "-" for stdin, or null (REPL)
+    private static string? _programFile = null;        // program path, "-" for stdin, or null
     private static string? _mcpManifest = null;
     private static bool _validate = false;
     private static bool _resolve = false;
@@ -127,9 +112,8 @@ public class Program
 
         var remainingArgs = ParseFlags(args);
 
-        // The input is a program: a positional file, `-`, or piped stdin. With no
-        // input and a TTY, we drop into the program REPL. nb is not a chat client:
-        // there is no positional prompt.
+        // The input is a program: a positional file, `-`, or piped stdin. nb is not
+        // a chat client: there is no positional prompt, and no interactive mode.
         if (remainingArgs.Length > 1)
         {
             Console.Error.WriteLine("Error: expected at most one program (a file path or '-'). nb runs conversation-programs, not prompts.");
@@ -137,7 +121,6 @@ public class Program
         }
         _programFile = remainingArgs.Length == 1 ? remainingArgs[0]
             : (Console.IsInputRedirected ? "-" : null);
-        bool runRepl = _programFile == null && !_validate && !_resolve;
 
         // A program run is machine-oriented: default its output to jsonl (the
         // bytecode) so chrome relocates to stderr like the other machine modes.
@@ -187,6 +170,16 @@ public class Program
             return;
         }
 
+        // Nothing to run and nothing to inspect. Exit non-zero with help rather than
+        // succeeding silently: a bare `nb` used to start a REPL, and a returning user
+        // needs to be told the mode is gone rather than left staring at a prompt-less
+        // success.
+        if (_programFile == null && !_validate && !_resolve)
+        {
+            PrintHelp();
+            Environment.Exit(2);
+        }
+
         // Build configuration — --config selects a hermetic single-file config,
         // otherwise the layered install/user/project resolution applies. A missing
         // --config file is a fatal config error.
@@ -203,10 +196,7 @@ public class Program
         var config = _configurationService.GetConfiguration();
         UIColors.LoadTheme();
 
-        if (runRepl)
-            await RunReplAsync(config);
-        else
-            await RunProgramAsync(config);
+        await RunProgramAsync(config);
     }
 
     private static void PrintHelp()
@@ -214,8 +204,7 @@ public class Program
         Console.WriteLine("Usage: nb [options] [program-file | -]");
         Console.WriteLine();
         Console.WriteLine("nb evaluates a conversation-program. Give a program file, or '-' / piped");
-        Console.WriteLine("stdin to read one from stdin. With no input on a TTY, nb starts a REPL that");
-        Console.WriteLine("interprets the same source syntax line by line.");
+        Console.WriteLine("stdin to read one from stdin. With no program, nb has nothing to run.");
         Console.WriteLine();
         Console.WriteLine("Options (each varies how a program runs; it never replaces a program verb):");
         Console.WriteLine("  --help, -h              Show this help message");
@@ -230,77 +219,6 @@ public class Program
         Console.WriteLine();
         Console.WriteLine("Program verbs (source syntax): provider, model, mcp, tools, approval,");
         Console.WriteLine("loop, budget, system, user, assistant, run. See docs/conversation-program-cli.md.");
-    }
-
-    // The program REPL: interpret the same source syntax line by line. Each entered
-    // line is parsed to directives and fed to one long-lived evaluator; a `run`
-    // invokes the model and renders live. Not a chat client — no slash commands, no
-    // persona. Ctrl-D (EOF) exits, exactly as a source program ends.
-    private static async Task RunReplAsync(IConfiguration config)
-    {
-        NbRuntime runtime;
-        try
-        {
-            runtime = await NbRuntime.BuildAsync(config, BuildNbOptions());
-        }
-        catch (NbStartupException ex)
-        {
-            Console.Error.WriteLine($"Error: {ex.Message}");
-            Environment.Exit(1);
-            return;
-        }
-
-        using (runtime)
-        {
-            await runtime.Mcp.ConnectAllAsync();
-            foreach (var warning in runtime.StartupWarnings)
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]{Markup.Escape(warning)}[/]");
-            foreach (var (name, error) in runtime.Mcp.FailedServers)
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]MCP server '{name}' failed to start: {Markup.Escape(error)}[/]");
-            var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory);
-
-            var mcpServers = runtime.Mcp.GetConnectedServerNames();
-            var mcpList = mcpServers.Count > 0 ? string.Join(", ", mcpServers) : "none";
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]nb · {Markup.Escape(runtime.Conversation.GetCurrentProvider())} · mcp: {Markup.Escape(mcpList)} · enter program directives · Ctrl-D to exit[/]");
-
-            bool bracketedPaste = !Console.IsInputRedirected;
-            if (bracketedPaste) Console.Write("\x1b[?2004h");
-            try
-            {
-                while (true)
-                {
-                    var line = _lineEditor.ReadLine($"[38;5;154m›[0m {UIColors.NativeUserInput}");
-                    Console.Write(UIColors.NativeReset);
-                    if (line == null) break;                       // EOF (Ctrl-D)
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-
-                    IReadOnlyList<TranscriptEvent> events;
-                    try
-                    {
-                        events = ProgramParser.Parse(line, ResolveInclude);
-                    }
-                    catch (ProgramParseException ex)
-                    {
-                        Console.Error.WriteLine(ex.Message);
-                        continue;
-                    }
-
-                    try
-                    {
-                        foreach (var ev in events)
-                            await evaluator.EvaluateEventAsync(ev);
-                    }
-                    catch (Exception ex) when (ex is TranscriptFormatException or SandboxUnavailableException or McpServerUnavailableException or ProviderUnavailableException)
-                    {
-                        Console.Error.WriteLine($"Error: {ex.Message}");
-                    }
-                }
-            }
-            finally
-            {
-                if (bracketedPaste) Console.Write("\x1b[?2004l");
-            }
-        }
     }
 
     // Emit the transcript schema as JSONL on stdout (trailer inline). Chrome has
@@ -634,7 +552,7 @@ public class Program
             : ProgramParser.Parse(source, ResolveInclude);
 
     // Resolve an @file include for the source parser: relative to the program
-    // file's directory (or cwd for a stdin/REPL program), fail fast if missing.
+    // file's directory (or cwd for a stdin program), fail fast if missing.
     private static string ResolveInclude(string relPath)
     {
         var baseDir = _programFile is not null and not "-"
