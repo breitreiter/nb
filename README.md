@@ -246,10 +246,19 @@ tool you thought you had removed.
 ### Harness costumes
 
 `harness <name>` selects the harness a run wears — its tool surface, its result
-formatting, and its prompt. It defaults to `nb` (nb's own surface); the registered
-costumes are `qwen-code`, `codex`, and `claude-code`. An unknown name is a parse error.
-A run that quietly fell back to nb's surface while the program said `codex` would
-produce comparative numbers that mean nothing.
+formatting, and its prompt. The registered names are `nb` (nb's own bare surface),
+`qwen-code`, `codex`, and `claude-code`. An unknown name is a parse error, and **every
+run must name one**: a program that omits the directive inherits `"Harness"` from the
+active provider entry in `appsettings.json`, and if that is silent too the run is
+refused before a model is called. A run that quietly fell back to nb's surface while
+the program said `codex` would produce comparative numbers that mean nothing — and a
+run that fell back to it because nobody said anything produced hours of chasing
+"model behaviour" that was only the missing costume.
+
+Pair each costume with its vendor's model: `claude-code` with an Anthropic model,
+`codex` with an OpenAI model, `qwen-code` with a Qwen model. The example config does
+this per entry, so naming a model is enough. Putting another vendor's model inside a
+costume runs, and is occasionally interesting, but it is not "a test with Claude Code".
 
 ```
 harness codex

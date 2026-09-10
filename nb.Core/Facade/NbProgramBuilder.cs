@@ -17,6 +17,9 @@ public sealed class NbProgramBuilder
 
     public NbProgramBuilder Provider(string name) { _events.Add(new ProviderEvent { Name = name }); return this; }
     public NbProgramBuilder Model(string name) { _events.Add(new ModelEvent { Name = name }); return this; }
+
+    /// <summary>Select the harness the run wears (the <c>harness &lt;name&gt;</c> directive). Every run needs one, from here, config, or <see cref="NbOptions.Harness"/>.</summary>
+    public NbProgramBuilder Harness(string name) { _events.Add(new HarnessEvent { Name = name }); return this; }
     public NbProgramBuilder System(string text) { _events.Add(new SystemEvent { Text = text }); return this; }
     public NbProgramBuilder User(string text) { _events.Add(new UserEvent { Text = text }); return this; }
     public NbProgramBuilder Assistant(string text) { _events.Add(new AssistantTextEvent { Text = text }); return this; }

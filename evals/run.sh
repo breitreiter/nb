@@ -564,6 +564,30 @@ run_prog_stdout_lacks "resolve: native harness prints no wire line" "wire=" \
     "$(cat "$FIX/prog-native-resolve.nb")" --resolve
 
 echo ""
+echo "--- harness is required ---"
+echo ""
+
+# A run wears a harness on purpose. A program that names none, under a config whose
+# entry names none, is refused before a model is called — the bare surface is `harness
+# nb`, asked for by name. (The mock config every other eval uses says `"Harness": "nb"`.)
+run_prog_contains "harness: no harness anywhere is refused" 1 "no harness named" \
+    $'run hi' --config "$FIX/no-harness-appsettings.json"
+run_prog_contains "harness: the refusal says how to ask for the bare surface" 1 "harness nb" \
+    $'run hi' --config "$FIX/no-harness-appsettings.json"
+run_prog_contains "harness: the refusal pairs costumes with their vendors' models" 1 "claude-code with an Anthropic model" \
+    $'run hi' --config "$FIX/no-harness-appsettings.json"
+run_prog_jsonl "harness: explicit harness nb runs bare" '.[-1].harness' "null" \
+    $'harness nb\nrun hi' --config "$FIX/no-harness-appsettings.json"
+run_prog_jsonl "harness: the provider entry's Harness is worn and recorded" '.[-1].harness' "qwen-code" \
+    $'run hi' --config "$FIX/entry-harness-appsettings.json"
+run_prog_jsonl "harness: the program directive beats the entry" '.[-1].harness' "null" \
+    $'harness nb\nrun hi' --config "$FIX/entry-harness-appsettings.json"
+run_prog_stdout_contains "resolve: shows the entry's harness" "harness=qwen-code" \
+    $'run hi' --resolve --config "$FIX/entry-harness-appsettings.json"
+run_prog_stdout_contains "resolve: names a missing harness" "harness=(none" \
+    $'run hi' --resolve --config "$FIX/no-harness-appsettings.json"
+
+echo ""
 echo "--- provider substitution (bugs/Failed_Provider_Directive_Silently_Substitutes.md) ---"
 echo ""
 

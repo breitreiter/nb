@@ -155,7 +155,7 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 | --- | --- | --- |
 | `provider` | `provider <name>` | Select the active provider (matched against `ChatProviders[].Name` in config) for subsequent runs. |
 | `model` | `model <name>` | Select the model for subsequent runs. Overrides the active provider's model field in memory (both `Model` and `ChatDeploymentName`). |
-| `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Defaults to `nb` (nb's own surface). Registered names: `nb`, `qwen-code`, `codex`, `claude-code`. An unknown one is a parse error, not a warning. |
+| `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Registered names: `nb`, `qwen-code`, `codex`, `claude-code`. An unknown one is a parse error, not a warning. **Every run wears one on purpose:** a program that names none inherits the active provider entry's `Harness` from config (else top-level `Harness`), and if config is silent too the run is refused before a model is called. `harness nb` asks for nb's own bare surface by name. A costume expects its own vendor's model — `claude-code` an Anthropic model, `codex` an OpenAI model, `qwen-code` a Qwen model; wedging another vendor's model into a costume is an experiment, not a test of that harness. |
 | `oracle` | `oracle @<sheet.md>` | Attach an answer sheet: a scripted user that services the halt when a model ends its turn asking for information. After every run that ends `ok`, one small side call judges the model's last message against the sheet; on a confident hit the selected entries are appended verbatim as a `user` turn and the run continues. Anything else ends the run. See *On `oracle`* below and `plans/oracle-resolver.md`. |
 
 **On `harness`.** It is a program directive rather than provider config because the
@@ -466,6 +466,13 @@ Provider connection (endpoint + key) lives in config, never in a program. Only t
 non-secret **model name** travels in a program. Provider and MCP-server *names* are
 installation-local; `--validate` catches an unknown name before a run.
 
+The harness resolves the same way, one level up from the program: a `harness` directive
+wins, else the active provider entry's `"Harness"` in config, else top-level `"Harness"`.
+Pair each entry with its vendor's costume (`"Harness": "claude-code"` on an Anthropic
+entry, `codex` on an OpenAI one, `qwen-code` on a Qwen one) so a program that names only
+a model still wears the right thing. A run that resolves no harness at all is refused —
+see §10.
+
 ---
 
 ## 8. The JSONL wire format
@@ -602,6 +609,10 @@ nb --validate flow.nb   # semantic check; exit 1 on any error
 - **Unknown verb / missing value / bad delta token** → parse error, exit 1. (Note
   `output` is no longer a verb — an `output` line is an unknown directive.)
 - **Unknown provider name** → caught by `--validate` (exit 1).
+- **No harness named** — not in the program, not on the provider entry, not top-level in
+  config → the first `run` is refused, exit 1, before any request goes out: *"no harness
+  named. Every run wears one …"*. The bare surface is not a fallback; write `harness nb`
+  if that is what you mean. `--resolve` prints `harness=(none …)` for the same case.
 - **A `provider`/`model` directive whose client cannot be built** → the run **aborts**,
   exit 1. This covers an unknown entry, an entry naming an implementation that did not
   load, missing required keys (an expired `ApiKey`, an env var absent from a CI job), and

@@ -267,7 +267,7 @@ public class Program
         }
 
         if (_validate) { ValidateProgram(program, config, warnings); return; }
-        if (_resolve) { ResolveProgram(program); return; }
+        if (_resolve) { ResolveProgram(program, config); return; }
 
         // Refuse a directive nb cannot honour rather than dropping it and reporting that
         // at the end of the run: `--validate` already calls these errors, and the run
@@ -443,10 +443,12 @@ public class Program
 
     // --resolve: walk the directives without invoking, printing the effective
     // envelope at each run point (the ordering inspector for anywhere-config).
-    private static void ResolveProgram(IReadOnlyList<TranscriptEvent> program)
+    private static void ResolveProgram(IReadOnlyList<TranscriptEvent> program, IConfiguration config)
     {
         string provider = "(default)", model = "(default)", output = _outputMode;
-        var harness = HarnessRegistry.Default;
+        // What the evaluator will resolve at the first run: the entry's Harness, or a
+        // refusal. Printed as such rather than as `nb`, which a run would not silently get.
+        string? harness = null;
         var surfaceDirectives = new List<SurfaceDirectiveEvent>();
         string approvalDefault = "prompt", sandbox = "none";
         int bashRules = 0, mcpRules = 0;
@@ -475,6 +477,8 @@ public class Program
                 case BudgetEvent { Key: "wall_ms" } b: wallBudget = b.Value; break;
                 case RunEvent:
                     run++;
+                    harness ??= HarnessRegistry.ConfiguredDefault(config, provider == "(default)" ? null : provider);
+                    var harnessStr = harness ?? "(none — a run needs `harness <name>` or a config `Harness`)";
                     // Fold through the same resolver the evaluator runs, so what this
                     // prints is provably what a run exposes (plans/tool-surface-directives.md).
                     var surface = ToolSurface.Fold(surfaceDirectives, ConversationManager.NativeToolNames);
@@ -483,13 +487,13 @@ public class Program
                         ? "all"
                         : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
                     var budgetStr = $"tokens:{(tokenBudget?.ToString() ?? "-")} tool_calls:{(toolCallBudget?.ToString() ?? "-")} wall_ms:{(wallBudget?.ToString() ?? "-")}";
-                    Console.WriteLine($"run {run}: provider={provider} model={model} harness={harness} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
+                    Console.WriteLine($"run {run}: provider={provider} model={model} harness={harnessStr} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
                     // `tools=` echoes the canonical directives, which is the documented
                     // vocabulary — but under a costume those names are requested, not
                     // effective: a costume advertises a subset under different names, so a
                     // program naming nine tools can reach the model holding two.
                     // bugs/Resolve_Does_Not_Show_The_Costumed_Wire_Surface.md
-                    if (harness != HarnessRegistry.Default)
+                    if (harness is not null && harness != HarnessRegistry.Default)
                     {
                         var (wire, dropped) = ResolveWireSurface(harness, surface);
                         Console.WriteLine($"       wire={wire} dropped={dropped}");
@@ -499,7 +503,7 @@ public class Program
         }
 
         if (run == 0)
-            Console.WriteLine($"no runs. provider={provider} model={model} harness={harness} output={output}");
+            Console.WriteLine($"no runs. provider={provider} model={model} harness={harness ?? "(none)"} output={output}");
     }
 
 

@@ -224,6 +224,7 @@ new NbOptions
     Cwd                = Directory.GetCurrentDirectory(), // shell/native-tool working dir
     Trust              = false,   // auto-approve non-dangerous tools within the cwd sandbox
     NoBash             = false,   // expose no native tools (MCP-only)
+    Harness            = null,    // harness when the program names none; null = config's entry/top-level Harness; nothing anywhere = NbStartupException
     Verbose            = false,
     McpManifestPath    = null,    // explicit MCP manifest; null = layered mcp.json
     ApprovePatterns    = new[] { "git status" }, // bash auto-approve patterns

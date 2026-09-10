@@ -21,6 +21,7 @@ internal sealed class NbRuntime : IDisposable
 {
     private readonly IConfiguration _config;
     private readonly ProviderManager _providers;
+    private readonly string? _optionHarness;
 
     public ConversationManager Conversation { get; }
     public McpManager Mcp { get; }
@@ -34,9 +35,10 @@ internal sealed class NbRuntime : IDisposable
     public IReadOnlyList<string> StartupWarnings { get; }
 
     private NbRuntime(IConfiguration config, ProviderManager providers, McpManager mcp,
-        ConversationManager conversation, IReadOnlyList<string> startupWarnings)
+        ConversationManager conversation, IReadOnlyList<string> startupWarnings, string? optionHarness)
     {
         _config = config;
+        _optionHarness = optionHarness;
         _providers = providers;
         Mcp = mcp;
         Conversation = conversation;
@@ -51,6 +53,11 @@ internal sealed class NbRuntime : IDisposable
         if (name != null && model != null) ProviderConfigResolver.OverrideProviderModel(_config, name, model);
         return _providers.TryCreateChatClient(_config, name);
     };
+
+    // The harness a program that names none wears: the host's option, else config keyed
+    // by the provider label in effect. Null is the evaluator's cue to refuse the run.
+    public string? DefaultHarnessFor(string? providerLabel) =>
+        _optionHarness ?? HarnessRegistry.ConfiguredDefault(_config, providerLabel);
 
     public static async Task<NbRuntime> BuildAsync(IConfiguration config, NbOptions options)
     {
@@ -158,7 +165,7 @@ internal sealed class NbRuntime : IDisposable
             doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget,
             wallClockBudgetMs: wallBudgetMs);
 
-        return new NbRuntime(config, providers, mcp, conversation, startupWarnings);
+        return new NbRuntime(config, providers, mcp, conversation, startupWarnings, options.Harness);
     }
 
     /// <summary>

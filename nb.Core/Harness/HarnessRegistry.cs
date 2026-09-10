@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Configuration;
+using nb.Providers;
+
 namespace nb.Harness;
 
 /// <summary>
@@ -47,4 +50,31 @@ public static class HarnessRegistry
         KnownNames.FirstOrDefault(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)) ?? name;
 
     public static string KnownNamesForError() => string.Join(", ", KnownNames);
+
+    /// <summary>
+    /// The harness config names for a run whose program names none: the provider entry's
+    /// <c>Harness</c>, else top-level <c>Harness</c>. Null when config is silent, which
+    /// the evaluator refuses — every run wears one on purpose. This is the sanctioned
+    /// config-default from plans/harness-emulation.md: a declaration keyed by entry, never
+    /// an inference from a model slug.
+    /// </summary>
+    public static string? ConfiguredDefault(IConfiguration config, string? providerLabel)
+    {
+        var label = providerLabel ?? config["ActiveProvider"];
+        var entry = label is null ? null : ProviderEntries.Find(ProviderEntries.ReadAll(config), label);
+        var name = entry?.Config["Harness"];
+        return string.IsNullOrWhiteSpace(name) ? config["Harness"] : name;
+    }
+
+    /// <summary>
+    /// Why a run with no harness is refused, and what to do about it. The pairing line is
+    /// guidance, not enforcement: a costume with the wrong vendor's model is academically
+    /// interesting and never what "let's test with claude code" means.
+    /// </summary>
+    public const string RequiredMessage =
+        "no harness named. Every run wears one: add `harness <name>` to the program, or "
+        + "`\"Harness\"` to the provider entry in appsettings.json (known: nb, qwen-code, codex, "
+        + "claude-code). Write `harness nb` explicitly to run on nb's own bare surface. "
+        + "A costume expects its own vendor's model: claude-code with an Anthropic model, "
+        + "codex with an OpenAI model, qwen-code with a Qwen model.";
 }

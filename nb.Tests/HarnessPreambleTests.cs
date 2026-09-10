@@ -67,13 +67,13 @@ public class HarnessPreambleTests
     }
 
     /// <summary>
-    /// §5.5 unchanged for anyone who names no harness: a program gets exactly the system
-    /// directives it writes.
+    /// §5.5 unchanged for the bare surface, asked for by name: a program gets exactly
+    /// the system directives it writes.
     /// </summary>
     [Fact]
-    public async Task DefaultHarness_SendsNothingTheProgramDidNotWrite()
+    public async Task BareHarness_SendsNothingTheProgramDidNotWrite()
     {
-        var client = await RunProgram("system Be terse.\nrun hello\n");
+        var client = await RunProgram("harness nb\nsystem Be terse.\nrun hello\n");
 
         var systems = client.CapturedMessages!.Where(m => m.Role == ChatRole.System).ToList();
         Assert.Equal("Be terse.", Assert.Single(systems).Text);

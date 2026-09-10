@@ -14,6 +14,7 @@ public class NbFacadeTests
         => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ActiveProvider"] = activeProvider,
+            ["Harness"] = "nb",
             ["ChatProviders:0:Name"] = "Mock",
             ["ChatProviders:0:Response"] = response,
         }).Build();
@@ -76,6 +77,7 @@ public class NbFacadeTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ActiveProvider"] = "Mock",
+            ["Harness"] = "nb",
             ["ChatProviders:0:Name"] = "Mock",
             ["ChatProviders:0:MaxRetries"] = "2",
             ["ChatProviders:0:RetryMaxDelaySeconds"] = "1",
@@ -94,6 +96,7 @@ public class NbFacadeTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ActiveProvider"] = "Mock",
+            ["Harness"] = "nb",
             ["ChatProviders:0:Name"] = "Mock",
             ["ChatProviders:0:MaxRetries"] = "0",
         }).Build();

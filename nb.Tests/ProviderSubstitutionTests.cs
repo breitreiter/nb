@@ -22,6 +22,7 @@ public class ProviderSubstitutionTests
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ActiveProvider"] = "Mock",
+            ["Harness"] = "nb",
             ["ChatProviders:0:Name"] = "Mock",
             ["ChatProviders:0:Response"] = "from-mock",
             ["ChatProviders:1:Name"] = "Broken",

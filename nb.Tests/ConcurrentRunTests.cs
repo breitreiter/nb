@@ -82,6 +82,7 @@ public class ConcurrentRunTests
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ActiveProvider"] = "Mock",
+            ["Harness"] = "nb",
             ["ChatProviders:0:Name"] = "Mock",
             ["ChatProviders:0:Response"] = "OK",
         }).Build();

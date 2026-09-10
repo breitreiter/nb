@@ -104,6 +104,7 @@ once in a session this month; the cookbook's first job is to stop the second der
 | **Script a deterministic test of a program** | the Mock provider's `MOCK:` riders (`response=`, `loop=`, `throw`, `oracle=`), one program line scripting both halves | `Providers/Mock`, `evals/run.sh` throughout |
 | **Bound a runaway run** | `budget tokens` / `wall_ms` / `tool_calls` / `oracle_turns`, and what each exit reason means for a caller | CLI reference §4.4; evals |
 | **Read approval as a measurement, not a control** | `denied` on the trailer, `approved`/`approval_reason` on each call; what a denial means when nothing prompts | `plans/approval-is-not-a-boundary.md` |
+| **Pick the costume for a model** | one, always: `harness` in the program or `"Harness"` on the provider entry, paired with the vendor (`claude-code` ↔ Anthropic, `codex` ↔ OpenAI, `qwen-code` ↔ Qwen); a run naming none is refused. Four bare runs labelled "qwen code" cost an afternoon on 2026-09-09 | `HarnessRequiredTests`, evals "harness is required" |
 | **Compare one model across two harnesses** | `harness codex` / `harness claude-code`, `--resolve` for the wire surface, diff the transcripts | README, `plans/harness-emulation.md` |
 | **Host a fake website the model must read** | serve it in the container; files placed under a hidden dir as above; `approval fetch allow`; assert the fetch in the transcript | the fake-website harness (to be written up by whoever built it) |
 

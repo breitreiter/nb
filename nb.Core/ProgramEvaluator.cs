@@ -35,6 +35,8 @@ public sealed class ProgramEvaluator
     // per turn by TranscriptLoader.ToHistory, the same path a seed takes.
     private readonly List<TranscriptEvent> _turnBuffer = new();
     private readonly NbHarness _baseHarness;
+    private readonly Func<string?, string?>? _defaultHarness;
+    private bool _harnessNamed;
 
     public string? Provider { get; private set; }
     public string? Model { get; private set; }
@@ -64,13 +66,20 @@ public sealed class ProgramEvaluator
 
     private const long DefaultOracleTurns = 8;
 
-    public ProgramEvaluator(ConversationManager conversation, Func<string?, string?, IChatClient?> clientFactory, IList<string>? warnings = null)
+    /// <param name="defaultHarness">
+    /// The harness to wear when the program has named none by its first <c>run</c>, given
+    /// the provider label in effect (null = the active one). Null, or a resolver returning
+    /// null, means the run is refused: a harness is never assumed.
+    /// </param>
+    public ProgramEvaluator(ConversationManager conversation, Func<string?, string?, IChatClient?> clientFactory, IList<string>? warnings = null,
+        Func<string?, string?>? defaultHarness = null)
     {
         _conversation = conversation;
         // The runtime-wired surface every costume is built over.
         _baseHarness = conversation.Harness;
         _clientFactory = clientFactory;
         _warnings = warnings ?? new List<string>();
+        _defaultHarness = defaultHarness;
     }
 
     public async Task EvaluateAsync(IReadOnlyList<TranscriptEvent> program, CancellationToken cancellationToken = default)
@@ -108,6 +117,7 @@ public sealed class ProgramEvaluator
                 // for JSONL bytecode). A costume swaps what is advertised, over the same
                 // tool instances the runtime wired.
                 Harness = h.Name;
+                _harnessNamed = true;
                 ApplyHarness(h.Name);
                 break;
             case OracleEvent o:
@@ -134,6 +144,7 @@ public sealed class ProgramEvaluator
                 _turnBuffer.Add(ev);
                 break;
             case RunEvent r:
+                EnsureHarnessNamed();
                 FlushTurns();
                 _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
                 await _conversation.RunAsync(r.Prompt, cancellationToken);
@@ -186,6 +197,25 @@ public sealed class ProgramEvaluator
             _conversation.AppendOracleAnswer(_sheet.Compose(verdict.Keys), verdict.Keys);
             await _conversation.RunAsync(null, cancellationToken);
         }
+    }
+
+    // A run wears a harness on purpose. The bare surface used to be what forgetting the
+    // directive got you, and the runs it produced were labelled by the model they meant to
+    // test while wearing a surface nothing was trained on. Resolved once, at the first run,
+    // from config keyed by the provider label in effect; refused if config is silent too.
+    private void EnsureHarnessNamed()
+    {
+        if (_harnessNamed) return;
+
+        var name = _defaultHarness?.Invoke(Provider);
+        if (string.IsNullOrWhiteSpace(name))
+            throw new NbStartupException(HarnessRegistry.RequiredMessage);
+        if (!HarnessRegistry.IsKnown(name))
+            throw new NbStartupException($"unknown harness '{name}' in config. Known: {HarnessRegistry.KnownNamesForError()}.");
+
+        Harness = HarnessRegistry.Canonicalize(name);
+        _harnessNamed = true;
+        ApplyHarness(Harness);
     }
 
     // Swap the harness, and surface what the costume knowingly does not reproduce, so a

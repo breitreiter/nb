@@ -1,10 +1,10 @@
 {
   "ActiveProvider": "Mock",
-  "Harness": "nb",
   "ChatProviders": [
     {
       "Name": "Mock",
-      "Response": "OK"
+      "Response": "OK",
+      "Harness": "qwen-code"
     }
   ]
 }

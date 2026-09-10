@@ -17,6 +17,15 @@ public sealed record NbOptions
     /// <summary>Expose no native shell/file tools (MCP-only isolation).</summary>
     public bool NoBash { get; init; }
 
+    /// <summary>
+    /// The harness a run wears when the program names none. Every run needs one: a
+    /// <c>harness</c> directive in the program, else this, else the active provider
+    /// entry's <c>Harness</c>, else top-level <c>Harness</c> in config — and a run that
+    /// resolves none is refused before a model is called. Name <c>nb</c> for the bare
+    /// surface. Null defers to config.
+    /// </summary>
+    public string? Harness { get; init; }
+
     /// <summary>Verbose engine diagnostics (still routed to <see cref="DiagnosticsWriter"/>).</summary>
     public bool Verbose { get; init; }
 

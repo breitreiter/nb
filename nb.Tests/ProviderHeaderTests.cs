@@ -91,6 +91,7 @@ public class ProviderHeaderTests
         var settings = new Dictionary<string, string?>
         {
             ["ActiveProvider"] = "Gw",
+            ["Harness"] = "nb",
             ["ChatProviders:0:Name"] = "Gw",
             ["ChatProviders:0:MaxRetries"] = "0",
         };

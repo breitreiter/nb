@@ -1,6 +1,5 @@
 {
   "ActiveProvider": "Mock",
-  "Harness": "nb",
   "ChatProviders": [
     {
       "Name": "Mock",
