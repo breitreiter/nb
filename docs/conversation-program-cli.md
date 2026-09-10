@@ -104,6 +104,13 @@ lets the next turn charge straight back into the same limit, so a long run redis
 it turn after turn and pays for each rediscovery. The pace starts at a second, doubles
 per throttle up to `RetryMaxDelaySeconds`, and halves back toward zero as calls succeed.
 
+That adaptive pace is too gentle against a gateway with a fixed per-minute cap: two
+clean responses put a run back at full speed, and a 150-turn run was throttled on 104
+of them. `MinRequestIntervalMs` (default 0) is the blunt instrument for that case — a
+floor the pace never decays below, held from the first call whether or not a throttle
+has been seen. Size it as 60000 divided by the cap, times the number of runs you expect
+in flight against the same gateway. It applies even with `MaxRetries: 0`.
+
 A rejection is recognized as throttling from its status *or* its prose, including the
 body of the HTTP response — some gateways signal wholesale capacity exhaustion as a
 `402` whose message says nothing, with the only evidence in the response body. A `402`

@@ -124,4 +124,51 @@ public class RetryingChatClientTests
         Assert.Equal(5, inner.Calls);
         Assert.True(DateTimeOffset.UtcNow - started < TimeSpan.FromSeconds(1));
     }
+
+    // 104 of 150 calls in one run were throttled with the adaptive pace alone: it halves
+    // on every clean response, so two successes put a run back at full speed against a
+    // gateway limit that never moved. The floor is the blunt instrument — a minimum gap
+    // that holds for the whole run whether or not a throttle has been seen yet.
+    [Fact]
+    public async Task MinRequestInterval_PacesEveryCall_EvenWithoutAThrottle()
+    {
+        var inner = new ThrottlingChatClient(failures: 0);
+        var client = Wrap(inner, ("MinRequestIntervalMs", "300"));
+
+        for (var i = 0; i < 4; i++)
+            await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]);
+
+        for (var i = 1; i < inner.CallTimes.Count; i++)
+        {
+            var gap = inner.CallTimes[i] - inner.CallTimes[i - 1];
+            Assert.True(gap >= TimeSpan.FromMilliseconds(250), $"call {i} came {gap.TotalMilliseconds:0}ms after the previous one");
+        }
+    }
+
+    [Fact]
+    public async Task MinRequestInterval_DoesNotDecayAfterSuccesses()
+    {
+        var inner = new ThrottlingChatClient(failures: 1);
+        var client = Wrap(inner, ("MinRequestIntervalMs", "300"), ("RetryMaxDelaySeconds", "1"), ("RetryBudgetSeconds", "30"));
+
+        for (var i = 0; i < 5; i++)
+            await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]);
+
+        var lastGap = inner.CallTimes[^1] - inner.CallTimes[^2];
+        Assert.True(lastGap >= TimeSpan.FromMilliseconds(250), $"pace decayed below the floor (gap {lastGap.TotalMilliseconds:0}ms)");
+    }
+
+    [Fact]
+    public async Task MinRequestInterval_AppliesWhenRetryIsDisabled()
+    {
+        var inner = new ThrottlingChatClient(failures: 0);
+        var client = Wrap(inner, ("MaxRetries", "0"), ("MinRequestIntervalMs", "300"));
+
+        Assert.NotSame(inner, client);
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]);
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]);
+
+        var gap = inner.CallTimes[1] - inner.CallTimes[0];
+        Assert.True(gap >= TimeSpan.FromMilliseconds(250), $"gap {gap.TotalMilliseconds:0}ms");
+    }
 }

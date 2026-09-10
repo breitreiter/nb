@@ -169,6 +169,12 @@ internal static class RateLimitClassifier
 /// Retrying only the failed call means a long agentic run charges back in at full
 /// rate the moment one call succeeds, and rediscovers the same limit turn after turn
 /// — paying for each rediscovery.
+///
+/// **The adaptive pace is too gentle against a limit that never moves.** It halves on
+/// every clean response, so two successes put a run back at full speed and a 150-turn
+/// run against a gateway with a fixed per-minute cap was throttled on 104 of them.
+/// <c>MinRequestIntervalMs</c> is the blunt instrument for that case: a floor the pace
+/// never decays below, held from the first call whether or not a throttle has been seen.
 /// </summary>
 internal sealed class RetryingChatClient : DelegatingChatClient
 {
@@ -185,33 +191,40 @@ internal sealed class RetryingChatClient : DelegatingChatClient
     private readonly int _maxRetries;
     private readonly TimeSpan _maxDelay;
     private readonly TimeSpan _budget;
+    private readonly TimeSpan _floor;
 
     private readonly SemaphoreSlim _paceGate = new(1, 1);
     private TimeSpan _pace = TimeSpan.Zero;
     private DateTimeOffset _lastRequest = DateTimeOffset.MinValue;
 
-    private RetryingChatClient(IChatClient inner, int maxRetries, TimeSpan maxDelay, TimeSpan budget) : base(inner)
+    private RetryingChatClient(IChatClient inner, int maxRetries, TimeSpan maxDelay, TimeSpan budget, TimeSpan floor) : base(inner)
     {
         _maxRetries = maxRetries;
         _maxDelay = maxDelay;
         _budget = budget;
+        _floor = floor;
+        _pace = floor;
     }
 
     /// <summary>
     /// Wraps <paramref name="inner"/> using the active entry's <c>MaxRetries</c> /
-    /// <c>RetryMaxDelaySeconds</c> / <c>RetryBudgetSeconds</c>, falling back to the
-    /// root config then to the defaults. <c>MaxRetries: 0</c> opts out and returns the
-    /// client untouched.
+    /// <c>RetryMaxDelaySeconds</c> / <c>RetryBudgetSeconds</c> / <c>MinRequestIntervalMs</c>,
+    /// falling back to the root config then to the defaults. <c>MaxRetries: 0</c> opts
+    /// out of retry, and with no floor set that returns the client untouched.
     /// </summary>
     public static IChatClient Wrap(IChatClient inner, IConfiguration root, IConfiguration entry)
     {
-        var maxRetries = ReadInt(entry["MaxRetries"]) ?? ReadInt(root["MaxRetries"]) ?? DefaultMaxRetries;
-        if (maxRetries <= 0) return inner;
+        var maxRetries = Read("MaxRetries") ?? DefaultMaxRetries;
+        var floorMs = Math.Max(0, Read("MinRequestIntervalMs") ?? 0);
+        if (maxRetries <= 0 && floorMs == 0) return inner;
 
-        var maxDelay = ReadInt(entry["RetryMaxDelaySeconds"]) ?? ReadInt(root["RetryMaxDelaySeconds"]) ?? DefaultMaxDelaySeconds;
-        var budget = ReadInt(entry["RetryBudgetSeconds"]) ?? ReadInt(root["RetryBudgetSeconds"]) ?? DefaultBudgetSeconds;
-        return new RetryingChatClient(inner, maxRetries,
-            TimeSpan.FromSeconds(Math.Max(1, maxDelay)), TimeSpan.FromSeconds(Math.Max(1, budget)));
+        var maxDelay = Read("RetryMaxDelaySeconds") ?? DefaultMaxDelaySeconds;
+        var budget = Read("RetryBudgetSeconds") ?? DefaultBudgetSeconds;
+        return new RetryingChatClient(inner, Math.Max(0, maxRetries),
+            TimeSpan.FromSeconds(Math.Max(1, maxDelay)), TimeSpan.FromSeconds(Math.Max(1, budget)),
+            TimeSpan.FromMilliseconds(floorMs));
+
+        int? Read(string key) => ReadInt(entry[key]) ?? ReadInt(root[key]);
     }
 
     private static int? ReadInt(string? value) => int.TryParse(value, out var parsed) ? parsed : null;
@@ -317,8 +330,9 @@ internal sealed class RetryingChatClient : DelegatingChatClient
     }
 
     /// <summary>
-    /// Holds the configured minimum gap between requests once a throttle has been seen.
-    /// Zero until the first one, so an unthrottled run pays nothing for this.
+    /// Holds the current minimum gap between requests: the configured floor, raised
+    /// further once a throttle has been seen. With no floor the pace is zero until the
+    /// first throttle, so an unthrottled run pays nothing for this.
     /// </summary>
     private async Task PaceAsync(CancellationToken cancellationToken)
     {
@@ -342,23 +356,24 @@ internal sealed class RetryingChatClient : DelegatingChatClient
         if (wait > TimeSpan.Zero) await Task.Delay(wait, cancellationToken);
     }
 
-    // A throttle doubles the pace (from a 1s floor, capped at the single-backoff cap);
-    // each clean response halves it back toward zero. Fast to slow down, slow to speed
+    // A throttle doubles the pace (from a 1s start, capped at the single-backoff cap);
+    // each clean response halves it back toward the configured floor. Fast to slow down, slow to speed
     // up — the standard shape, because the cost of being too fast is a failed run and
     // the cost of being too slow is a few seconds. The pace is deliberately a gentle
     // drag rather than a copy of the backoff delay: the backoff already covers the
     // immediate wait, this only keeps the following turns from charging back in.
     private void RaisePace()
     {
-        var raised = _pace <= TimeSpan.Zero ? InitialPace : _pace * 2;
-        _pace = raised > _maxDelay ? _maxDelay : raised;
+        var raised = _pace < InitialPace ? InitialPace : _pace * 2;
+        var cap = _floor > _maxDelay ? _floor : _maxDelay;
+        _pace = raised > cap ? cap : raised;
     }
 
     private void OnSucceeded()
     {
-        if (_pace <= TimeSpan.Zero) return;
+        if (_pace <= _floor) return;
         var decayed = _pace / 2;
-        _pace = decayed < MinimumPace ? TimeSpan.Zero : decayed;
+        _pace = decayed < MinimumPace || decayed < _floor ? _floor : decayed;
     }
 
     // Half-jitter: half the exponential window is fixed, half is random, so a fleet
