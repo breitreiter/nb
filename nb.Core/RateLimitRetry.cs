@@ -353,7 +353,22 @@ internal sealed class RetryingChatClient : DelegatingChatClient
             _paceGate.Release();
         }
 
-        if (wait > TimeSpan.Zero) await Task.Delay(wait, cancellationToken);
+        if (wait <= TimeSpan.Zero) return;
+        await Task.Delay(wait, cancellationToken);
+
+        // Task.Delay can overshoot by seconds on a loaded machine. Measuring the next
+        // gap from the slot rather than from when this request actually went out would
+        // let it fire immediately — seen on CI as a 0ms gap under a 300ms floor.
+        await _paceGate.WaitAsync(cancellationToken);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now > _lastRequest) _lastRequest = now;
+        }
+        finally
+        {
+            _paceGate.Release();
+        }
     }
 
     // A throttle doubles the pace (from a 1s start, capped at the single-backoff cap);
