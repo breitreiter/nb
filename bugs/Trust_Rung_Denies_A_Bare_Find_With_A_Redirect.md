@@ -2,7 +2,7 @@
 kind: bug
 title: 'With `Trust: true` and `sandbox bwrap`, a bare `find … 2>/dev/null` is still denied'
 created: 2026-09-04
-updated: 2026-09-05
+updated: 2026-09-06
 status: current
 state: fixed
 severity: low
@@ -65,21 +65,21 @@ Whether the trust rung is **not being reached**, or whether `non-dangerous` excl
 anything containing a shell metacharacter. Those want different fixes and I am not
 guessing between them in a bug report.
 
-## Repro, written and not yet run
+## Repro
 
-`repro-trust-no-match/probe.sh` walks one variable at a time as separate
+`bugs/repro-trust-no-match/probe.sh` walks one variable at a time as separate
 single-instruction runs, printing `approved` / `approval_reason` per case: bare `ls`,
 bare `find`, `find … 2>/dev/null`, `find … -o …`, bare `grep`, `grep … | head`,
 `grep … 2>/dev/null`, `cd … && grep`, absolute-path `grep`, `cat`, `wc`.
 
 ```bash
-NB=/path/to/nb NB_CONFIG=/path/to/config.json ./repro-trust-no-match/probe.sh
-TRUST=false NB=… NB_CONFIG=… ./repro-trust-no-match/probe.sh   # same matrix, trust off
+NB=/path/to/nb NB_CONFIG=/path/to/config.json ./bugs/repro-trust-no-match/probe.sh
+TRUST=false NB=… NB_CONFIG=… ./bugs/repro-trust-no-match/probe.sh   # same matrix, trust off
 ```
 
 It derives its own config copy with `Trust` flipped (0600, since configs carry API
-keys) so it does not disturb the caller's. I will append the matrix here once my
-current arm stops using the model.
+keys) so it does not disturb the caller's. The matrix it produced is at the end of this
+report.
 
 If the answer turns out to be "a metacharacter disqualifies a command from the trust
 rung", that is probably fine as *behaviour* and wants one sentence in the `sandbox`
@@ -189,3 +189,40 @@ assertion: the redirect was the entire cause, and the `find` had nothing to do w
 than a denial, so it costs a reader accuracy rather than costing a run its turns. That is
 candidate 2's remaining value, and it belongs with the Tier 2 relabelling in the boundary
 plan rather than here.
+
+---
+
+## Repro matrix, run at last — 11/11 approved on the fixed build
+
+Promised above and owed since 2026-09-04. Run 2026-09-06 against a `linux-x64`
+self-contained publish of `5b18171`, `TRUST=true`,
+`approval default prompt` + `approval sandbox bwrap`:
+
+| case | approved | reason | command |
+|---|---|---|---|
+| bare-ls | allow | `safe` | `ls docs` |
+| bare-find | allow | `trust` | `find docs -name "a.md"` |
+| **find-stderr** | **allow** | `trust` | `find docs -name "a.md" 2>/dev/null` |
+| find-or | allow | `trust` | `find docs -name "*.md" -o -name "*.css"` |
+| bare-grep | allow | `trust` | `grep hello docs/a.md` |
+| grep-pipe | allow | `trust` | `grep hello docs/a.md \| head -1` |
+| grep-stderr | allow | `trust` | `grep hello docs/a.md 2>/dev/null` |
+| **cd-and-grep** | **allow** | `trust` | `cd docs && grep hello a.md` |
+| abs-path-grep | allow | `trust` | `grep hello <abs>/docs/a.md` |
+| bare-cat | allow | `trust` | `cat docs/a.md` |
+| bare-wc | allow | `safe` | `wc -l docs/a.md` |
+
+**Every shape that was denied in the field now passes**, including the two this
+report was filed about (`find … 2>/dev/null`) and the three compound commands from
+the same measurement (`cd … && grep …`).
+
+**And the `reason` field answers the question the sibling report asked for.** It now
+distinguishes `safe` (built-in list) from `trust` (the sandbox rung), so a harness
+can tell *which rung* approved a command, not merely that something did. That was
+the ask in `No_Match_Denial_Does_Not_Name_The_Trust_Rung.md` — being able to
+attribute an approval decision to a rung cheaply — and it lands on the allow path
+as well as the deny path.
+
+Not re-measured here: whether the field denial rate goes to zero across a real arm.
+The five field denials were 5 shapes and all 5 are covered above, so there is no
+reason to expect a residue, but that is inference rather than measurement.
