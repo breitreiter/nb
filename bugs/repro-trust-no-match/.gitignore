@@ -1,0 +1,3 @@
+# Run outputs: transcripts, per-case programs, and a derived config copy
+# carrying API keys. Regenerate with probe.sh; never commit.
+out-trust-*/

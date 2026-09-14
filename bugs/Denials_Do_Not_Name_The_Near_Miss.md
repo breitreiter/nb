@@ -122,7 +122,7 @@ no-match (default=prompt: no explicit pattern; not on the safe-command list;
 ```
 
 The third is the interesting one — it is the answer the repro script in
-`repro-trust-no-match/` was written to obtain, and the policy already knows it at
+`bugs/repro-trust-no-match/` was written to obtain, and the policy already knows it at
 the moment it decides.
 
 ## Suggested shape
