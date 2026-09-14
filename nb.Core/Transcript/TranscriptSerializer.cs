@@ -65,6 +65,7 @@ public static class TranscriptSerializer
                 WriteMessageBody(w, u);
                 if (u.Source is not null) w.WriteString("source", u.Source);
                 if (u.Keys is not null) WriteStringArray(w, "keys", u.Keys);
+                if (u.Verdict is not null) w.WriteString("verdict", u.Verdict);
                 break;
             case MessageEvent m:
                 WriteMessageBody(w, m);
@@ -101,7 +102,8 @@ public static class TranscriptSerializer
                 w.WriteString("name", h.Name);
                 break;
             case OracleEvent o:
-                w.WriteString("sheet", o.Sheet);
+                if (o.Sheet is not null) w.WriteString("sheet", o.Sheet);
+                if (o.Provider is not null) w.WriteString("provider", o.Provider);
                 break;
             case SurfaceDirectiveEvent s:
                 if (s.Reset) w.WriteBoolean("reset", true);
@@ -190,6 +192,7 @@ public static class TranscriptSerializer
         if (r.Harness is { } h) w.WriteString("harness", h);
         if (r.Denied is { } denied) w.WriteNumber("denied", denied);
         if (r.OracleTurns is { } oracleTurns) w.WriteNumber("oracle_turns", oracleTurns);
+        if (r.OracleVerdict is not null) w.WriteString("oracle_verdict", r.OracleVerdict);
     }
 
     // ---- Reading ----
@@ -240,7 +243,7 @@ public static class TranscriptSerializer
         {
             case "user":
                 var (utext, ucontent) = ReadBody(root, lineNumber);
-                return new UserEvent { Turn = turn, Text = utext, Content = ucontent, Source = GetString(root, "source"), Keys = root.TryGetProperty("keys", out _) ? ReadStringArray(root, "keys") : null };
+                return new UserEvent { Turn = turn, Text = utext, Content = ucontent, Source = GetString(root, "source"), Keys = root.TryGetProperty("keys", out _) ? ReadStringArray(root, "keys") : null, Verdict = GetString(root, "verdict") };
             case "assistant_text":
                 var (atext, acontent) = ReadBody(root, lineNumber);
                 return new AssistantTextEvent { Turn = turn, Text = atext, Content = acontent };
@@ -278,7 +281,10 @@ public static class TranscriptSerializer
             case "harness":
                 return new HarnessEvent { Turn = turn, Name = RequireString(root, "name", lineNumber, type) };
             case "oracle":
-                return new OracleEvent { Turn = turn, Sheet = RequireString(root, "sheet", lineNumber, type) };
+                var oracle = new OracleEvent { Turn = turn, Sheet = GetString(root, "sheet"), Provider = GetString(root, "provider") };
+                if (oracle.Sheet is null && oracle.Provider is null)
+                    throw new TranscriptFormatException($"line {lineNumber}: '{type}' needs \"sheet\" or \"provider\"");
+                return oracle;
             case "mcp":
                 return new McpEvent { Turn = turn, Add = ReadStringArray(root, "add"), Remove = ReadStringArray(root, "remove"), Reset = GetBool(root, "reset") };
             case "tools":
@@ -304,6 +310,7 @@ public static class TranscriptSerializer
                     Harness = GetString(root, "harness"),
                     Denied = GetInt(root, "denied"),
                     OracleTurns = GetInt(root, "oracle_turns"),
+                    OracleVerdict = GetString(root, "oracle_verdict"),
                 };
             default:
                 warnings?.Add($"line {lineNumber}: unknown event type \"{type}\" — skipped");

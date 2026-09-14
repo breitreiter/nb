@@ -53,6 +53,9 @@ public sealed record RunResult
     /// </summary>
     public int OracleTurns { get; init; }
 
+    /// <summary>The oracle's last raw verdict, as the judge wrote it; null if no oracle was consulted. Mirrors <c>oracle_verdict</c> on the trailer.</summary>
+    public string? OracleVerdict { get; init; }
+
     /// <summary>Non-fatal evaluator warnings (unknown directive value, unbuildable client, …).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }

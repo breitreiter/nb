@@ -4,7 +4,7 @@ title: The oracle misses when the assistant proposes a value and waits for confi
 created: 2026-09-14
 updated: 2026-09-14
 status: current
-state: open
+state: fixed
 severity: high
 cluster: oracle-resolver
 ---
@@ -26,6 +26,77 @@ the message's own words. The second phrasing is the one an assistant produces
 when its instructions tell it to propose values and wait — which is a common
 shape, and in the case that found this, the shape the task under test *required*
 on every run. That made the behaviour being studied unmeasurable.
+
+
+## Fix (2026-09-14)
+
+Two things landed together: a bench that reproduces the failure on demand, and a
+rewritten judge prompt chosen by it.
+
+**The bench.** `evals/oracle-bench/` runs every case through the real product path —
+the Mock provider replays a fixed assistant message as the subject's turn and a real
+model, named by the new `oracle provider <entry>` directive, judges it — N samples per
+case, scored on what nb actually did (`keys`, `oracle_miss`, or `ok`). Sixteen cases:
+the two cells above, four more proposal shapes (long, markdown-heavy, an assumption
+with an opt-out, a proposal that already matches the sheet), a bare "shall I write
+it?", two-question asks, off-sheet asks, and three finished-report controls. Its
+`done-on-waiting` count isolates the failure this report is about.
+
+**What the bench showed that hand replay had not.** On the same model and the same
+sheet, the stock prompt was far worse than the table above: **26/80** overall, and the
+"ask form" control that had measured 5/5 came in at **1/5**. One reason is a defect the
+report did not see: the prompt asks for "the ids of the sheet entries" without saying
+what an id is, and the model answered with **ordinals** — `1`, `1,2` — which
+`ParseVerdict` cannot read and so quietly scored as `DONE`. The other is that the side
+call carried no temperature, so it ran at the server's default and the earlier 5/5 was a
+sampling artefact. The judge is now greedy (`Temperature = 0`).
+
+**What moved it.** Four variants on `qwen3-coder-next`, five samples per case:
+
+| variant | pass | done-on-waiting |
+|---|---|---|
+| stock | 26/80 | 15 |
+| + ids named explicitly, greedy | 36/80 | 10 |
+| + the judge **is the user** (see below) | 74/80 | 5 |
+| + two worked examples | 75/80 | 0 |
+| + "only the entries that speak to what it is waiting on" | **80/80** | **0** |
+
+Naming the ids fixed the ordinal problem and nothing else: every proposal cell stayed
+0/5. The reframe is what fixed the proposals. The stock prompt asked a third party
+whether the message was "waiting on the user for **information**" and which entries
+"**answer**" it — and a request to confirm `billing-api` is not a request for
+information, and an entry saying `orders-api` does not "answer" it. The new prompt puts
+the judge *in the user's seat*: the sheet is what you know and would say; the assistant
+has handed you the turn; which entries are your reply? Waiting-on-you is defined to
+include a proposal that stops for a say-so, and a differing entry is named as the reply
+that corrects it. Under that frame the correction is the obvious move rather than a
+semantic stretch. The examples closed the last `DONE` on a clear off-sheet ask; the
+selection guard removed a harmless over-selection (adding `customer-name` to a
+deploy-only ask).
+
+**On a frontier reasoning judge** (GLM 5.2 hosted on Cloudflare Workers AI, via
+`oracle provider`, three samples per case): the shipped prompt scored **48/48**,
+done-on-waiting 0, ~15 s and ~115 output tokens per verdict. The stock prompt on the same
+model over the six proposal cases scored 16/18 — one `DONE` on a proposal that matched
+the sheet, one `MISS` on the corrected-proposal-with-proceed case — so the bug was mostly
+a small-model problem, but not only one; a strong judge still dropped one in nine
+proposals under the old frame. One difference in kind: the strong judge read the thin
+"Deploy to staging." entry as a hit where the local models judged `MISS`; both are
+accepted by that case.
+
+Local `glmchat` was only spot-checked: the box was at its memory ceiling and a verdict
+there costs 25–110 s of reasoning. Five samples agreed with expectations; one
+`finished-report` sample judged `MISS`, on a box under pressure. Not swept further.
+
+**Also in this change.** `oracle provider <entry>` is a real directive, not a bench
+hook — it is the `oracle model` deferral from the plan, and a cheap judge beside an
+expensive subject is its production use. An unbuildable entry aborts at the first
+judgement, as `provider` does.
+
+**Also landed:** the raw verdict is recorded — `verdict` on the oracle-supplied `user`
+turn, `oracle_verdict` on the `result` trailer (the judgement that ended the run).
+
+**Not done.** Unparseable verdicts still land on `DONE`; that stands as a suggestion.
 
 ## Why it matters more than a miss usually would
 

@@ -55,6 +55,9 @@ public sealed record UserEvent : MessageEvent
 
     /// <summary>Enrichment: the sheet entry ids the oracle selected for this turn.</summary>
     public IReadOnlyList<string>? Keys { get; init; }
+
+    /// <summary>Enrichment: the oracle's raw verdict text that selected this turn, as the judge wrote it.</summary>
+    public string? Verdict { get; init; }
 }
 
 public sealed record AssistantTextEvent : MessageEvent
@@ -186,12 +189,23 @@ public sealed record HarnessEvent : TranscriptEvent
 /// replays identically to one that doesn't; one that does gets the oracle's answers as
 /// ordinary <see cref="UserEvent"/>s marked <c>source: oracle</c>.
 /// </summary>
+/// <summary>What the oracle selected for one user turn: the ids, and the raw verdict that named them.</summary>
+public sealed record OracleAnswer(IReadOnlyList<string> Keys, string Verdict);
+
 public sealed record OracleEvent : TranscriptEvent
 {
     public override string Type => "oracle";
 
-    /// <summary>The answer sheet's markdown body — headed sections keyed by topic.</summary>
-    public required string Sheet { get; init; }
+    /// <summary>The answer sheet's markdown body — headed sections keyed by topic. Null on the <c>oracle provider</c> form.</summary>
+    public string? Sheet { get; init; }
+
+    /// <summary>
+    /// The config entry the oracle's side call goes to (<c>oracle provider &lt;entry&gt;</c>),
+    /// or null to judge on the subject's own client. Lets a cheap or fast judge sit beside
+    /// an expensive subject, and lets the judge be measured on its own: a Mock subject
+    /// replaying a fixed message against a real oracle (evals/oracle-bench).
+    /// </summary>
+    public string? Provider { get; init; }
 }
 
 /// <summary>
@@ -309,6 +323,15 @@ public sealed record ResultEvent : TranscriptEvent
     /// so a run without an oracle (or one that never asked) has an unchanged trailer.
     /// </summary>
     public int? OracleTurns { get; init; }
+
+    /// <summary>
+    /// The oracle's last raw verdict, as the judge wrote it — the one that ended the run
+    /// (<c>DONE</c>, <c>MISS</c>, or whatever unreadable text was treated as <c>DONE</c>).
+    /// Omitted when no oracle was consulted. Tells "the sheet lacks this topic" from "the
+    /// judge could not read the ask" without replaying the call
+    /// (bugs/Oracle_Misses_A_Proposal_Awaiting_Confirmation.md).
+    /// </summary>
+    public string? OracleVerdict { get; init; }
 }
 
 /// <summary>Token usage on the run-level <see cref="ResultEvent"/> trailer.</summary>

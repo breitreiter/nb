@@ -6,6 +6,7 @@ using nb.MCP;
 using nb.Shell;
 using nb.Shell.ApplyPatch;
 using nb.Harness;
+using nb.Transcript;
 using nb.Utilities;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
@@ -216,10 +217,10 @@ public class ConversationManager
     // The user messages the oracle authored from the answer sheet, by message identity,
     // each with the ids it selected. Live instrumentation, like the approval ledger:
     // history carries no enrichment, so the mapper is handed this alongside it.
-    private readonly Dictionary<AIChatMessage, IReadOnlyList<string>> _oracleAnswers = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<AIChatMessage, OracleAnswer> _oracleAnswers = new(ReferenceEqualityComparer.Instance);
     private bool _oracleAvailable;
 
-    public IReadOnlyDictionary<AIChatMessage, IReadOnlyList<string>> OracleAnswers => _oracleAnswers;
+    public IReadOnlyDictionary<AIChatMessage, OracleAnswer> OracleAnswers => _oracleAnswers;
 
     /// <summary>The last assistant prose in history, or empty — what the oracle is shown.</summary>
     public string LastAssistantText =>
@@ -239,10 +240,11 @@ public class ConversationManager
     /// appended to history. Its tokens count toward the session total like every other
     /// round-trip the run paid for.
     /// </summary>
-    public async Task<ChatResponse> SideCallAsync(IList<AIChatMessage> messages, ChatOptions options, CancellationToken cancellationToken = default)
+    public async Task<ChatResponse> SideCallAsync(IList<AIChatMessage> messages, ChatOptions options, CancellationToken cancellationToken = default, IChatClient? client = null)
     {
-        if (_client == null) return new ChatResponse();
-        var response = await _client.GetResponseAsync(messages, options, cancellationToken);
+        client ??= _client;
+        if (client == null) return new ChatResponse();
+        var response = await client.GetResponseAsync(messages, options, cancellationToken);
         var (input, output, total) = MeasureOrEstimateUsage(response, options.Tools);
         _sessionInputTokens += input;
         _sessionOutputTokens += output;
@@ -257,11 +259,11 @@ public class ConversationManager
     /// mark it <c>source: oracle</c>. It is a plain user turn on the wire on purpose:
     /// that is what lets a resolved run replay from its own transcript.
     /// </summary>
-    public void AppendOracleAnswer(string text, IReadOnlyList<string> keys)
+    public void AppendOracleAnswer(string text, IReadOnlyList<string> keys, string verdict)
     {
         var message = new AIChatMessage(ChatRole.User, text);
         _conversationHistory.Add(message);
-        _oracleAnswers[message] = keys;
+        _oracleAnswers[message] = new OracleAnswer(keys, verdict);
         RenderMarkdown($"*(oracle: {string.Join(", ", keys)})* {text}");
     }
 

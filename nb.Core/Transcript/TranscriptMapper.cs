@@ -34,7 +34,7 @@ public static class TranscriptMapper
     /// live instrumentation, not recovered from the message.
     /// </param>
     public static List<TranscriptEvent> FromHistory(IEnumerable<ChatMessage> history, ApprovalLedger? approvals = null,
-        IReadOnlyDictionary<ChatMessage, IReadOnlyList<string>>? oracleAnswers = null)
+        IReadOnlyDictionary<ChatMessage, OracleAnswer>? oracleAnswers = null)
     {
         var events = new List<TranscriptEvent>();
         int turn = 0;
@@ -81,8 +81,8 @@ public static class TranscriptMapper
             {
                 // User (and any unexpected role) — a plain message, multipart if it carries images.
                 var user = BuildMessage(msg, turn);
-                if (oracleAnswers is not null && oracleAnswers.TryGetValue(msg, out var keys))
-                    user = user with { Source = "oracle", Keys = keys };
+                if (oracleAnswers is not null && oracleAnswers.TryGetValue(msg, out var answer))
+                    user = user with { Source = "oracle", Keys = answer.Keys, Verdict = answer.Verdict };
                 events.Add(user);
             }
         }
@@ -95,7 +95,7 @@ public static class TranscriptMapper
     /// from the emitted events; usage is passed in from the live response (it is
     /// not in history).
     /// </summary>
-    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0, string? provider = null, int oracleTurns = 0)
+    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0, string? provider = null, int oracleTurns = 0, string? oracleVerdict = null)
     {
         // "turns" = assistant rounds: distinct turns carrying an assistant message.
         // (Counting distinct turns rather than the max keeps the number meaningful
@@ -116,6 +116,7 @@ public static class TranscriptMapper
             Harness = harness,
             Denied = deniedCount > 0 ? deniedCount : null,
             OracleTurns = oracleTurns > 0 ? oracleTurns : null,
+            OracleVerdict = oracleVerdict,
         };
     }
 

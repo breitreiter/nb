@@ -163,7 +163,7 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 | `provider` | `provider <name>` | Select the active provider (matched against `ChatProviders[].Name` in config) for subsequent runs. |
 | `model` | `model <name>` | Select the model for subsequent runs. Overrides the active provider's model field in memory (both `Model` and `ChatDeploymentName`). |
 | `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Registered names: `nb`, `qwen-code`, `codex`, `claude-code`. An unknown one is a parse error, not a warning. **Every run wears one on purpose:** a program that names none inherits the active provider entry's `Harness` from config (else top-level `Harness`), and if config is silent too the run is refused before a model is called. `harness nb` asks for nb's own bare surface by name. A costume expects its own vendor's model — `claude-code` an Anthropic model, `codex` an OpenAI model, `qwen-code` a Qwen model; wedging another vendor's model into a costume is an experiment, not a test of that harness. |
-| `oracle` | `oracle @<sheet.md>` | Attach an answer sheet: a scripted user that services the halt when a model ends its turn asking for information. After every run that ends `ok`, one small side call judges the model's last message against the sheet; on a confident hit the selected entries are appended verbatim as a `user` turn and the run continues. Anything else ends the run. See *On `oracle`* below and `plans/oracle-resolver.md`. |
+| `oracle` | `oracle @<sheet.md>` · `oracle provider <entry>` | Attach an answer sheet: a scripted user that services the halt when a model ends its turn asking for information. After every run that ends `ok`, one small side call judges the model's last message against the sheet; on a confident hit the selected entries are appended verbatim as a `user` turn and the run continues. Anything else ends the run. `oracle provider <entry>` sends that side call to a named config entry instead of the subject's client (a cheaper judge, or a judge measured on its own — `evals/oracle-bench/`); an entry that cannot be built aborts the run at the first judgement, as `provider` does. See *On `oracle`* below and `plans/oracle-resolver.md`. |
 
 **On `harness`.** It is a program directive rather than provider config because the
 experiment worth running is *one model across two harnesses*, and that has to be
@@ -199,10 +199,14 @@ since "staging" does not answer "AWS or Azure?". The entry above, which says wha
 environment actually is, was a hit. A topic id names the entry; the body has to do the
 work. The sheet holds what a user *knows* (facts, constraints, preferences), never how
 the task should be solved: a sheet that carries the rubric turns question-asking into a
-side channel to the answer key.
+side channel to the answer key. The judge reads the sheet *as the user*: an entry is
+selected when it is what the user would say in reply, so an entry whose value differs
+from one the model has proposed is a hit (it corrects the proposal), and a bare
+"shall I go ahead?" is serviced by an entry such as `## proceed` / *Yes, go ahead.*
 
 **The continuation rule: continue only on a confident hit; everything else ends the
-run.** After a run ends `ok`, nb makes one small side call on the current provider. It is
+run.** After a run ends `ok`, nb makes one small side call on the current provider (or
+on the entry `oracle provider <entry>` names). It is
 shown the sheet and the model's last message and replies with entry ids, `DONE` or
 `MISS`. The oracle *selects, never authors* — the reply the model then sees is composed
 from the sheet bodies verbatim, so the transcript stays auditable.
@@ -227,8 +231,12 @@ have) and a false negative needs the oracle to miss a *clear* question that *has
 entry. The loop is bounded by `budget oracle_turns` (§4.4). There is no deflection and no
 "I'm not sure" reply — those exist to handle the ambiguous middle, and the rule removes it.
 
-On the wire, an oracle-supplied turn is an ordinary `user` event carrying two enrichment
-fields, `source: "oracle"` and `keys: [...]` (the ids selected). Enrichment is ignored on
+On the wire, an oracle-supplied turn is an ordinary `user` event carrying three enrichment
+fields, `source: "oracle"`, `keys: [...]` (the ids selected) and `verdict` (the judge's raw
+reply that selected them). The `result` trailer carries `oracle_verdict`, the raw text of
+the last judgement — the `DONE`, `MISS` or unreadable reply that ended the run — so a miss
+can be read as "no entry covers this" or "the judge could not read the ask" without
+replaying the call. Enrichment is ignored on
 seed-load, so a resolved run replays from its own transcript as a plain conversation —
 which is what makes it reproducible. The `result` trailer gains `oracle_turns` (omitted
 when zero). Nothing is injected into the system prompt and no ask tool is advertised: a

@@ -54,7 +54,17 @@ public sealed class ProgramEvaluator
     /// <summary>How many times the oracle resolved a halt and continued the run.</summary>
     public int OracleTurnsUsed { get; private set; }
 
+    /// <summary>The oracle's last raw verdict, or null if it was never consulted. Mirrors <c>oracle_verdict</c> on the trailer.</summary>
+    public string? OracleVerdict { get; private set; }
+
     private AnswerSheet? _sheet;
+
+    /// <summary>The config entry the oracle's side call goes to, or null for the subject's own client.</summary>
+    public string? OracleProvider { get; private set; }
+
+    // Built at the first resolution, not at the directive: a program that names an oracle
+    // provider and never asks should run like one that doesn't.
+    private IChatClient? _oracleClient;
 
     /// <summary>
     /// How many times the oracle may resolve a halt and continue the run before the run
@@ -121,11 +131,19 @@ public sealed class ProgramEvaluator
                 ApplyHarness(h.Name);
                 break;
             case OracleEvent o:
-                Oracle = o.Sheet;
-                _sheet = AnswerSheet.Parse(o.Sheet);
-                if (_sheet.Entries.Count == 0)
-                    _warnings.Add("oracle: the answer sheet has no headed entries — nothing can be selected, so every ask will be a miss");
-                _conversation.SetOracleAvailable(true);
+                if (o.Provider is not null)
+                {
+                    OracleProvider = o.Provider;
+                    _oracleClient = null;
+                }
+                if (o.Sheet is not null)
+                {
+                    Oracle = o.Sheet;
+                    _sheet = AnswerSheet.Parse(o.Sheet);
+                    if (_sheet.Entries.Count == 0)
+                        _warnings.Add("oracle: the answer sheet has no headed entries — nothing can be selected, so every ask will be a miss");
+                    _conversation.SetOracleAvailable(true);
+                }
                 break;
             case SurfaceDirectiveEvent sd:
                 _surfaceDirectives.Add(sd);
@@ -171,8 +189,9 @@ public sealed class ProgramEvaluator
             var last = _conversation.LastAssistantText;
             if (last.Length == 0) return;
 
-            var reply = await _conversation.SideCallAsync(OracleResolver.BuildPrompt(_sheet, last), OracleResolver.Options(), cancellationToken);
+            var reply = await _conversation.SideCallAsync(OracleResolver.BuildPrompt(_sheet, last), OracleResolver.Options(), cancellationToken, OracleClient());
             var verdict = OracleResolver.ParseVerdict(reply, _sheet, _warnings);
+            OracleVerdict = verdict.Raw;
 
             switch (verdict.Kind)
             {
@@ -194,7 +213,7 @@ public sealed class ProgramEvaluator
             }
 
             OracleTurnsUsed++;
-            _conversation.AppendOracleAnswer(_sheet.Compose(verdict.Keys), verdict.Keys);
+            _conversation.AppendOracleAnswer(_sheet.Compose(verdict.Keys), verdict.Keys, verdict.Raw);
             await _conversation.RunAsync(null, cancellationToken);
         }
     }
@@ -345,6 +364,17 @@ public sealed class ProgramEvaluator
                 _warnings.Add($"budget key '{bg.Key}' unknown (tokens | tool_calls | wall_ms | oracle_turns) — ignored");
                 break;
         }
+    }
+
+    // The judge's client: the named entry's, built once and hard-failing like SwapClient
+    // does — a program naming an oracle provider is asserting a dependency, and judging
+    // on the subject instead would answer with the wrong thing at exit 0.
+    private IChatClient? OracleClient()
+    {
+        if (OracleProvider is null) return null;
+        return _oracleClient ??= _clientFactory(OracleProvider, null)
+            ?? throw new ProviderUnavailableException(
+                $"could not build a client for oracle provider '{OracleProvider}'. The run is aborted rather than judged by the subject's provider.");
     }
 
     private void SwapClient()

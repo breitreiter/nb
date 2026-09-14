@@ -54,6 +54,7 @@ public static class TranscriptPorcelainWriter
         if (r.Turns is { } t) sb.Append($" turns={t}");
         if (r.ToolCalls is { } tc) sb.Append($" tool_calls={tc}");
         if (r.OracleTurns is { } ot) sb.Append($" oracle_turns={ot}");
+        if (r.OracleVerdict is { } ov) sb.Append($" oracle_verdict={ov}");
         if (r.Usage is { } u)
         {
             sb.Append($" input={u.Input} output={u.Output} total={u.Total}");

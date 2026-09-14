@@ -20,6 +20,15 @@ public enum OracleVerdictKind { Done, Miss, Hit }
 /// scoped to the sheet — "is it asking about one of these?" is a far easier question
 /// than "is it asking?". See plans/oracle-resolver.md, "One oracle call does two jobs".
 ///
+/// The judge is seated AS the user, not as a third party asked whether the message
+/// "asks for information" that an entry "answers". That framing missed every proposal
+/// that stops for confirmation (an entry with a different value does not "answer" a
+/// request to confirm), which is the case the sheet is most useful for. Asked instead
+/// "which entries are your reply?", the correction is the obvious move. Measured in
+/// evals/oracle-bench: 26/80 → 80/80 on qwen3-coder-next
+/// (bugs/Oracle_Misses_A_Proposal_Awaiting_Confirmation.md). Change the wording only
+/// with the bench in hand.
+///
 /// The oracle selects and never authors: the verdict is ids, <c>DONE</c> or
 /// <c>MISS</c>, and the reply is composed from the sheet by <see cref="AnswerSheet"/>.
 /// </summary>
@@ -31,23 +40,35 @@ public static class OracleResolver
     /// provider keys on, and the distinct prefix is what keeps this call's cache entry
     /// apart from the subject conversation's. The judged message comes LAST, behind
     /// <see cref="OracleProtocol.SubjectMarker"/>, so the Mock can scope its rider scan
-    /// to it and not to the sheet.
+    /// to it and not to the sheet. The ids are listed by name: without that a small
+    /// model answered with ordinals ("1", "1,2"), which parse as nothing and score DONE.
     /// </summary>
     public static List<ChatMessage> BuildPrompt(AnswerSheet sheet, string lastAssistantMessage) => new()
     {
         new(ChatRole.User,
             OracleProtocol.Sentinel + "\n" +
-            "You are judging the last message of an AI assistant on behalf of the user it is talking to. " +
-            "Decide whether that message is CLEARLY waiting on the user for information, and whether the " +
-            "answer sheet below covers what it asks.\n\n" +
+            "You are standing in for the user of an AI assistant. The assistant has just ended its turn with the message at the bottom. " +
+            "The answer sheet is what you, the user, know and would say. Decide whether the assistant is waiting on you before it can go on, " +
+            "and if so, which sheet entries are your reply.\n\n" +
+            "The assistant is waiting on you when it asks you a question, asks you to confirm or approve something before it proceeds, " +
+            "or proposes a value or a plan and stops for your say-so. A proposal that stops for confirmation is waiting on you exactly as a question is; " +
+            "if an entry gives a different value from the one proposed, that entry is your reply — it corrects the proposal.\n\n" +
+            "It is NOT waiting on you when it reports finished work, offers optional follow-ups you are free to ignore, " +
+            "or raises a question it then answers itself.\n\n" +
+            "Each sheet entry's id is its heading, exactly as written. The ids on this sheet are: " + IdList(sheet) + ".\n\n" +
+            "Two examples, on a different sheet whose ids were `database-engine` and `region`:\n" +
+            "- The assistant said \"I'll go with SQLite for now — let me know if you'd prefer something else before I set up the schema.\" and the `database-engine` entry said \"Postgres 16; we don't use SQLite anywhere.\" The reply is `database-engine`: it is waiting for your say-so and the entry corrects it.\n" +
+            "- The assistant said \"Schema created and migrations pass. I can also add seed data if useful.\" The reply is DONE: finished work and an optional offer.\n\n" +
             "Reply with exactly one line and nothing else:\n" +
-            "- the ids of the sheet entries that answer what the assistant is asking, comma-separated, if it is clearly asking the user for something one or more entries cover;\n" +
-            $"- {OracleProtocol.Miss} if it is clearly asking the user for something, but no entry covers it;\n" +
-            $"- {OracleProtocol.Done} if it is not clearly waiting on the user (finished, reporting, offering optional follow-ups, or ambiguous).\n" +
-            $"Be conservative: when in doubt, {OracleProtocol.Done}. Never invent an id.\n\n" +
+            "- the ids of the entries you would reply with, comma-separated, if the assistant is waiting on you and one or more entries are your reply - only the entries that speak to what it is waiting on, not every entry on the sheet;\n" +
+            $"- {OracleProtocol.Miss} if it is waiting on you but nothing on the sheet is what you would say;\n" +
+            $"- {OracleProtocol.Done} if it is not waiting on you.\n" +
+            $"Never invent an id. If you cannot tell whether it is waiting on you, answer {OracleProtocol.Done}.\n\n" +
             "## Answer sheet\n\n" + sheet.Render() + "\n\n" +
             "## The assistant's last message\n" + OracleProtocol.SubjectMarker + "\n" + lastAssistantMessage)
     };
+
+    private static string IdList(AnswerSheet sheet) => string.Join(", ", sheet.Entries.Select(e => "`" + e.Id + "`"));
 
     /// <summary>
     /// Options for the call: no tools, and an output cap wide enough for a thinking model.
@@ -56,9 +77,11 @@ public static class OracleResolver
     /// verdict every time (finish_reason=length, all of it reasoning), while 2000 tokens
     /// produced the right id after ~1500 tokens of thought. Turning thinking off instead
     /// gave a wrong verdict on a plain hit. So: room to think, and a truncation is
-    /// reported as such rather than passed off as DONE.
+    /// reported as such rather than passed off as DONE. Greedy, because a judge should be
+    /// repeatable: with no temperature set the call ran at the server's default, and a
+    /// cell that measured 5/5 one afternoon measured 1/5 the next.
     /// </summary>
-    public static ChatOptions Options() => new() { MaxOutputTokens = 4096 };
+    public static ChatOptions Options() => new() { MaxOutputTokens = 4096, Temperature = 0 };
 
     /// <summary>
     /// Read the verdict. Unknown ids are dropped; a reply with no usable id and no

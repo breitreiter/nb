@@ -52,9 +52,7 @@ public static class ProgramParser
                     events.Add(ParseHarness(RequireContent(verb, content, lineNo), lineNo));
                     break;
                 case "oracle":
-                    // The sheet body travels on the event, not the path it came from, so a
-                    // seed replays honestly once the file moves (plans/oracle-resolver.md).
-                    events.Add(new OracleEvent { Sheet = ResolveContent(RequireContent(verb, content, lineNo), includeResolver) });
+                    events.Add(ParseOracle(RequireContent(verb, content, lineNo), lineNo, includeResolver));
                     break;
                 case "mcp":
                     events.Add(ParseSurface(new McpEvent(), content, lineNo));
@@ -216,6 +214,22 @@ public static class ProgramParser
     // ProgramEvaluator.ApplyBudget, not here — this only enforces the two-token shape
     // and an integer value. Keep the key list in the error message and that switch in
     // step, or the parse error advertises a set the evaluator does not honour.
+    // `oracle @sheet.md` attaches the sheet; `oracle provider <entry>` sends the side call
+    // to a named config entry instead of the subject's client. The sheet body travels on
+    // the event, not the path it came from, so a seed replays honestly once the file
+    // moves (plans/oracle-resolver.md).
+    private static OracleEvent ParseOracle(string content, int lineNo, Func<string, string>? includeResolver)
+    {
+        var (key, rest) = SplitVerb(content);
+        if (key == "provider")
+        {
+            if (rest.Length == 0)
+                throw new ProgramParseException($"line {lineNo}: 'oracle provider' needs a config entry name — got '{content}'.");
+            return new OracleEvent { Provider = rest };
+        }
+        return new OracleEvent { Sheet = ResolveContent(content, includeResolver) };
+    }
+
     private static BudgetEvent ParseBudget(string content, int lineNo)
     {
         var tokens = content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);

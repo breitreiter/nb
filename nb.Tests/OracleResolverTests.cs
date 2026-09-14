@@ -20,6 +20,16 @@ public class OracleResolverTests
     }
 
     [Fact]
+    public void BuildPrompt_NamesEveryId_AndPutsTheSubjectLast()
+    {
+        // A judge told "reply with the ids" but not what an id is answered with ordinals.
+        var text = OracleResolver.BuildPrompt(Sheet, "Which environment?").Single().Text!;
+        Assert.StartsWith(OracleProtocol.Sentinel, text);
+        Assert.Contains("`deploy-target`, `customer-name`", text);
+        Assert.EndsWith(OracleProtocol.SubjectMarker + "\nWhich environment?", text);
+    }
+
+    [Fact]
     public void ParseVerdict_Miss()
         => Assert.Equal(OracleVerdictKind.Miss, OracleResolver.ParseVerdict("MISS", Sheet, new List<string>()).Kind);
 

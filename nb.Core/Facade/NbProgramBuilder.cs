@@ -30,6 +30,9 @@ public sealed class NbProgramBuilder
     /// </summary>
     public NbProgramBuilder Oracle(string sheet) { _events.Add(new OracleEvent { Sheet = sheet }); return this; }
 
+    /// <summary>Send the oracle's side call to a named config entry instead of the subject's client (<c>oracle provider &lt;entry&gt;</c>).</summary>
+    public NbProgramBuilder OracleProvider(string entry) { _events.Add(new OracleEvent { Provider = entry }); return this; }
+
     /// <summary>Set the doom-loop detector threshold for subsequent runs (the <c>loop &lt;n&gt;</c> directive).</summary>
     public NbProgramBuilder Loop(int threshold) { _events.Add(new LoopEvent { Enabled = true, Threshold = threshold }); return this; }
 

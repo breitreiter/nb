@@ -97,6 +97,7 @@ public static class Nb
                 Harness = evaluator.Harness == HarnessRegistry.Default ? null : evaluator.Harness,
                 Denied = runtime.Conversation.Approvals.DeniedCount,
                 OracleTurns = evaluator.OracleTurnsUsed,
+                OracleVerdict = evaluator.OracleVerdict,
                 Warnings = warnings,
             };
         }

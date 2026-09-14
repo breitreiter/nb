@@ -2,7 +2,7 @@
 kind: plan
 title: Oracle resolver — servicing the halt when a model asks the void a question
 created: 2026-08-19
-updated: 2026-09-09
+updated: 2026-09-14
 status: proposed
 state: build order steps 1-2 landed; next action is step 3 (the oracle call)
 touches:
@@ -696,3 +696,30 @@ motivated it: a completion with an optional offer was judged `DONE`, not service
 `oracle model <name>` (a separate, cheaper oracle model); persona-brief generation
 (strategy 4); forking on the answer set (strategy 6); the deflection ladder
 (strategy 1) as an opt-in `oracle miss deflect` if a use case ever wants it.
+
+#### The judge is the user, 2026-09-14
+
+The first prompt-testing use turned up a systematic miss: an assistant that *proposes* a
+value and stops for confirmation was judged `MISS` or `DONE` every time, while the same
+content phrased as a question hit reliably
+(`bugs/Oracle_Misses_A_Proposal_Awaiting_Confirmation.md`). Two changes came out of it.
+
+**`evals/oracle-bench/`** measures the judge on its own: a Mock subject replays a fixed
+message, `oracle provider <entry>` sends the side call to the model under test, N samples
+per case, scored on what nb did. It is the answer to *"does a real oracle judge
+conservatively enough?"* above — now a number per model rather than n=4 by hand.
+
+**The prompt now seats the judge as the user.** The v1 prompt asked a third party whether
+the message was "waiting on the user for information" and which entries "answer" it.
+That frame reads a confirmation request as not-a-question and a differing sheet value as
+not-an-answer, which is exactly the case where the sheet is most useful (it corrects the
+proposal). The judge is now told: the sheet is what you know and would say, the assistant
+has handed you the turn, which entries are your reply. Ids are listed explicitly (the
+stock prompt never said what an id was, and a small model answered with ordinals), the
+call is greedy, and two worked examples plus a selection guard close the residue. On
+`qwen3-coder-next` the bench went from 26/80 to 80/80, and on GLM 5.2 (Cloudflare-hosted)
+it scores 48/48 where the stock prompt still dropped one proposal in nine. The
+conservative rule is unchanged: `DONE` is still the answer when the judge cannot tell.
+
+`oracle provider <entry>` also retires the `oracle model` deferral below: a cheap judge
+beside an expensive subject is the production use of the same directive.

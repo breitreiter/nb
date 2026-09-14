@@ -242,7 +242,7 @@ public class Program
     // Emit a facade RunResult in the resolved mode.
     private static void EmitResult(RunResult result, string mode)
     {
-        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied, result.Provider, result.OracleTurns);
+        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied, result.Provider, result.OracleTurns, result.OracleVerdict);
         if (mode == "porcelain") EmitPorcelain(result.Events, trailer);
         else EmitJsonl(result.Events, trailer);
     }

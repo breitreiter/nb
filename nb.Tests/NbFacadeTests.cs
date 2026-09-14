@@ -315,6 +315,74 @@ public class NbFacadeTests
         return program.Run(prompt).RunAsync(MockConfig(), Options());
     }
 
+    // ---- `oracle provider <entry>`: the judge on its own client ----
+    //
+    // A cheap judge beside an expensive subject, and the judge measurable on its own
+    // (evals/oracle-bench: a Mock subject replaying a fixed message, a real oracle).
+
+    private static IConfiguration JudgeConfig() =>
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ActiveProvider"] = "Mock",
+            ["Harness"] = "nb",
+            ["ChatProviders:0:Name"] = "Mock",
+            ["ChatProviders:0:Response"] = "OK",
+            ["ChatProviders:1:Name"] = "Judge",
+            ["ChatProviders:1:Provider"] = "Mock",
+            ["ChatProviders:1:Response"] = "judge-default",
+            ["ChatProviders:2:Name"] = "Broken",
+            ["ChatProviders:2:Provider"] = "OpenAI",
+            ["ChatProviders:2:Model"] = "gpt-5",
+        }).Build();
+
+    [Fact]
+    public async Task OracleProvider_JudgesOnTheNamedEntry()
+    {
+        var r = await Nb.Program().OracleProvider("Judge").Oracle(Sheet)
+            .Run("MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target")
+            .RunAsync(JudgeConfig(), Options());
+
+        Assert.Equal("ok", r.ExitReason);
+        Assert.Equal(1, r.OracleTurns);
+        Assert.Contains(r.Events.OfType<UserEvent>(), u => u.Source == "oracle");
+    }
+
+    [Fact]
+    public async Task OracleProvider_Unbuildable_AbortsAtTheFirstJudgement()
+    {
+        // Same rule as `provider`: a program naming a judge is asserting a dependency, and
+        // judging on the subject instead would answer the wrong thing at exit 0.
+        var ex = await Assert.ThrowsAsync<ProviderUnavailableException>(() =>
+            Nb.Program().OracleProvider("Broken").Oracle(Sheet).Run("hello").RunAsync(JudgeConfig(), Options()));
+        Assert.Contains("Broken", ex.Message);
+    }
+
+    [Fact]
+    public async Task OracleProvider_WithoutASheet_IsInert()
+    {
+        // No sheet, no judgement, so the judge's client is never built — a program that
+        // names one and never needs it runs like one that doesn't.
+        var r = await Nb.Program().OracleProvider("Broken").Run("hello").RunAsync(JudgeConfig(), Options());
+        Assert.Equal("ok", r.ExitReason);
+    }
+
+    [Fact]
+    public async Task Oracle_RecordsTheRawVerdict_OnTheTurnItSelected_AndOnTheTrailer()
+    {
+        // The raw text is the evidence: it tells "no entry covers this" from "the judge
+        // could not read the ask", without rebuilding the prompt and replaying it.
+        var hit = await Oracle("MOCK:response=Which environment? MOCK:oracle=deploy-target");
+        var answer = Assert.Single(hit.Events.OfType<UserEvent>(), u => u.Source == "oracle");
+        Assert.Equal("deploy-target", answer.Verdict);
+        Assert.Equal("DONE", hit.OracleVerdict); // the judgement that ended the run, on the subject's second turn
+
+        var miss = await Oracle("MOCK:response=Which port? MOCK:oracle=MISS");
+        Assert.Equal("MISS", miss.OracleVerdict);
+
+        var none = await Nb.Program().Run("hello").RunAsync(MockConfig(), Options());
+        Assert.Null(none.OracleVerdict);
+    }
+
     [Fact]
     public async Task Oracle_Hit_AppendsTheSheetBodyAsAUserTurn_AndRunsAgain()
     {

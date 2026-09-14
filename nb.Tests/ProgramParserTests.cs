@@ -234,6 +234,21 @@ public class ProgramParserTests
     }
 
     [Fact]
+    public void Oracle_Provider_NamesTheJudgeEntry_AndCarriesNoSheet()
+    {
+        var e = Assert.IsType<OracleEvent>(ProgramParser.Parse("oracle provider LocalCoder")[0]);
+        Assert.Equal("LocalCoder", e.Provider);
+        Assert.Null(e.Sheet);
+    }
+
+    [Fact]
+    public void Oracle_Provider_WithNoEntryName_Throws()
+    {
+        var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("oracle provider"));
+        Assert.Contains("oracle provider", ex.Message);
+    }
+
+    [Fact]
     public void Budget_OracleTurns_Parses()
     {
         var e = Assert.IsType<BudgetEvent>(ProgramParser.Parse("budget oracle_turns 8")[0]);

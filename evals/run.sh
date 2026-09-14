@@ -164,6 +164,12 @@ run_prog_jsonl "oracle: the trailer counts oracle_turns" \
 run_prog_jsonl "oracle: asks chain through the sheet" \
     '[.[]|select(.type=="user" and .source=="oracle")|.keys[0]]|join(",")' "customer-name,deploy-target" \
     $'oracle @'"$SHEET"$'\nrun MOCK:response=Customer? MOCK:oracle=customer-name'
+run_prog_jsonl "oracle: the trailer records the raw verdict" \
+    '[.[]|select(.type=="result")|.oracle_verdict]|first' "MISS" \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=Which port? MOCK:oracle=MISS'
+run_prog_jsonl "oracle: the selected turn records the raw verdict" \
+    '[.[]|select(.type=="user" and .source=="oracle")|.verdict]|first' "deploy-target" \
+    $'oracle @'"$SHEET"$'\nrun MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target'
 run_prog_jsonl "oracle: a miss ends the run as oracle_miss" \
     '[.[]|select(.type=="result")|.exit_reason]|first' "oracle_miss" \
     $'oracle @'"$SHEET"$'\nrun MOCK:response=What is the meaning of life? MOCK:oracle=MISS'

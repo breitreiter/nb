@@ -37,6 +37,10 @@ dotnet build && dotnet test --no-build
 
 # Integration evals. CI runs these too, so a green `dotnet test` is NOT enough.
 ./evals/run.sh --skip-llm
+
+# Oracle bench (not CI): the judge prompt against a real model, N samples per case.
+# Run it before and after touching OracleResolver.BuildPrompt. See evals/oracle-bench/README.md.
+./evals/oracle-bench/run.sh --provider LocalLlm --n 5
 ```
 
 Note: `dotnet run` from project root won't work - provider DLLs are discovered relative to the executable.

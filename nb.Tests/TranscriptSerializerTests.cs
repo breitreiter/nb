@@ -198,6 +198,36 @@ public class TranscriptSerializerTests
     }
 
     [Fact]
+    public void OracleVerdict_RoundTrips_OnTheUserTurnAndTheTrailer()
+    {
+        var user = TranscriptSerializer.SerializeEvent(new UserEvent { Turn = 2, Text = "Staging.", Source = "oracle", Keys = new[] { "deploy-target" }, Verdict = "deploy-target" });
+        Assert.Contains("\"verdict\":\"deploy-target\"", user);
+        Assert.Equal("deploy-target", Assert.IsType<UserEvent>(TranscriptSerializer.Parse(user)[0]).Verdict);
+
+        var result = TranscriptSerializer.SerializeEvent(new ResultEvent { ExitReason = "oracle_miss", OracleVerdict = "MISS" });
+        Assert.Contains("\"oracle_verdict\":\"MISS\"", result);
+        Assert.Equal("MISS", Assert.IsType<ResultEvent>(TranscriptSerializer.Parse(result)[0]).OracleVerdict);
+
+        // Absent when no oracle was consulted: the plain trailer is unchanged.
+        Assert.DoesNotContain("oracle_verdict", TranscriptSerializer.SerializeEvent(new ResultEvent { ExitReason = "ok" }));
+    }
+
+    [Fact]
+    public void OracleEvent_ProviderForm_RoundTrips()
+    {
+        var line = TranscriptSerializer.SerializeEvent(new OracleEvent { Provider = "Judge" });
+        Assert.DoesNotContain("\"sheet\"", line);
+
+        var back = Assert.IsType<OracleEvent>(TranscriptSerializer.Parse(line)[0]);
+        Assert.Equal("Judge", back.Provider);
+        Assert.Null(back.Sheet);
+    }
+
+    [Fact]
+    public void OracleEvent_WithNeitherSheetNorProvider_IsRefused()
+        => Assert.Throws<TranscriptFormatException>(() => TranscriptSerializer.Parse("{\"type\":\"oracle\"}"));
+
+    [Fact]
     public void UserEvent_OracleEnrichment_RoundTrips_AndIsOmittedWhenAbsent()
     {
         var plain = TranscriptSerializer.SerializeEvent(new UserEvent { Text = "hi" });
