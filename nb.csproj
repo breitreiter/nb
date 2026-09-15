@@ -81,9 +81,16 @@
        even a solution publish raced — nothing ordered the providers' copy-to-bin before
        this target read that directory.
 
-       SelfContained is forced off: a plugin runs on the host's runtime, and inheriting a
-       self-contained publish gave every provider a private copy of the framework —
-       hundreds of MB, and nb then tries to load each one as a provider.
+       Providers build WITHOUT the RuntimeIdentifier: a plugin runs on the host's runtime,
+       so it needs no RID of its own, and a RID build needs a RID restore — which a plain
+       `dotnet restore` has not done, so it failed NETSDK1047 on a clean checkout. Built
+       plainly, they land in the same bin\<Config>\net10.0\providers the dev loop uses,
+       and this target collects them from there.
+
+       Publish nb.csproj on its own, never the solution: a solution-level publish built
+       the same provider projects on other nodes concurrently with this target's build of
+       them, and the two raced over one output directory (MSB3030, a different provider
+       each run — the CI failure of 2026-09-14).
 
        Paths are anchored to this file rather than $(SolutionDir), which is empty when a
        project is built on its own — the original cause of the zero-provider copy. -->
@@ -93,13 +100,13 @@
     </ItemGroup>
     <MSBuild Projects="@(ProviderProjects)"
              Targets="Build"
-             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=false" />
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=;SelfContained=false" />
   </Target>
 
   <Target Name="CopyProvidersAfterPublish" AfterTargets="Publish"
           DependsOnTargets="BuildProvidersForPublish" Condition="'$(RuntimeIdentifier)' != ''">
     <PropertyGroup>
-      <ProviderSourceDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\providers</ProviderSourceDir>
+      <ProviderSourceDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\net10.0\providers</ProviderSourceDir>
     </PropertyGroup>
     <ItemGroup>
       <ProviderDirs Include="$(ProviderSourceDir)\**\*.*" />
