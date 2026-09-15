@@ -336,10 +336,13 @@ Never touch production during this exercise.
 The customer is Acme Logistics.
 ```
 
-After every run that ends normally, nb makes one small side call on the same provider:
-it is shown the sheet and the model's last message, and replies with the ids of the
-entries that answer what the model is clearly asking for, or `DONE` (not clearly waiting
-on the user), or `MISS` (clearly asking, but nothing on the sheet covers it). On a hit the
+After every run that ends normally, nb makes one small side call — on the same provider,
+or on the entry named by `oracle provider <entry>` — in which the judge stands in for the
+user: shown the sheet and the model's last message, it replies with the ids of the entries
+it would answer with, or `DONE` (the model is not waiting on the user), or `MISS` (it is,
+but nothing on the sheet is what the user would say). A proposal that stops for
+confirmation counts as waiting, and an entry with a different value is the reply that
+corrects it. On a hit the
 selected bodies go in **verbatim** as a `user` turn and the run continues; the oracle
 selects, never writes. Anything else ends the run: `DONE` as `ok`, `MISS` as
 `oracle_miss` (still exit 0 — only the label differs, and the unanswered question is the
@@ -354,18 +357,27 @@ ask-user tool is advertised, so the prompt under test is not perturbed.
 
 **Writing a sheet.** Key entries by **topic**, not by question — the model will phrase
 one question ten ways. Write each body as the **full answer a real user would give**,
-with enough detail to satisfy the question however it is asked. The oracle judges
-whether an entry *covers* the ask, and it is strict: in testing, a model asked *"please
-specify the cloud provider and platform"* and a sheet whose entry said only *"Deploy to
-staging"* was — correctly — judged a miss. The entry above, which says what the
-environment actually is, was a hit. Keep the rubric out: a sheet holds what the user
+with enough detail to satisfy the question however it is asked: in testing, a model asked
+*"please specify the cloud provider and platform"* and a sheet whose entry said only
+*"Deploy to staging"* was judged a miss by a local judge (a frontier one took it). The
+entry above, which says what the environment actually is, was a hit everywhere. A bare
+*"shall I go ahead?"* is serviced by an entry such as `## proceed` / *Yes, go ahead.*
+Keep the rubric out: a sheet holds what the user
 *knows*, never how the task should be solved, or asking questions becomes a side channel
 to the answer key. Every `oracle_miss` is a maintenance signal — either the sheet needs an
 entry, or the prompt produced a question nobody anticipated.
 
+**Choosing a judge.** `oracle provider <entry>` sends the side call to any config entry —
+a cheaper model beside an expensive subject, or a stronger one: measured on the bench in
+`evals/oracle-bench/`, a frontier judge (GLM 5.2) scored 48/48 and a local coder model
+80/80 with the shipped prompt. The call uses that entry's configured `Temperature`; set 0
+for a repeatable judge where the model allows it, and leave it unset on a Claude 5 entry,
+which rejects the parameter.
+
 On the wire an oracle-supplied turn is an ordinary `user` event carrying
-`source: "oracle"` and `keys: [...]`; the `result` trailer gains `oracle_turns`. Design
-and measurements: [`plans/oracle-resolver.md`](plans/oracle-resolver.md).
+`source: "oracle"`, `keys: [...]` and `verdict` (the judge's raw reply); the `result`
+trailer gains `oracle_turns` and `oracle_verdict`, the judgement that ended the run.
+Design and measurements: [`plans/oracle-resolver.md`](plans/oracle-resolver.md).
 
 ### Approval policy
 
