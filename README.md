@@ -1,13 +1,13 @@
 # NotaBene (nb)
 
-**A small-program evaluator for LLM automation** — evals, model comparison, prompt
+**A small-program evaluator for LLM automation.** Evals, model comparison, prompt
 regression, and tool-use testing, driven from one file you can check into git.
 
-nb runs a **conversation-program**: one ordered directive document carrying
+nb runs a **conversation-program**: one ordered directive document carrying the
 provider, model, tool surface, approval policy, fabricated history, and the live
-prompt — so *one document is one runnable program*. Every invocation is stateless,
-output is machine-readable by default, and the output schema is the same schema
-the input accepts, so record → edit → replay is native.
+prompt. One document is one runnable program. Every invocation is stateless, output
+is machine-readable by default, and the output schema is the same schema the input
+accepts, so record, edit, replay is the normal workflow.
 
 ```
 # triage.nb
@@ -24,99 +24,106 @@ $ nb triage.nb --output porcelain
 bug
 ```
 
-A run is exactly what its document says: the history it fabricates, the persona it
-writes, the tools it declares. Nothing is injected, and nothing carries over from the
-last invocation, which is what makes a scripted unit of LLM work cheap to run a
-thousand times and easy to inspect afterwards. A program can also put the run in
-another agent's costume with `harness` (see [Harness costumes](#harness-costumes)), to
-measure a model through the surface it was trained against.
+A run is what its document says: the history it fabricates, the persona it writes,
+the tools it declares. Nothing is injected and nothing carries over from the last
+invocation, so a scripted unit of LLM work is cheap to run a thousand times and easy to
+inspect afterwards. A program can also put the run in another agent's costume with
+`harness`, to measure a model through the surface it was trained against.
 
-Full reference: [`docs/conversation-program-cli.md`](docs/conversation-program-cli.md)
-(CLI/subprocess) and [`docs/conversation-program-api.md`](docs/conversation-program-api.md)
-(in-process library).
+## Documentation
+
+| Page | Covers |
+|---|---|
+| [`docs/conversation-program-cli.md`](docs/conversation-program-cli.md) | The full reference: source syntax, every directive, evaluation semantics, seeds, the JSONL wire format, failure modes. |
+| [`docs/conversation-program-api.md`](docs/conversation-program-api.md) | Running programs in-process from C# via `nb.Core`. |
+| [`docs/providers.md`](docs/providers.md) | Shipped providers, selecting one, gateway routing, the Azure variants, writing your own. |
+| [`docs/mcp.md`](docs/mcp.md) | Configuring MCP servers, auth headers, the built-in test server. |
+| [`docs/testing.md`](docs/testing.md) | The Mock provider, fake tools, the eval suite, the oracle bench. |
+| [`docs/distribution.md`](docs/distribution.md) | Publishing self-contained binaries and what ships in them. |
 
 ## What it's for
 
-- **Evals** — a program per case, `--output jsonl` into your scorer. No history file,
-  so cases run in parallel without stepping on each other. nb's own eval suite
-  (`evals/run.sh`) is written this way against the Mock provider.
-- **Model comparison** — same program, `provider`/`model` swapped, or swapped
-  *mid-document* so one run hands off from a cheap model to an expensive one.
-- **Prompt regression** — the program is a text file: diff it, review it, bisect it.
-- **Tool-use and alignment testing** — declare a tool surface (`tools`, `mcp`),
+- **Evals.** A program per case, `--output jsonl` into your scorer. No history file, so
+  cases run in parallel without interfering. nb's own eval suite (`evals/run.sh`) is
+  written this way against the Mock provider.
+- **Model comparison.** Same program, `provider` or `model` swapped, or swapped
+  mid-document so one run hands off from a cheap model to an expensive one.
+- **Prompt regression.** The program is a text file. Diff it, review it, bisect it.
+- **Tool-use and alignment testing.** Declare a tool surface (`tools`, `mcp`),
   fabricate a prior tool round the model believes it already made, or define
-  `fake-tools.yaml` entries so "destructive" tools return canned results instead of
-  doing anything.
-- **Harness comparison** — run one model through `harness codex` and `harness
+  `fake-tools.yaml` entries so destructive tools return canned results.
+- **Harness comparison.** Run one model through `harness codex` and `harness
   claude-code` and diff the transcripts. `harness` is a program directive, so the
-  experiment lives in two files in a directory instead of a config edit between runs.
-- **A subroutine inside a bigger agent** — call `Nb.RunAsync` in-process and get a
-  typed result, or spawn `nb` as a subprocess and parse stdout.
+  experiment is two files in a directory rather than a config edit between runs.
+- **A subroutine inside a bigger agent.** Call `Nb.RunAsync` in-process and get a typed
+  result, or spawn `nb` as a subprocess and parse stdout.
 
-The shell and file tools are a **tool surface you hand the model under test** — shaped
-per program by `tools` and `mcp`, and governed by declarative approval policy. That
-policy decides what is *recorded and refused*; it is not a security boundary. For an
-untrusted or adversarial workload, run nb inside a container (see
-[Approval is not a boundary](#approval-records-it-does-not-confine)).
+The shell and file tools are a tool surface you hand the model under test, shaped per
+program by `tools` and `mcp` and governed by a declarative approval policy. That policy
+decides what is recorded and refused. It is not a security boundary: the bash child has
+no OS-level isolation, and nb's file tools run in-process. For an untrusted or
+adversarial workload, run nb inside a container. The reference explains the reasoning
+under *Approval directives*.
 
 ## Prerequisites
 
-- .NET 10 SDK (to build from source) or .NET 10 runtime (for pre-built binaries)
-- API key for at least one supported provider — Azure OpenAI, OpenAI, Anthropic,
-  Google Gemini, or any local server on the OpenAI wire. (The **Mock** provider
-  needs no key, and is enough to develop programs against.)
-- **Windows only:** [Git for Windows](https://git-scm.com/download/win) — nb uses Git
+- .NET 10 SDK to build from source, or the .NET 10 runtime for pre-built binaries.
+- An API key for at least one supported provider: Azure OpenAI, OpenAI, Anthropic,
+  Google Gemini, or any local server on the OpenAI wire. The Mock provider needs no key
+  and is enough to develop programs against.
+- **Windows only:** [Git for Windows](https://git-scm.com/download/win). nb uses Git
   Bash for its shell tool on Windows. PowerShell is not supported, because models mix
-  bash and PowerShell idioms when given a tool named `bash` and produce broken
-  commands. If `bash.exe` isn't found at install time, nb will tell you where to get it.
+  bash and PowerShell idioms when given a tool named `bash` and produce broken commands.
+  If `bash.exe` is not found at install time, nb says where to get it.
 
 ## Installation
 
-### Option 1: Build from Source (Recommended)
+### Build from source (recommended)
 
 ```bash
 git clone https://github.com/breitreiter/nb
 cd nb
-cp appsettings.example.json appsettings.json   # then edit in your provider config
+cp appsettings.example.json appsettings.json   # then add your provider config
 dotnet build
 cd bin/Debug/net10.0
 echo 'run MOCK:response=hello' | ./nb -
 ```
 
-**Note:** nb must run from the bin directory, where the provider DLLs live.
+nb must run from the bin directory, where the provider DLLs live.
 
-### Option 2: Pre-built Binaries
+### Pre-built binaries
 
-Pre-built binaries are in the [releases section](https://github.com/breitreiter/nb/releases),
-but they are not code-signed, so you'll hit security warnings. On Windows, SmartScreen:
-click "More info" → "Run anyway" ([docs](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/)).
+Binaries are in the [releases section](https://github.com/breitreiter/nb/releases).
+They are not code-signed, so expect a security warning. On Windows, SmartScreen: click
+"More info", then "Run anyway" ([docs](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/)).
 On macOS, Gatekeeper: see Apple's guide on [safely opening apps](https://support.apple.com/en-us/102445).
 
 ## Configuration
 
-Configuration holds **connection** (endpoints, keys) and defaults. Everything about a
-particular run — which model, which tools, what's allowed — belongs in the program.
+Configuration holds connection details (endpoints, keys) and defaults. Everything about
+a particular run, which model, which tools, what is allowed, belongs in the program.
 
-1. **Providers**: edit `appsettings.json` with keys and endpoints. Configure as many
-   as you like; a program picks one by name. If a model has a non-standard context
-   window, set `MaxContextTokens` on its entry.
-2. **MCP servers** (optional): copy `mcp.example.json` to `mcp.json`.
-3. **Theme** (optional): colors in `theme.json`.
+1. **Providers.** Edit `appsettings.json` with keys and endpoints. Configure as many as
+   you like; a program picks one by name. If a model has a non-standard context window,
+   set `MaxContextTokens` on its entry. Details in [`docs/providers.md`](docs/providers.md).
+2. **MCP servers** (optional). Copy `mcp.example.json` to `mcp.json`. Details in
+   [`docs/mcp.md`](docs/mcp.md).
+3. **Theme** (optional). Colors for interactive output in `theme.json`; see the
+   reference, §2.
 
 ### Config resolution
 
 Config resolves in layers, later winning: install defaults (`appsettings.json` next to
-the binary) → user config (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`) →
-the nearest project `.nb/config.json` (walking up from the current directory) →
-`NB_`-prefixed environment variables (`NB_ActiveProvider`, `NB_ChatProviders__0__ApiKey`, …).
-This keeps API keys out of the install directory and lets a CI job set provider/model
-without editing shared config. `--config <file>` uses a single file **hermetically**,
-ignoring the layers — which is what you want for a reproducible test run.
+the binary), then user config (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`),
+then the nearest project `.nb/config.json` walking up from the current directory, then
+`NB_`-prefixed environment variables (`NB_ActiveProvider`, `NB_ChatProviders__0__ApiKey`).
+This keeps API keys out of the install directory and lets a CI job set provider and
+model without editing shared config. `--config <file>` uses a single file and ignores
+the layers, which is what a reproducible test run wants.
 
-Friendly env aliases for the common knobs: `NB_PROVIDER`, `NB_MODEL`, `NB_OUTPUT`.
-`mcp.json` resolves in the same install → user (`~/.config/nb/mcp.json`) → project
-(`.nb/mcp.json`) layers, merging server definitions by name; `--mcp <file>` selects a
-single manifest hermetically.
+Aliases for the common knobs: `NB_PROVIDER`, `NB_MODEL`, `NB_OUTPUT`. `mcp.json`
+resolves in the same install, user (`~/.config/nb/mcp.json`), project (`.nb/mcp.json`)
+layers, merging server definitions by name; `--mcp <file>` selects a single manifest.
 
 ## Running a program
 
@@ -125,45 +132,48 @@ nb flow.nb                           # run a program file
 echo 'run summarize this' | nb -     # a one-off program on stdin
 ```
 
-With no program, `nb` prints its help and exits 2 — there is no interactive mode.
+With no program, `nb` prints its help and exits 2. There is no interactive mode.
 
-The positional argument is a program **file**, so `nb "some text"` goes looking for a
-file named "some text". To run a one-off prompt, wrap it in a `run`:
-`echo 'run some text' | nb -`.
+The positional argument is a program file, so `nb "some text"` looks for a file named
+"some text". To run a one-off prompt, wrap it in a `run`: `echo 'run some text' | nb -`.
 
-**Stateless + explicit continuity.** nb reads and writes no history file, so parallel
-runs just work. Carry continuity with `--seed`, which prepends a captured transcript
-as premise:
+**Stateless, with explicit continuity.** nb reads and writes no history file, so
+parallel runs do not interfere. Carry continuity with `--seed`, which prepends a captured
+transcript as premise:
 
 ```bash
 echo 'run start a haiku about autumn' | nb - --output jsonl > turn1.jsonl
 echo 'run now finish it'              | nb - --seed turn1.jsonl
 ```
 
-nb exposes the current working directory as an MCP root, to help filesystem MCP
-servers orient themselves.
+### Output
 
-### Machine-readable output
-
-A program defaults to `--output jsonl`. Both machine modes route the transcript to
-**stdout** and all chrome (tool logs, warnings) to **stderr**, so a script captures a
-clean result:
+A program defaults to `--output jsonl`. Both machine modes put the transcript on stdout
+and all chrome (tool logs, warnings) on stderr, so a script captures a clean result:
 
 ```bash
-nb flow.nb                       # jsonl: a typed event stream (user/assistant_text/tool_call/… + a result trailer)
-nb flow.nb --output porcelain    # plain text: TOOL/RESULT lines + the answer verbatim (fenced blocks survive)
+nb flow.nb                       # jsonl: a typed event stream plus a result trailer
+nb flow.nb --output porcelain    # plain text: TOOL/RESULT lines and the answer verbatim
 nb flow.nb 2>/dev/null | jq -r 'select(.type=="assistant_text").text'
 ```
 
-Color is disabled automatically when stdout is redirected or `NO_COLOR` is set. Exit
-codes are meaningful: `0` success, `2` provider error, `3` turn aborted (a budget or
-limit — tool calls, tokens, wall-clock, oracle turns — or repeated failures), `4`
-approval denied — so a caller can classify failures without parsing text. The
-fine-grained reason (`token_budget`, `oracle_miss`, …) is on the transcript's `result`
-trailer as `exit_reason`.
+Color is disabled when stdout is redirected or `NO_COLOR` is set. Exit codes: `0`
+success, `2` provider error, `3` turn aborted on a budget, limit, or repeated failures,
+`4` approval denied. The fine-grained reason (`token_budget`, `oracle_miss`, and so on)
+is on the transcript's `result` trailer as `exit_reason`.
 
-The program format and the transcript format are the **same schema**: `--output jsonl`
+The program format and the transcript format are the same schema: `--output jsonl`
 emits it and `--seed` loads it.
+
+### Inspecting a program without running it
+
+```bash
+nb --validate flow.nb    # parse and check; exit 1 on error
+nb --resolve  flow.nb    # print the effective envelope at each run point
+```
+
+`--validate` is cheap enough to run over a whole eval corpus in CI before spending
+tokens on it.
 
 ## The program format
 
@@ -172,12 +182,13 @@ Each line is `<verb> <content>`:
 - **Config directives** (`provider`, `model`, `harness`, `oracle`, `mcp`, `tools`,
   `approval`, `loop`, `budget`) set the envelope going forward.
 - **Turn directives** (`system`, `user`, `assistant`) append messages.
-- **`run`** invokes the model on the accumulated state (`run <text>` is shorthand for a
-  `user` turn followed by `run`).
+- **`run`** invokes the model on the accumulated state. `run <text>` is shorthand for a
+  `user` turn followed by `run`.
 
-Output format is the `--output` flag, not a directive — it's caller delivery, not
-program logic. Because config directives can appear between runs, one document can
-drive two models:
+A trailing `\` continues content onto the next line, `#` lines are comments, and
+`@file` as a directive's whole content includes that file, resolved relative to the
+program. Config directives can appear between runs, so one document can drive two
+models:
 
 ```
 model haiku
@@ -186,340 +197,32 @@ model opus
 run now analyze the root cause
 ```
 
-A trailing `\` continues content onto the next line, `#` lines are comments, and
-`@file` as a directive's whole content includes that file (resolved relative to the
-program file — so shared context and shared directives compose without a flag).
+A program is never given a default persona. It gets the `system` directives it writes
+and nothing else, which is what an eval wants. The one exception is explicit: a
+`harness` directive brings its costume's prompt with it.
 
-A program is **never given a default persona**. It gets exactly the `system`
-directives it writes, and nothing if it writes none — which is what an eval wants, and
-the main reason results here don't drift when nb changes. The sole exception is
-explicit: a `harness` directive brings its costume's prompt with it.
+The directives in brief, each covered in full in the
+[reference](docs/conversation-program-cli.md):
 
-That cuts both ways, and one case is worth knowing before you spend a run: a model asked
-to modify files will often **rewrite them whole** rather than edit them, and on the bare
-surface nothing tells it not to. Adding *"to modify an existing file use `edit_file`; use
-`write_file` only to create a new file; prefer editing over rewriting"* moved `edit_file`
-calls from 1 to 10 on one measured task, and turned a run that aborted on `token_budget`
-into one that finished. It is not a token saving — the spend barely moved — it is more
-finished work for the same spend. Costumes ship this steer in their preamble already;
-see §5.5 of `docs/conversation-program-cli.md`.
-
-### Fabricated history
-
-`user`/`assistant` directives fabricate turns the model believes already happened —
-few-shot examples, a primed state, a mid-conversation probe. A JSONL (bytecode)
-program can additionally fabricate a **tool round**: `tool_call` and its matching
-`tool_result` events, loaded into history exactly as a `--seed` transcript is (a
-turn's assistant text and its calls batch into one message; every call must have a
-result before the run that consumes it). These aren't live invocations — they're
-recorded rounds you're replaying into the model's view. The source syntax has no verb
-for them.
-
-### Tool surface
-
-The `tools` and `mcp` directives reshape the tool surface with delta tokens (`+name`,
-`-name`, or the lone `none`):
-
-```
-tools -bash        # drop one native tool
-tools none         # no native tools this run
-mcp +figma         # expose the figma MCP server's tools
-```
-
-Native tools are **all-on** by default (`bash`, `read_file`, `write_file`,
-`edit_file`, `find_files`, `grep`, `list_dir`, `apply_patch`, `fetch_url`,
-`search_web`, `todo`); a `tools` directive filters them. MCP servers are
-**strict-empty**: a program exposes no MCP tools unless it names servers with
-`mcp +server`. `edit_file`/`write_file` enforce a read-before-edit guard; `read_file`
-handles text (with line numbers), PDF text extraction, and images as base64 for
-vision-capable models. `search_web` records search intent as an observable in the
-transcript; `todo` is a steering aid (a task list plus a nudge for models prone to
-abandoning work), and `tools -todo` removes it along with the nudge.
-
-Those names are **canonical under every harness**. A costume changes the names the
-*model* sees, not the names a program writes: under `harness claude-code` the model is
-offered `Edit`, but the program still says `tools -edit_file` — because `tools` states
-what the run may do, not what the model is shown. Writing a costume's wire name is an
-error rather than a silent no-op, so `--validate` catches it instead of handing you a
-tool you thought you had removed.
-
-### Harness costumes
-
-`harness <name>` selects the harness a run wears — its tool surface, its result
-formatting, and its prompt. The registered names are `nb` (nb's own bare surface),
-`qwen-code`, `codex`, and `claude-code`. An unknown name is a parse error, and **every
-run must name one**: a program that omits the directive inherits `"Harness"` from the
-active provider entry in `appsettings.json`, and if that is silent too the run is
-refused before a model is called. A run that quietly fell back to nb's surface while
-the program said `codex` would produce comparative numbers that mean nothing — and a
-run that fell back to it because nobody said anything produced hours of chasing
-"model behaviour" that was only the missing costume.
-
-Pair each costume with its vendor's model: `claude-code` with an Anthropic model,
-`codex` with an OpenAI model, `qwen-code` with a Qwen model. The example config does
-this per entry, so naming a model is enough. Putting another vendor's model inside a
-costume runs, and is occasionally interesting, but it is not "a test with Claude Code".
-
-```
-harness codex
-run refactor the parser in src/ and run the tests
-```
-
-A costume swaps what is *advertised*, never what is behind it: the same bash and file
-tools, under the target's names and schemas. Under `codex` the model sees
-`shell_command`, `apply_patch`, `update_plan`, and `view_image`; under `claude-code` it
-sees `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `TodoWrite`, `WebFetch`,
-`WebSearch`, and stubs for `Task`/`Skill`/`NotebookEdit`; under `qwen-code`,
-`run_shell_command`, `edit`, `glob`, `grep_search`, and friends.
-
-Naming a harness opts into the **whole** costume. A program that asks to imitate
-another agent, and is then told it should *also* have requested the prompt, has been
-failed by the tool. So a costume brings:
-
-- its **prompt preamble** (Codex's is its own text, vendored under Apache-2.0; the
-  qwen-code and claude-code preambles are nb-authored facsimiles that occupy the same
-  channels in original prose, not transcriptions of closed text);
-- the **project instruction files** its target reads — `AGENTS.md` under `codex`,
-  `CLAUDE.md` under `claude-code` — collected from the repo root down to the working
-  directory, in that harness's own wrapper;
-- its **environment block** — cwd, shell or platform, date, git state — in the target's
-  layout. (`qwen-code` sends none, deliberately.)
-
-Everything injected lands in the transcript as ordinary `system` messages, so the wire
-record is complete and a `--seed` replay reproduces it exactly even after the costume
-changes. The trade is that a costume reads files and the clock, so a named-harness run
-is reproducible **from its transcript, not from the program alone**. The same program
-in two directories sends different text, because the harness being imitated does the
-same.
-
-Each costume also **reports what it knowingly does not reproduce**, as run warnings, so
-a surprising result arrives with a suspect list attached: ignored arguments, stubbed
-tools, result strings written from observed behaviour, and the parts of the target's
-surface (sub-agents, skills, background shells, plugins) that are out of scope. Worth
-reading before you draw a conclusion from a costumed run. The costume set is closed and
-in-tree; design notes in [`plans/harness-emulation.md`](plans/harness-emulation.md).
-
-### Loop and budget guards
-
-Run-level ceilings, layered onto config, governing every run after them:
-
-```
-loop 5                  # doom-loop threshold: nudge after 5 repeated tool-call sequences ('loop off' disables)
-budget tokens 200000    # session-cumulative token ceiling; abort with exit_reason token_budget
-budget tool_calls 40    # per-turn tool-call cap for subsequent runs
-budget wall_ms 120000   # session wall-clock ceiling; cancels the in-flight call
-budget oracle_turns 8   # how many halts an answer sheet may service (see below)
-```
-
-The doom-loop detector is a *soft* guard — it injects a `<system_reminder>` and the run
-continues (on by default, threshold 3). The budgets are *hard* ceilings that abort with
-exit 3, which is what bounds a runaway loop or a hung provider. All are additive: a
-program that names none behaves as before.
-
-### Answer sheets — servicing a model's questions
-
-nb has no user. When a model ends its turn with *"which environment should I deploy
-to?"*, the run has halted on a dependency nobody is there to satisfy. An **answer
-sheet** is the program's declaration of what that user would have said:
-
-```
-oracle @answers.md
-run Please deploy the api service.
-```
-
-```markdown
-## deploy-target
-The target environment is the staging Kubernetes cluster on AWS (EKS, eu-west-1).
-Never touch production during this exercise.
-
-## customer-name
-The customer is Acme Logistics.
-```
-
-After every run that ends normally, nb makes one small side call — on the same provider,
-or on the entry named by `oracle provider <entry>` — in which the judge stands in for the
-user: shown the sheet and the model's last message, it replies with the ids of the entries
-it would answer with, or `DONE` (the model is not waiting on the user), or `MISS` (it is,
-but nothing on the sheet is what the user would say). A proposal that stops for
-confirmation counts as waiting, and an entry with a different value is the reply that
-corrects it. On a hit the
-selected bodies go in **verbatim** as a `user` turn and the run continues; the oracle
-selects, never writes. Anything else ends the run: `DONE` as `ok`, `MISS` as
-`oracle_miss` (still exit 0 — only the label differs, and the unanswered question is the
-last thing in the transcript). `budget oracle_turns` bounds the loop (`oracle_budget`,
-exit 3).
-
-The rule is *continue only on a confident hit*, and it is shaped that way because "is
-the model done, or asking?" is hard in general. Under this rule a wrong "not asking"
-costs nothing — the run ends as it would have anyway — while a wrong "asking" would
-inject an answer into finished work. Nothing is added to the system prompt and no
-ask-user tool is advertised, so the prompt under test is not perturbed.
-
-**Writing a sheet.** Key entries by **topic**, not by question — the model will phrase
-one question ten ways. Write each body as the **full answer a real user would give**,
-with enough detail to satisfy the question however it is asked: in testing, a model asked
-*"please specify the cloud provider and platform"* and a sheet whose entry said only
-*"Deploy to staging"* was judged a miss by a local judge (a frontier one took it). The
-entry above, which says what the environment actually is, was a hit everywhere. A bare
-*"shall I go ahead?"* is serviced by an entry such as `## proceed` / *Yes, go ahead.*
-Keep the rubric out: a sheet holds what the user
-*knows*, never how the task should be solved, or asking questions becomes a side channel
-to the answer key. Every `oracle_miss` is a maintenance signal — either the sheet needs an
-entry, or the prompt produced a question nobody anticipated.
-
-**Choosing a judge.** `oracle provider <entry>` sends the side call to any config entry —
-a cheaper model beside an expensive subject, or a stronger one: measured on the bench in
-`evals/oracle-bench/`, a frontier judge (GLM 5.2) scored 48/48 and a local coder model
-80/80 with the shipped prompt. The call uses that entry's configured `Temperature`; set 0
-for a repeatable judge where the model allows it, and leave it unset on a Claude 5 entry,
-which rejects the parameter.
-
-On the wire an oracle-supplied turn is an ordinary `user` event carrying
-`source: "oracle"`, `keys: [...]` and `verdict` (the judge's raw reply); the `result`
-trailer gains `oracle_turns` and `oracle_verdict`, the judgement that ended the run.
-Design and measurements: [`plans/oracle-resolver.md`](plans/oracle-resolver.md).
-
-### Approval policy
-
-Approval is a **declarative policy**, never an interactive prompt — an unmatched tool
-call is denied rather than asked about, in every mode. nb does not
-stop mid-run to collect authorization; a program states what it is allowed to do. Set it
-with `approval` directives, or the `Approval` block (`Bash`/`McpTools`/`Default`/`Sandbox`)
-in config:
-
-```
-approval bash git status   # auto-approve bash commands matching this pattern
-approval mcp weather/*     # auto-approve MCP tools matching this glob ('/' aliases the '_' in weather_current)
-approval search allow      # auto-approve search_web (most runs need this, see below)
-approval fetch allow       # auto-approve fetch_url (separate grant from search)
-approval default deny      # honour the explicit allow-list and nothing else
-approval sandbox bwrap     # run the bash child under a bubblewrap sandbox (Linux)
-```
-
-Any run that means to search needs `approval search allow`. An unapproved tool can never
-execute, so without it every `search_web` call reads as a denial. (The search intent is
-recorded in the transcript either way.)
-
-The allow-lists are what let a scripted run auto-approve exactly the tools it needs.
-Some commands auto-approve without a rule: build tools (`dotnet build`, `cargo build`,
-`make`, `npm run`, …), read-only git (`status`/`log`/`diff`/`show`), and read-only
-queries (`which`, `file`, …) — note that the build entries auto-approve *arbitrary code
-execution*, which is a convenience decision, not a safety one. A **trust posture**
-(`"Trust": true` in config) auto-approves non-dangerous tools whose paths fall under the
-cwd (plus system temp) and bumps the max tool calls to 50; dangerous commands
-(`rm -rf`, `sudo`) never auto-approve. `approval default deny` suppresses both, which is
-the primary mechanism for a run that should honour its allow-list and nothing else.
-
-### Approval records; it does not confine
-
-**nb does not sandbox the tools it runs.** The bash child is a plain subprocess with no
-OS-level isolation, so a model can read anything the nb process user can read. The
-approval ladder is a string/path heuristic — it produces a recorded, transcript-visible
-refusal (`tool_call.approved`, plus a `denied` count in the result trailer), which is
-exactly the observation an eval wants. It is not an enforcement mechanism and no
-denylist could be one: block `cat` and `awk`, `od` or `python -c` still read files.
-
-**Run nb inside a container if the workload is untrusted.** The supported shape is one
-container with nb *inside* it, so the model sees a single filesystem. nb's file tools
-(`read_file`, `edit_file`, `grep`, …) run in-process and never route through bash, so
-confining bash alone would show the model two sets of paths for the same files.
-
-Note that nb then shares that container's filesystem and network with the model under
-test: keep the image to the fixture and nothing you would mind the model reading, and
-keep egress as narrow as nb's own model endpoint requires.
-
-Background: `plans/approval-is-not-a-boundary.md` and
-`bugs/shell-tool-no-filesystem-sandbox.md`.
-
-The **bash sandbox** (`approval sandbox bwrap`, or `Approval.Sandbox` in config) wraps
-the bash child in a [bubblewrap](https://github.com/containers/bubblewrap) namespace:
-the whole filesystem read-only, only the current directory and a fresh `/tmp`
-writable, known secret dirs (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/nb`) masked to
-empty, and no network. Use `bwrap-net` to keep the sandbox but allow network. It
-contains only bash — MCP and `fetch_url` run in-process under their own approval.
-Requesting `bwrap` on a host without bubblewrap (non-Linux, or not on `PATH`)
-hard-fails the run. **Deprecated:** bwrap is a partial, Linux-only control that is
-weaker than the container it would sit inside; it is scheduled for removal, and
-`approval sandbox` will degrade to a warning. Do not build on it.
-
-### Inspecting a program without running it
-
-```bash
-nb --validate flow.nb    # parse + check (unknown provider, bad approval directive); exit 1 on error
-nb --resolve  flow.nb    # print the effective envelope — provider, model, harness, tool surface, policy — at each run point
-```
-
-`--validate` is cheap enough to run over a whole eval corpus in CI before spending
-tokens on it.
-
-### Command-line flags
-
-Flags vary how a program is delivered and inspected; they never duplicate a program
-verb. Which model, which tools, and what's allowed belong to the program
-(`provider`/`model`/`tools`/`approval`) or to config.
-
-| Flag | Description |
-|------|-------------|
-| `--output <mode>` | `jsonl` (default), `porcelain`, or `interactive` |
-| `--seed <file>` | Prepend a jsonl transcript as premise history before the program runs |
-| `--config <file>` | Use a single config file hermetically, ignoring the layered resolution |
-| `--mcp <file>` | Use a single MCP manifest hermetically, ignoring the layered resolution |
-| `--validate` | Parse and check a program, run nothing (exit 1 on error) |
-| `--resolve` | Print the effective envelope at each run point, run nothing |
-| `--verbose` | Log tool call inputs and outputs (useful for debugging) |
-| `--dump-tools` | Write the connected MCP tool manifest to `mcp-tools.json` and exit |
-
-The program itself is the positional argument (`nb flow.nb`) or stdin (`nb -`).
-
-## Testing affordances
-
-### Mock provider
-
-Returns `"OK"` by default, or the value of the `Response` config key, or an inline
-override — prefix a message with `MOCK:response=<text>`. No API key, no network, so
-harness plumbing can be tested without spending tokens:
-
-```bash
-echo 'run MOCK:response=hi' | ./nb - --output jsonl
-```
-
-### Fake tools
-
-nb reads `fake-tools.yaml` and treats those definitions as normal tools; when the
-model calls one, nb returns the configured response. See `fake-tools.example.yaml` for
-the format. Fake definitions **override** MCP definitions — by design, so you can fake
-destructive actions or retune a tool description for alignment testing without
-touching the real server.
-
-Responses support macros, so each invocation produces fresh data instead of an
-identical static string:
-
-| Macro | Description | Example |
-|-------|-------------|---------|
-| `{{$guid}}` | Random UUID | `a3b1c2d4-...` |
-| `{{$timestamp}}` | Current UTC time (ISO 8601) | `2026-02-25T14:30:00Z` |
-| `{{$int}}` | Random integer | `483291` |
-| `{{$int(1,100)}}` | Random integer in range | `42` |
-| `{{$counter.name}}` | Auto-incrementing counter | `1`, `2`, `3`... |
-| `{{$param.fieldname}}` | Echo back a tool argument | value of `fieldname` |
-| `{{$choice(a,b,c)}}` | Random pick from list | `b` |
-| `{{$random_string}}` | Random alphanumeric (8 chars) | `xK9mPq2r` |
-| `{{$random_string(16)}}` | Random alphanumeric (custom length) | `xK9mPq2rT5nLw8yZ` |
-
-```yaml
-response: '{"id": "{{$guid}}", "status": "{{$choice(pending,active,completed)}}", "created_at": "{{$timestamp}}"}'
-```
-
-### Built-in MCP server
-
-`mcp-servers/mcp-tester/` is a self-contained C# MCP server with basic tools (echo,
-reverse-echo, current-time) and markdown-driven prompts — useful for exercising the
-MCP path without depending on a third-party server.
+- **`tools` and `mcp`** reshape the tool surface with delta tokens (`tools -bash`,
+  `tools none`, `mcp +figma`). Native tools are all on by default; MCP servers are
+  exposed only when named.
+- **`harness`** puts the run in another agent's costume: its tool names and schemas,
+  its prompt preamble, its project instruction files, its environment block. The
+  registered names are `nb`, `qwen-code`, `codex`, and `claude-code`, and every run must
+  resolve one, from the program or from the provider entry's `Harness` field.
+- **`loop` and `budget`** are run-level ceilings: a doom-loop nudge, and hard limits on
+  tokens, tool calls, wall-clock, and oracle turns.
+- **`oracle @sheet.md`** attaches an answer sheet, a scripted user that answers when
+  the model stops and asks a question. `oracle provider <entry>` picks the judge model.
+- **`approval`** is a declarative allow-list. An unmatched tool call is denied and
+  recorded, never asked about. Any run that means to search needs
+  `approval search allow`.
 
 ## Using nb as a library
 
-Reference `nb.Core` (a self-contained `net10.0` assembly) and run programs in-process
-— no subprocess, no stdout parsing, no `Environment.Exit`:
+Reference `nb.Core`, a self-contained `net10.0` assembly, and run programs in-process
+with no subprocess, no stdout parsing, and no `Environment.Exit`:
 
 ```csharp
 using nb;
@@ -537,200 +240,9 @@ Console.WriteLine(result.Answer);   // plus Events, Usage, ExitReason, ExitCode,
 ```
 
 Run outcomes (provider error, aborted turn, approval denial) come back on the result
-rather than as exceptions; exceptions are reserved for things that stop a run from
+rather than as exceptions. Exceptions are reserved for things that stop a run from
 happening at all. Full surface: [`docs/conversation-program-api.md`](docs/conversation-program-api.md).
-
-## Providers
-
-nb has no built-in providers — every provider is a plugin loaded at runtime from
-`providers/` next to the binary, each in its own `AssemblyLoadContext`.
-
-### Shipped providers
-
-- **AzureOpenAI** — Chat Completions on classic Azure OpenAI resources
-- **AzureFoundry** — Responses API on classic Azure OpenAI resources (needed for
-  codex-family models like `gpt-5-codex`, and any other Responses-API-only model)
-- **OpenAI** — direct OpenAI API
-- **Anthropic** — Claude models with function calling
-- **Google Gemini** — Google's generative AI models
-- **LocalLlm** — local servers on the OpenAI wire
-- **Mock** — testing provider, no API key
-
-All are compiled into `bin/{Config}/net10.0/providers/` during build.
-
-### Selecting a provider
-
-A program selects with the `provider` and `model` directives, and can switch between
-runs within one document. Connection (endpoint + key) stays in config; only the
-non-secret model name travels in the program.
-
-Provider entries are labels, not implementations. An entry's `Name` is free-form; the
-optional `Provider` field names the implementation behind it, so several entries can
-share one:
-
-```jsonc
-{ "Name": "LocalCoder", "Provider": "LocalLlm", "Endpoint": "http://127.0.0.1:8081/v1", "Model": "qwen3-coder-next" },
-{ "Name": "LocalAir",   "Provider": "LocalLlm", "Endpoint": "http://127.0.0.1:8082/v1", "Model": "glm-4.5-air" }
-```
-
-Omit `Provider` and it defaults to `Name`.
-
-### Routing through an authenticated gateway
-
-`Endpoint` points an entry at a proxy, and `Headers` supplies whatever that proxy wants
-to authenticate *you* — a Cloudflare AI Gateway, a corporate LLM proxy, anything that
-checks its own bearer token before forwarding upstream:
-
-```jsonc
-{ "Name": "GwSonnet", "Provider": "Anthropic",
-  "Endpoint": "https://gateway.example.com/account/gw/anthropic",
-  "ApiKey": "${ANTHROPIC_API_KEY}",
-  "Headers": { "cf-aig-authorization": "Bearer ${CF_AIG_TOKEN}" },
-  "Model": "claude-sonnet-5" }
-```
-
-Every header is sent on every request, alongside the provider SDK's own auth header — or
-*instead of* it, if you name the same header, since a configured value replaces the
-SDK's rather than appending to it. Values are ordinary config values, so `${VAR}` is
-expanded at startup like anywhere else and the token never has to live in the file.
-
-If the gateway holds the upstream key itself (stored-keys / BYOK mode), leave `ApiKey`
-out entirely: an entry that carries `Headers` doesn't need one.
-
-Supported on `Anthropic`, `OpenAI`, `LocalLlm`, `AzureOpenAI` and `AzureFoundry`. Not on
-`Gemini`, whose SDK accepts neither a custom base URL nor a custom HTTP stack.
-
-**`EditToolStyle` is deprecated** (per entry). It selects the file-edit surface:
-`EditReplace` (default) advertises `edit_file` + `write_file`; `ApplyPatch` advertises
-`apply_patch` instead. They're mutually exclusive — GPT-family models confuse the two
-when both are present.
-
-It still works, and setting it prints a warning. Use the `harness codex` program
-directive instead: `apply_patch` *is* the Codex edit surface, and the costume brings the
-rest of that surface — the shell-only file access, the plan tool, `AGENTS.md`, the
-environment block — rather than one field's worth of it. If you set `EditReplace`, just
-remove the field; that's the default. A program that names a `harness` already overrides
-this either way, advertising whatever that harness's target has.
-
-### Which Azure provider do I want?
-
-Match the API shape your deployment exposes:
-
-| Your deployment URL looks like... | Use provider |
-|---|---|
-| `https://<name>.{openai.azure.com,cognitiveservices.azure.com}/openai/deployments/<name>/chat/completions?...` | `AzureOpenAI` |
-| `https://<name>.{openai.azure.com,cognitiveservices.azure.com}/openai/responses?...` | `AzureFoundry` |
-
-Both accept either the resource root or the full deployment URL in `Endpoint` — the
-plugin strips to the host. The `Model` field is your **deployment name**, not the model
-family name. If Azure shows an endpoint on `services.ai.azure.com` with a
-`/api/projects/<project>/...` path, that's the newer Foundry Unified Endpoint and
-neither provider targets it directly — open an issue if you need that variant.
-
-### Writing your own provider
-
-1. Create a project and add the abstractions package:
-   ```bash
-   dotnet add package nb.Providers.Abstractions
-   ```
-2. Implement `IChatClientProvider` — supply an `IChatClient` from
-   Microsoft.Extensions.AI plus basic configuration wiring.
-3. Build and copy the assembly to a new subdirectory under `providers/`.
-4. Add the entry to `appsettings.json`.
-
-See [nb.Providers.Abstractions](https://www.nuget.org/packages/nb.Providers.Abstractions)
-for full documentation and examples.
-
-## MCP configuration
-
-```json
-{
-  "servers": {
-    "my-server": {
-      "type": "stdio",
-      "command": "my-mcp-server",
-      "args": ["--some-flag"],
-      "alwaysAllow": ["tool1", "tool2"]
-    }
-  }
-}
-```
-
-`alwaysAllow` lists tools that skip approval; `["*"]` auto-approves everything from a
-server. Remember that a program still has to *expose* the server with `mcp +name` —
-configuring it isn't enough.
-
-### HTTP servers and auth headers
-
-Use `"type": "http"` with an `endpoint`. Auth goes in a `headers` object; values
-support `${VAR}` interpolation against environment variables, so tokens stay out of
-the committed `mcp.json`:
-
-```json
-"figma": {
-  "type": "http",
-  "endpoint": "https://mcp.figma.com/mcp",
-  "headers": {
-    "Authorization": "Bearer ${FIGMA_TOKEN}"
-  }
-}
-```
-
-Only values are interpolated (not keys). An unset variable logs a warning and resolves
-to an empty string. Literal values work too.
-
-## Theming
-
-Interactive output (`--output interactive`) loads its color scheme from
-`theme.json` at startup. Color names come from
-[Spectre.Console](https://spectreconsole.net/appendix/colors). A high-contrast example
-(WCAG AAA on the standard Windows console background, #0C0C0C):
-
-```json
-{
-  "Success": "lime",
-  "Error": "red",
-  "Warning": "yellow",
-  "Info": "white",
-  "Muted": "grey70",
-  "Accent": "aqua",
-  "UserPrompt": "lime",
-  "FakeTool": "magenta"
-}
-```
-
-## Building for distribution
-
-```bash
-dotnet publish -c Release -r win-x64 --self-contained
-```
-
-Publishing `nb.csproj` alone works too, and gives a smaller artifact (no test harness,
-no `mcp-tester`):
-
-```bash
-dotnet publish nb.csproj -c Release -r linux-x64 --self-contained -o /out
-```
-
-Either way, the provider plugins are built for the same RID and copied into
-`providers/` next to the binary. If that copy ever comes up empty the build says so
-(`No provider plugins found at …`) — the resulting binary can't run anything, so don't
-ship past that warning.
-
-**Configuration.** The publish output deliberately does **not** include your
-`appsettings.json`; it holds live API keys, and shipping it would ship them. You get
-`appsettings.example.json` instead. Point the deployed binary at a real config with
-`--config <path>`, or drop an `appsettings.json` next to the executable — it is optional
-at load, and nb starts without one (with no providers configured).
-
-Ship `mcp.json` and `theme.json` alongside the executable for custom configurations.
-Providers deploy to `providers/` next to the binary.
-
-**Minimal containers.** Self-contained .NET aborts at startup without ICU
-(`Couldn't find a valid ICU package installed on the system`), and language-toolchain
-images like `golang` don't carry `libicu`. Either install it or set
-`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`.
 
 ## License
 
-MIT License
+MIT. See [LICENSE.txt](LICENSE.txt).

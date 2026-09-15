@@ -73,6 +73,17 @@ clean, parseable stdout.
 - `porcelain` — plain text: `TOOL`/`RESULT` lines plus the answer verbatim (a final
   ```` ```json ```` fence survives byte-for-byte).
 
+**Theming** (`--output interactive` only): colours load from `theme.json` next to the
+binary at startup. Names come from [Spectre.Console](https://spectreconsole.net/appendix/colors).
+A high-contrast example (WCAG AAA on the standard Windows console background, #0C0C0C):
+
+```json
+{
+  "Success": "lime", "Error": "red", "Warning": "yellow", "Info": "white",
+  "Muted": "grey70", "Accent": "aqua", "UserPrompt": "lime", "FakeTool": "magenta"
+}
+```
+
 **Exit codes** (`$?`):
 
 | Code | Meaning |
@@ -177,9 +188,9 @@ as run warnings, so a surprising result arrives with a suspect list attached. Fu
 costumes are planned; see `plans/harness-emulation.md`.
 
 **On `oracle`.** nb has no user, so a model that ends its turn with *"which environment
-should I deploy to?"* has halted on an unsatisfied dependency. An answer sheet is the
-program's declaration of what that user would have said — a markdown file of headed
-sections, each heading an entry id and its body the verbatim reply:
+should I deploy to?"* has halted on a dependency nobody is there to satisfy. An answer
+sheet is the program's declaration of what that user would have said: a markdown file of
+headed sections, each heading an entry id and its body the verbatim reply.
 
 ```markdown
 ## deploy-target
@@ -189,68 +200,65 @@ Staging only. Never touch prod during this exercise.
 Acme Logistics.
 ```
 
-**Authoring a sheet.** Key entries by **topic**, not by question — models phrase one
-question ten ways. Write each body as the **full answer a real user would give**, with
-enough detail to satisfy the question however the model chooses to ask it: the oracle
-judges whether an entry *covers* the ask, and it is strict. Measured on a local model: a
-subject asked *"please specify the cloud provider and platform"*, and a sheet whose
-`deploy-target` entry said only *"Deploy to staging."* was judged `MISS` — defensibly,
-since "staging" does not answer "AWS or Azure?". The entry above, which says what the
-environment actually is, was a hit. A topic id names the entry; the body has to do the
-work. The sheet holds what a user *knows* (facts, constraints, preferences), never how
-the task should be solved: a sheet that carries the rubric turns question-asking into a
-side channel to the answer key. The judge reads the sheet *as the user*: an entry is
-selected when it is what the user would say in reply, so an entry whose value differs
-from one the model has proposed is a hit (it corrects the proposal), and a bare
-"shall I go ahead?" is serviced by an entry such as `## proceed` / *Yes, go ahead.*
+**Authoring a sheet.** Key entries by topic, not by question; models phrase one question
+ten ways. Write each body as the full answer a real user would give, with enough detail
+to satisfy the question however the model asks it. The judge reads the sheet as the user
+and selects an entry when it is what the user would say in reply. So an entry whose value
+differs from one the model has proposed is a hit (the reply corrects the proposal), and a
+bare "shall I go ahead?" is serviced by an entry such as `## proceed` / *Yes, go ahead.*
+Detail matters: a subject asked *"please specify the cloud provider and platform"*
+against an entry that said only *"Deploy to staging."* was judged `MISS` by a local judge,
+while the entry above, which says what the environment is, was a hit everywhere. The
+sheet holds what a user knows (facts, constraints, preferences), never how the task
+should be solved. A sheet that carries the rubric turns question-asking into a side
+channel to the answer key.
 
 **The continuation rule: continue only on a confident hit; everything else ends the
-run.** After a run ends `ok`, nb makes one small side call on the current provider (or
-on the entry `oracle provider <entry>` names), at that entry's configured `Temperature`
-— set it to 0 for a repeatable judge where the model allows it, and leave it unset on an
-entry for a Claude 5 model, which rejects the parameter. It is
-shown the sheet and the model's last message and replies with entry ids, `DONE` or
-`MISS`. The oracle *selects, never authors* — the reply the model then sees is composed
-from the sheet bodies verbatim, so the transcript stays auditable.
+run.** After a run ends `ok`, nb makes one small side call on the current provider, or
+on the entry `oracle provider <entry>` names. The call uses that entry's configured
+`Temperature`. Set it to 0 for a repeatable judge where the model allows it, and leave it
+unset on an entry for a Claude 5 model, which rejects the parameter. The judge is shown
+the sheet and the model's last message and replies with entry ids, `DONE`, or `MISS`. The
+oracle selects and never authors: the reply the model then sees is composed from the
+sheet bodies verbatim, so the transcript stays auditable.
 
 | Verdict | Effect | `exit_reason` |
 | --- | --- | --- |
 | entries selected | their bodies join as one `user` turn; the run continues | (continues) |
-| `MISS` — clearly asking, nothing on the sheet | run ends | `oracle_miss` (exit **0**) |
-| `DONE` — not clearly waiting on the user | run ends | `ok` |
+| `MISS`: waiting on the user, nothing on the sheet | run ends | `oracle_miss` (exit **0**) |
+| `DONE`: not waiting on the user | run ends | `ok` |
 
-`oracle_miss` exits 0 on purpose: the run ended exactly as it would have without an
-oracle, and only the label differs. It is the maintenance signal — the sheet needs an
-entry, or the prompt produced a question nobody anticipated. The unanswered question is
-the last `assistant_text` in the transcript; nothing papers over the ask. An oracle is
-only consulted after `ok` — a run that ended on a budget, an error or a denial keeps that
-reason.
+`oracle_miss` exits 0 on purpose. The run ended as it would have without an oracle, and
+only the label differs. It is the maintenance signal that the sheet needs an entry, or
+that the prompt produced a question nobody anticipated. The unanswered question is the
+last `assistant_text` in the transcript. An oracle is only consulted after `ok`; a run
+that ended on a budget, an error, or a denial keeps that reason.
 
-Why the rule is shaped this way: *"is the model done, or asking?"* is hard in general,
-because the ambiguous turns (*"Done — want me to also do X?"*) are most of the
-population. Under this rule a false positive costs nothing (the run ends as it would
-have) and a false negative needs the oracle to miss a *clear* question that *has* an
-entry. The loop is bounded by `budget oracle_turns` (§4.4). There is no deflection and no
-"I'm not sure" reply — those exist to handle the ambiguous middle, and the rule removes it.
+The rule has this shape because *"is the model done, or asking?"* is hard in general.
+The ambiguous turns (*"Done. Want me to also do X?"*) are most of the population. Under
+this rule a wrong `DONE` on an ambiguous turn costs nothing, since the run ends as it
+would have, and a wrong hit needs the judge to select an entry for a turn that was not
+waiting. There is no deflection and no "I'm not sure" reply; those exist to handle the
+ambiguous middle, and the rule removes it. `budget oracle_turns` bounds the loop (§4.4).
 
-On the wire, an oracle-supplied turn is an ordinary `user` event carrying three enrichment
-fields, `source: "oracle"`, `keys: [...]` (the ids selected) and `verdict` (the judge's raw
-reply that selected them). The `result` trailer carries `oracle_verdict`, the raw text of
-the last judgement — the `DONE`, `MISS` or unreadable reply that ended the run — so a miss
-can be read as "no entry covers this" or "the judge could not read the ask" without
-replaying the call. Enrichment is ignored on
-seed-load, so a resolved run replays from its own transcript as a plain conversation —
-which is what makes it reproducible. The `result` trailer gains `oracle_turns` (omitted
-when zero). Nothing is injected into the system prompt and no ask tool is advertised: a
-steer toward one would perturb the prompt under test, no costume in this repo carries
-one, and a model holding one still asks in prose anyway. The one prompt change is the
-doom-loop nudge, which stops telling a model that nobody is home once a sheet is attached.
+On the wire, an oracle-supplied turn is an ordinary `user` event carrying three
+enrichment fields: `source: "oracle"`, `keys: [...]` (the ids selected), and `verdict`
+(the judge's raw reply that selected them). The `result` trailer carries `oracle_turns`
+(omitted when zero) and `oracle_verdict`, the raw text of the last judgement, whether
+`DONE`, `MISS`, or an unreadable reply that was treated as `DONE`. That text tells "no
+entry covers this" from "the judge could not read the ask" without replaying the call.
+Enrichment is ignored on seed-load, so a resolved run replays from its own transcript as
+a plain conversation. Nothing is injected into the system prompt and no ask tool is
+advertised: a steer toward one would perturb the prompt under test, no costume in this
+repo carries one, and a model holding one still asks in prose. The one prompt change is
+the doom-loop nudge, which stops telling a model that nobody is home once a sheet is
+attached.
 
-The directive carries the sheet's *resolved body*, not the path it came from:
+The directive carries the sheet's resolved body, not the path it came from.
 `@answers.md` is expanded at parse time by the same whole-content include the turn
 directives use (§4.5), and the text travels on the event, so a stored JSONL program stays
-runnable after the file moves. (The sheet is not echoed into a captured transcript — the
-oracle's *answers* are, as user turns, and those are what replay.) In practice the sheet
+runnable after the file moves. The sheet is not echoed into a captured transcript; the
+oracle's answers are, as user turns, and those are what replay. In practice the sheet
 always arrives by `@file`: source syntax is line-oriented, so a multi-line sheet written
 inline would parse its second line as a directive.
 

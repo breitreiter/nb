@@ -306,7 +306,11 @@ effect can usually reach it by another command. They are recorded refusals.
 - Handle exceptions gracefully with user-friendly error messages
 
 ## Development Best Practices
-- When adding significant new features, or new configuration requirements, ask if you should update the readme.md
+- Documentation lives in `docs/`; the README is the front door and stays short. A new
+  feature or directive gets its paragraph in `docs/conversation-program-cli.md` (or the
+  relevant `docs/` page: providers, mcp, testing, distribution). The README changes only
+  when what a first-time reader needs to know changes. Do not restate reference material
+  in the README; link to it
 - Ask before adding an interface, unless there is an immediate, obvious reason to do so. Don't create new interfaces for "future flexibility."
 - Avoid building DI scaffolding unless you're working with a library or package that expects you to use DI.
 
