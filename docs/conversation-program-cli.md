@@ -206,7 +206,9 @@ from one the model has proposed is a hit (it corrects the proposal), and a bare
 
 **The continuation rule: continue only on a confident hit; everything else ends the
 run.** After a run ends `ok`, nb makes one small side call on the current provider (or
-on the entry `oracle provider <entry>` names). It is
+on the entry `oracle provider <entry>` names), at that entry's configured `Temperature`
+— set it to 0 for a repeatable judge where the model allows it, and leave it unset on an
+entry for a Claude 5 model, which rejects the parameter. It is
 shown the sheet and the model's last message and replies with entry ids, `DONE` or
 `MISS`. The oracle *selects, never authors* — the reply the model then sees is composed
 from the sheet bodies verbatim, so the transcript stays auditable.

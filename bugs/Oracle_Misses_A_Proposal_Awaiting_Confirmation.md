@@ -93,6 +93,12 @@ hook — it is the `oracle model` deferral from the plan, and a cheap judge besi
 expensive subject is its production use. An unbuildable entry aborts at the first
 judgement, as `provider` does.
 
+**Correction, same day:** "the judge is now greedy" lasted one run against Claude. The
+Claude 5 family rejects `temperature` outright (*"temperature is deprecated for this
+model"*), so a forced 0 broke every judgement on those entries. The side call now uses the
+judge entry's configured `Temperature`, as the main run does; the bench sets 0 on its
+cloned entry by default (`--temperature none` to unset), so the numbers above still hold.
+
 **Also landed:** the raw verdict is recorded — `verdict` on the oracle-supplied `user`
 turn, `oracle_verdict` on the `result` trailer (the judgement that ended the run).
 

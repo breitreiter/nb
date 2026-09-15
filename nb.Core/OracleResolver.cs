@@ -77,11 +77,16 @@ public static class OracleResolver
     /// verdict every time (finish_reason=length, all of it reasoning), while 2000 tokens
     /// produced the right id after ~1500 tokens of thought. Turning thinking off instead
     /// gave a wrong verdict on a plain hit. So: room to think, and a truncation is
-    /// reported as such rather than passed off as DONE. Greedy, because a judge should be
-    /// repeatable: with no temperature set the call ran at the server's default, and a
-    /// cell that measured 5/5 one afternoon measured 1/5 the next.
+    /// reported as such rather than passed off as DONE.
+    ///
+    /// The temperature is the judge entry's configured <c>Temperature</c>, as the main run
+    /// uses its own entry's — not a forced 0. A judge should be repeatable (with nothing set
+    /// the call ran at the server's default, and a cell that measured 5/5 one afternoon
+    /// measured 1/5 the next), so set 0 on the entry where the model allows it; the Claude 5
+    /// family rejects the parameter outright ("temperature is deprecated for this model"),
+    /// and an entry for one of those has to leave it unset.
     /// </summary>
-    public static ChatOptions Options() => new() { MaxOutputTokens = 4096, Temperature = 0 };
+    public static ChatOptions Options(float? temperature = null) => new() { MaxOutputTokens = 4096, Temperature = temperature };
 
     /// <summary>
     /// Read the verdict. Unknown ids are dropped; a reply with no usable id and no

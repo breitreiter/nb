@@ -29,6 +29,14 @@ public class OracleResolverTests
         Assert.EndsWith(OracleProtocol.SubjectMarker + "\nWhich environment?", text);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0f)]
+    [InlineData(0.2f)]
+    public void Options_CarryTheEntrysTemperature_NotAForcedZero(float? temperature)
+        // The Claude 5 family rejects the parameter outright, so an entry must be able to send none.
+        => Assert.Equal(temperature, OracleResolver.Options(temperature).Temperature);
+
     [Fact]
     public void ParseVerdict_Miss()
         => Assert.Equal(OracleVerdictKind.Miss, OracleResolver.ParseVerdict("MISS", Sheet, new List<string>()).Kind);

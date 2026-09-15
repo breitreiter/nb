@@ -15,6 +15,8 @@
 #   --provider  a ChatProviders entry in the config (the judge); the subject is always Mock
 #   --endpoint  override that entry's Endpoint (e.g. to point one entry at another local model)
 #   --model     override that entry's Model
+#   --temperature  Temperature set on the judge entry (default 0: a repeatable judge); 'none' unsets it,
+#               which Claude 5 entries need — those models reject the parameter
 #   --n         samples per case (default 5)
 #   --case      glob over case names (default '*')
 #   --config    the appsettings to derive the bench config from (default: bin/Debug/net10.0/appsettings.json)
@@ -36,12 +38,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NB_DIR="$(cd "$HERE/../.." && pwd)/bin/Debug/net10.0"
 NB="$NB_DIR/nb"
 
-PROVIDER="" ENDPOINT="" MODEL="" N=5 CASE_GLOB='*' CONFIG="$NB_DIR/appsettings.json" VARIANT="stock" OUT=""
+PROVIDER="" ENDPOINT="" MODEL="" TEMPERATURE="0" N=5 CASE_GLOB='*' CONFIG="$NB_DIR/appsettings.json" VARIANT="stock" OUT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --provider) PROVIDER="$2"; shift 2 ;;
         --endpoint) ENDPOINT="$2"; shift 2 ;;
         --model) MODEL="$2"; shift 2 ;;
+        --temperature) TEMPERATURE="$2"; shift 2 ;;
         --n) N="$2"; shift 2 ;;
         --case) CASE_GLOB="$2"; shift 2 ;;
         --config) CONFIG="$2"; shift 2 ;;
@@ -63,12 +66,13 @@ JUDGE_MODEL=$(jq -r --arg p "$PROVIDER" --arg m "$MODEL" \
 OUT="${OUT:-$HERE/out/$(date +%Y%m%d-%H%M%S)-${JUDGE_MODEL//\//_}-$VARIANT}"
 mkdir -p "$OUT/runs"
 CFG="$OUT/config.json"
-(umask 077; jq --arg p "$PROVIDER" --arg e "$ENDPOINT" --arg m "$MODEL" '
+(umask 077; jq --arg p "$PROVIDER" --arg e "$ENDPOINT" --arg m "$MODEL" --arg t "$TEMPERATURE" '
     .ActiveProvider = "Mock"
     | .ChatProviders = ([.ChatProviders[] | select(.Name != "Mock")]
         | map(if .Name == $p then
                 (if $e != "" then .Endpoint = $e else . end)
               | (if $m != "" then .Model = $m else . end)
+              | (if $t == "none" then del(.Temperature) else .Temperature = ($t|tonumber) end)
               else . end))
         + [{"Name":"Mock","Harness":"nb","Response":"Done."}]' "$CONFIG" > "$CFG")
 

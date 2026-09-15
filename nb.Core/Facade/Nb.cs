@@ -73,7 +73,7 @@ public static class Nb
             foreach (var (name, error) in runtime.Mcp.FailedServers)
                 warnings.Add($"MCP server '{name}' failed to start: {error}");
 
-            var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory, warnings, runtime.DefaultHarnessFor);
+            var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory, warnings, runtime.DefaultHarnessFor, runtime.TemperatureFor);
             await evaluator.EvaluateAsync(program, cancellationToken);
 
             var events = TranscriptMapper.FromHistory(runtime.Conversation.History, runtime.Conversation.Approvals, runtime.Conversation.OracleAnswers);

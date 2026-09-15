@@ -56,6 +56,11 @@ internal sealed class NbRuntime : IDisposable
 
     // The harness a program that names none wears: the host's option, else config keyed
     // by the provider label in effect. Null is the evaluator's cue to refuse the run.
+    // The configured Temperature of an entry (null = the active one), for the oracle's side
+    // call: the entry knows what its model accepts, and the Claude 5 family accepts none.
+    public float? TemperatureFor(string? providerLabel) =>
+        ProviderConfigResolver.ResolveProviderFloat(_config, providerLabel ?? _config["ActiveProvider"] ?? "", "Temperature");
+
     public string? DefaultHarnessFor(string? providerLabel) =>
         _optionHarness ?? HarnessRegistry.ConfiguredDefault(_config, providerLabel);
 

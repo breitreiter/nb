@@ -36,6 +36,8 @@ public sealed class ProgramEvaluator
     private readonly List<TranscriptEvent> _turnBuffer = new();
     private readonly NbHarness _baseHarness;
     private readonly Func<string?, string?>? _defaultHarness;
+    // Provider label (null = active) -> that entry's configured Temperature, for the oracle's side call.
+    private readonly Func<string?, float?>? _temperatureFor;
     private bool _harnessNamed;
 
     public string? Provider { get; private set; }
@@ -82,8 +84,9 @@ public sealed class ProgramEvaluator
     /// null, means the run is refused: a harness is never assumed.
     /// </param>
     public ProgramEvaluator(ConversationManager conversation, Func<string?, string?, IChatClient?> clientFactory, IList<string>? warnings = null,
-        Func<string?, string?>? defaultHarness = null)
+        Func<string?, string?>? defaultHarness = null, Func<string?, float?>? temperatureFor = null)
     {
+        _temperatureFor = temperatureFor;
         _conversation = conversation;
         // The runtime-wired surface every costume is built over.
         _baseHarness = conversation.Harness;
@@ -189,7 +192,8 @@ public sealed class ProgramEvaluator
             var last = _conversation.LastAssistantText;
             if (last.Length == 0) return;
 
-            var reply = await _conversation.SideCallAsync(OracleResolver.BuildPrompt(_sheet, last), OracleResolver.Options(), cancellationToken, OracleClient());
+            var options = OracleResolver.Options(_temperatureFor?.Invoke(OracleProvider ?? Provider));
+            var reply = await _conversation.SideCallAsync(OracleResolver.BuildPrompt(_sheet, last), options, cancellationToken, OracleClient());
             var verdict = OracleResolver.ParseVerdict(reply, _sheet, _warnings);
             OracleVerdict = verdict.Raw;
 
