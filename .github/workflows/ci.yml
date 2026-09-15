@@ -26,13 +26,21 @@ jobs:
 
     - name: Test
       run: dotnet test --no-build --verbosity normal --configuration Release
-      continue-on-error: true
 
+    # Per project, not per solution: a solution-level --output with --self-contained
+    # published every provider with its own copy of the runtime, and the providers'
+    # post-build copy raced the publish pipeline over those files (MSB3030, a different
+    # provider each run). nb is the only project that needs a runtime bundled; providers
+    # load into its process and publish framework-dependent into the layout nb loads from.
     - name: Publish artifacts
       run: |
-        dotnet publish -c Release -r win-x64 --self-contained -o ./artifacts/win-x64
-        dotnet publish -c Release -r linux-x64 --self-contained -o ./artifacts/linux-x64
-        dotnet publish -c Release -r osx-x64 --self-contained -o ./artifacts/osx-x64
+        for rid in win-x64 linux-x64 osx-x64; do
+          dotnet publish nb.csproj -c Release -r $rid --self-contained -o ./artifacts/$rid
+          for p in Providers/*/nb.Providers.*Provider.csproj; do
+            name=$(basename "$(dirname "$p")" | tr 'A-Z' 'a-z')
+            dotnet publish "$p" -c Release -o "./artifacts/$rid/providers/$name"
+          done
+        done
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
