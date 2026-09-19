@@ -2,9 +2,9 @@
 kind: bug
 title: The OpenAI provider inherits the SDK's default retry policy, so every model call is four requests
 created: 2026-09-10
-updated: 2026-09-10
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: high
 cluster: provider-truthfulness
 ---
@@ -108,3 +108,55 @@ where the budget and the pace can see it, not in a second pipeline underneath.
 A fake transport counting requests: one model call that always 429s should reach the
 transport `MaxRetries + 1` times, not `4 × (MaxRetries + 1)`. Red before the fix at
 `4×`.
+
+## Fix (2026-09-19)
+
+Taken as written — `maxRetries: 0`, not 1 — and the audit the report asked for turned up
+**five providers, not the two named**:
+
+| provider | SDK | default | requests per nb attempt |
+|---|---|---|---|
+| OpenAI | System.ClientModel | `maxRetries: 3` | 4 |
+| AzureOpenAI | System.ClientModel | `maxRetries: 3` | 4 |
+| **AzureFoundry** | System.ClientModel | `maxRetries: 3` | 4 |
+| **LocalLlm** | System.ClientModel | `maxRetries: 3` | 4 |
+| **Anthropic** | Stainless `Anthropic.Core` | `DefaultMaxRetries = 2` | 3 |
+
+The three in bold were not in the report. Anthropic is the one worth noting: a different
+SDK with a different knob (`options.MaxRetries`, an `int?` that reads null until the
+client resolves `ClientOptions.DefaultMaxRetries` behind it), which confirms the report's
+framing that the defect is "we accepted the SDK's defaults" rather than anything about
+System.ClientModel. Verified by reflecting on the shipped assembly rather than assumed.
+
+Gemini is the exception: `Mscc.GenerativeAI.Microsoft` exposes no client-options surface
+at all (`GeminiProvider.cs:27` constructs with key and model only), so there is no knob to
+set and no way to observe whether it retries internally. Left unaudited rather than
+recorded as clean.
+
+**A second bypass the report missed.** `OpenAIProvider` only built options when an
+endpoint or headers were configured, otherwise taking `new ChatClient(model, apiKey)` —
+the options-less constructor, which keeps the SDK default regardless of what
+`OpenAIOptions()` says. So the plain api.openai.com path would have stayed at 4x after
+the one-line fix. It now always goes through `OpenAIOptions`.
+
+## Regression
+
+`nb.Tests/SdkRetryAmplificationTests.cs` — a loopback `HttpListener` that always 429s and
+counts requests, with the real `LocalLlm` plugin loaded from `providers/` through the same
+`AssemblyLoadContext` path the CLI uses, and nb's own `MaxRetries: 0` pinning its layer to
+one attempt. Anything the listener counts above 1 came from a layer nb does not control.
+
+Observed red before the fix at **exactly 4**, independently reproducing the `36 requests /
+9 attempt groups` ratio the proxy journal in this report measured. Green at 1 after.
+
+Deliberately driven through the loaded plugin rather than by constructing options
+in-process: the defect is in *how a provider builds its client*, so an in-process test
+would assert the SDK's behaviour instead of nb's use of it, and would stay green if a
+provider stopped applying the policy.
+
+## Accepted consequence
+
+As the report states, the SDK layer was also absorbing non-throttle transport faults. A
+dropped connection or a bare 500 now surfaces instead of being retried three times
+invisibly. If that resilience is wanted it belongs in `ShouldRetry()`, where the budget
+and the pace can see it.

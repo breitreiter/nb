@@ -37,6 +37,13 @@ public class AnthropicProvider : IChatClientProvider
         if (http is not null)
             options.HttpClient = http;
 
+        // Same defect as the OpenAI-family providers, different SDK: Anthropic's
+        // ClientOptions.DefaultMaxRetries is 2, so every nb attempt was three requests
+        // on the wire that nb never saw. nb owns retry (RetryingChatClient) — budget,
+        // jitter, pace and the rate_limited exit reason all live there.
+        // bugs/Sdk_Retry_Policy_Multiplies_Every_Model_Call.md
+        options.MaxRetries = 0;
+
         var anthropicClient = new AnthropicClient(options) { ApiKey = apiKey };
         return anthropicClient.AsIChatClient(model);
     }
