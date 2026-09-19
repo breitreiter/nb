@@ -57,5 +57,26 @@ public sealed record RunResult
     public string? OracleVerdict { get; init; }
 
     /// <summary>Non-fatal evaluator warnings (unknown directive value, unbuildable client, …).</summary>
+    /// <summary>
+    /// Wall-clock time evaluating the program — model calls, tool calls and all. Excludes
+    /// engine startup (config, provider discovery, MCP connect), which is nb's cost, not
+    /// the program's.
+    /// </summary>
+    public TimeSpan Duration { get; init; }
+
+    /// <summary>
+    /// Of <see cref="Duration"/>, how much was spent blocked on a provider: inference,
+    /// pacing, backoff, every retry, and the oracle's side call.
+    /// </summary>
+    /// <remarks>
+    /// The number worth reading is the difference. <c>Duration - ProviderTime</c> is the
+    /// run's own work, which is where a slow tool or an expensive query shows up and is
+    /// the only part anyone can act on. A <see cref="ProviderTime"/> close to
+    /// <see cref="Duration"/> means the provider was slow, which is a fact about someone
+    /// else's afternoon — worth being able to discount, not worth investigating.
+    /// Deliberately one bucket and not a breakdown of *why* the provider was slow.
+    /// </remarks>
+    public TimeSpan ProviderTime { get; init; }
+
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }

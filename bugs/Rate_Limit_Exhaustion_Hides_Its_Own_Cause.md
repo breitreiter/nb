@@ -2,9 +2,9 @@
 kind: bug
 title: A run killed by rate limiting reports neither the real cause nor the real attempt count
 created: 2026-09-10
-updated: 2026-09-10
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: medium
 cluster: provider-truthfulness
 ---
@@ -96,3 +96,77 @@ and reports only its intended delays. All three defects share a root: nb knows m
 about what happened than it says. See also
 `Sdk_Retry_Policy_Multiplies_Every_Model_Call.md` — the request counts in that log are
 4× what nb thinks it issued, which is a fourth way the same run was unreadable.
+
+## Fix (2026-09-19)
+
+All three defects addressed, with defect 3 resolved **against this report's leaning** and
+its reporting half dropped on the owner's instruction.
+
+### 1. The exhaustion message names the cause
+
+`RateLimitClassifier.IsRateLimit` has an overload handing back the text it classified on
+(message plus response body), and `ConversationManager` prints that instead of
+`ex.Message`. So the `daily limit for '<upstream>' reached (150/day)` that decided the
+whole diagnosis now reaches the log instead of `Service request failed`.
+
+### 2. Machine-readable resets are read
+
+`ParseRetryAfterHeaders` reads `Retry-After` / `X-RateLimit-Reset` off the buffered raw
+response (by reflection, same as `StatusOf`, since the SDK types are across the
+`AssemblyLoadContext` boundary), handling both a numeric delta and an HTTP-date, and is
+tried *before* the prose fallback. The report was right that the old comment — "the
+header is long gone by the time an SDK exception reaches us" — is untrue for this SDK.
+
+More importantly, **a hint longer than the remaining budget now fails fast** rather than
+being clamped to `_maxDelay` and retried. That clamping is what let a run spend 300
+seconds and 36 requests against a quota whose reset was hours away: the provider had
+already said we could not win, and nb retried on a schedule the provider had explicitly
+rejected.
+
+### 3. Pacing is no longer charged to the retry budget
+
+The report presented this as arguable. It is not, and the deciding argument is one the
+report does not make: **nb is an eval harness, and a run truncated by a provider's pacing
+produces a scoreable `rate_limited` transcript that reads as a fact about the model under
+test.** A flaky provider should not be able to turn into a recorded result. That is the
+same mis-attribution `provider` on the trailer was added to prevent.
+
+The objection — that an uncharged budget leaves a call unbounded — does not hold:
+`budget wall_ms` already bounds the run (`ExitReasons.TimeBudget`), and that ceiling is
+the one the program author declared. The retry budget does not need to be a second,
+implicit wall-clock limit.
+
+`PaceAsync` now returns what it waited; the loop accumulates it and subtracts it before
+the `ShouldRetry` budget check. The same number is charged to `provider_ms`
+(`Trailer_Never_Carries_Duration.md`) — pacing is still time the run was blocked on a
+provider, it is just not time spent fighting one throttle.
+
+**The reporting half is dropped.** This report asked for `retrying in 2.1s (pacing 16s)`
+and an exhaustion message naming the binding limit. Per the owner: consumers do not care
+*why* a provider was slow, and nb should not break provider time into detailed findings.
+The one bucket (`provider_ms`) plus the classified body from defect 1 is the whole
+surface. A human who needs more has the body, which names the actual quota.
+
+## A finding the report's model misses
+
+Pacing does **not** generally eat the retry budget. `PaceAsync` measures the gap from the
+*last request*, and a backoff has already elapsed since then — so while backoff >= pace,
+pacing costs nothing extra and charging it was harmless. It only bites once the pace
+outgrows the backoff, which is exactly the regime the measured run was in: its pace
+pinned at the 60s cap while the announced backoff delays ran shorter. That is why the
+report's table shows actual gaps of 4/8/17/31/60/59/60/61 against announced 0.9-49.5.
+
+This matters for anyone reading the fix: the regression test has to set
+`MinRequestIntervalMs` *above* `RetryMaxDelaySeconds` to discriminate at all. A first
+attempt with the floor at or below the backoff cap passed against the unfixed code.
+
+## Regression
+
+`RetryBudgetAccountingTests` in `nb.Tests/RetryingChatClientTests.cs`:
+
+- `PacingIsNotChargedToTheRetryBudget` — 2s floor against a 1s backoff cap and a 3s
+  budget. **Observed red at 3 calls, green at 4.**
+- `AHintLongerThanTheBudgetStopsImmediately` — an hour-long hint against a 30s budget
+  stops after one call instead of retrying ten times.
+- `ProviderTimeIsChargedEvenWithRetryDisabled` / `ProviderTimeIncludesBackoffAndPacing` —
+  the measurement side.

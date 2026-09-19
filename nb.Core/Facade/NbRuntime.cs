@@ -34,6 +34,9 @@ internal sealed class NbRuntime : IDisposable
     /// </summary>
     public IReadOnlyList<string> StartupWarnings { get; }
 
+    /// <summary>Time this run spent blocked on a provider; becomes <c>provider_ms</c>.</summary>
+    public ProviderTime ProviderTime => _providers.ProviderTime;
+
     private NbRuntime(IConfiguration config, ProviderManager providers, McpManager mcp,
         ConversationManager conversation, IReadOnlyList<string> startupWarnings, string? optionHarness)
     {

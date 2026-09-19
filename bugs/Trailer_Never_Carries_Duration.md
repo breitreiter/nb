@@ -2,9 +2,9 @@
 kind: bug
 title: '`ResultEvent.DurationMs` is in the schema and the writer, and nothing ever sets it'
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: medium
 cluster: schema-vs-dispatch
 ---
@@ -83,3 +83,61 @@ set (`:291`) — that direction is proven. The missing case is at `ProgramEvalua
 level: a Mock run (deterministic, no real latency to flake on) whose trailer has a
 non-null `duration_ms` greater than zero, and — if `tool_ms` is added — a run with a
 scripted `bash` call whose `tool_ms` is less than its `duration_ms`.
+
+## Fix (2026-09-19)
+
+Fixed, and **scope changed by the owner's reframe**: the ask is "correct time spent
+waiting on a provider, for whatever reason, inclusive of waits and retries", as a single
+bucket. So the trailer gained two raw fields, not one:
+
+- `duration_ms` — wall time for the program, from the first dispatched directive to
+  trailer construction, excluding engine startup, as this report proposed.
+- `provider_ms` — of that, the time blocked on a provider: inference, adaptive pacing,
+  retry backoff, every retry attempt, and the oracle's side call.
+
+**The `tool_ms` split this report floated is dropped, deliberately.** `duration_ms -
+provider_ms` already answers the question a split was for, without nb having to
+decompose anything or decide what counts as "tool time". The consumer subtracts.
+
+The reasoning for one bucket rather than a breakdown: a consumer cannot act on *why* a
+provider was slow. A large reasoning model taking ninety seconds and an overloaded
+gateway are the same non-actionable fact, and separating them would be noise with a
+maintenance cost. What *is* actionable is the complement — a slow tool call or an
+expensive query — and that falls out of the subtraction.
+
+## Where the measurement lives
+
+Not in `Nb.RunAsync` as sketched, for `provider_ms`: `RetryingChatClient` is a
+`DelegatingChatClient` installed at a single site (`ProviderManager.cs:149`) around every
+client nb builds, and every wait the run pays — `PaceAsync`, the inner call, the backoff
+`Task.Delay` — happens inside it. It is the only place that can see all of it. It also
+catches the oracle for free, since `SideCallAsync` takes a client from the same path.
+
+The accumulator (`nb.Core/ProviderTime.cs`) is scoped to `ProviderManager`, which is
+built once per run, so a mid-program provider swap lands in the same total without a
+parameter threaded through the evaluator. `duration_ms` is a plain stopwatch in
+`Nb.RunAsync` as proposed.
+
+Two things had to change to make the number honest:
+
+- **`RetryingChatClient.Wrap` now always wraps.** It used to hand back the inner client
+  untouched when retry and pacing were both off, which would have left `provider_ms`
+  reading `0` rather than "unmeasured" — a trailer field silently wrong about itself,
+  which is the failure this cluster keeps filing. `MaxRetriesZero_ReturnsTheClientUntouched`
+  asserted that identity and was rewritten as `MaxRetriesZero_DoesNotRetry`, which
+  asserts the contract that actually matters.
+- **Streaming is timed inside `MoveNextAsync` only**, not around the enumerator: the
+  caller does its own work between yields, so timing the loop would make `provider_ms`
+  grow with how slowly nb renders. Moot once streaming is removed (TODO.md, "Chat-era
+  surface cull").
+
+## Test
+
+Unit coverage is in `RetryBudgetAccountingTests` — provider time is charged with retry
+disabled (proving the always-wrap), and includes backoff and pacing.
+
+Eval (`evals/run.sh`): `duration_ms > 0`; `0 <= provider_ms <= duration_ms` (a
+`provider_ms` above `duration_ms` would mean the accumulator double-counts waits); and
+the one that proves the pair is worth having — a Mock run whose scripted `bash` call
+sleeps a second shows that second in `duration_ms - provider_ms`, because Mock itself
+answers instantly.

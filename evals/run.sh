@@ -649,6 +649,26 @@ run_prog "provider: unbuildable entry still validates clean (name is configured)
 run_prog_stdout_contains "trailer: records the provider that answered" '"provider":"Mock"' \
     "run MOCK:response=hi" --output jsonl
 
+# bugs/Trailer_Never_Carries_Duration.md — DurationMs was declared, written and read,
+# and nothing in the engine ever set it, so every trailer on every provider omitted it.
+run_prog_jsonl "trailer: duration_ms is set and positive" \
+    '[.[]|select(.type=="result")][0]|(.duration_ms>0)' 'true' \
+    "run MOCK:response=hi" --output jsonl
+
+# provider_ms is the time blocked on a provider. It must be present, non-negative, and
+# no larger than the run it is part of — a provider_ms above duration_ms would mean the
+# accumulator is double-counting waits.
+run_prog_jsonl "trailer: provider_ms is present and within duration_ms" \
+    '[.[]|select(.type=="result")][0]|(.provider_ms>=0 and .provider_ms<=.duration_ms)' 'true' \
+    "run MOCK:response=hi" --output jsonl
+
+# The complement is the point of the pair: Mock answers instantly, so a run whose tool
+# call sleeps has to show that second as nb's own work, not the provider's. This is the
+# "slow db query vs. the gateway having a bad afternoon" distinction the fields exist for.
+run_prog_jsonl "trailer: tool time lands outside provider_ms" \
+    '[.[]|select(.type=="result")][0]|(.duration_ms - .provider_ms > 700)' 'true' \
+    "$(printf 'approval bash sleep *\nrun MOCK:tool=bash sleep 1')" --output jsonl
+
 echo ""
 
 # ----------------------------------------

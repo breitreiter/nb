@@ -47,8 +47,22 @@ internal static class RateLimitClassifier
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static bool IsRateLimit(Exception exception, out TimeSpan? retryAfter)
+        => IsRateLimit(exception, out retryAfter, out _);
+
+    /// <param name="classified">
+    /// The text the decision was actually made on — message plus response body. Handed
+    /// back because it is the only place the cause is named, and the caller reporting
+    /// exhaustion was printing <see cref="Exception.Message"/> instead: for
+    /// System.ClientModel that renders "Service request failed. Status: 429", while the
+    /// body said "daily limit for '&lt;upstream&gt;' reached (150/day)" — a local quota
+    /// cleared at midnight, not a gateway throttle. That string decided a whole
+    /// diagnosis and never reached the log.
+    /// bugs/Rate_Limit_Exhaustion_Hides_Its_Own_Cause.md
+    /// </param>
+    public static bool IsRateLimit(Exception exception, out TimeSpan? retryAfter, out string? classified)
     {
         retryAfter = null;
+        classified = null;
         if (exception is OperationCanceledException) return false;
 
         for (var ex = exception; ex != null; ex = ex.InnerException)
@@ -56,11 +70,57 @@ internal static class RateLimitClassifier
             var text = TextOf(ex);
             if (IsThrottleStatus(StatusOf(ex)) || StatusInText.IsMatch(text) || MatchesSignal(text))
             {
-                retryAfter = ParseRetryAfter(text);
+                // Headers first: a machine-readable reset is exact, where prose is a
+                // guess. The old comment here claimed the header was "long gone by the
+                // time an SDK exception reaches us" — not true for this SDK, which
+                // buffers the raw response and attaches it. Missing it cost a run 300
+                // seconds and 36 requests against a quota whose reset was hours away.
+                retryAfter = ParseRetryAfterHeaders(ex) ?? ParseRetryAfter(text);
+                classified = text;
                 return true;
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// <c>Retry-After</c> / <c>X-RateLimit-Reset</c> off the raw response, by reflection
+    /// for the same reason as <see cref="StatusOf"/> — the SDK types live behind an
+    /// AssemblyLoadContext boundary nb.Core must not reference.
+    /// </summary>
+    private static TimeSpan? ParseRetryAfterHeaders(Exception ex)
+    {
+        try
+        {
+            var raw = ex.GetType().GetMethod("GetRawResponse", Type.EmptyTypes)?.Invoke(ex, null);
+            if (raw is null) return null;
+            var headers = raw.GetType().GetProperty("Headers")?.GetValue(raw);
+            if (headers is null) return null;
+
+            var tryGet = headers.GetType().GetMethod("TryGetValue", new[] { typeof(string), typeof(string).MakeByRefType() });
+            if (tryGet is null) return null;
+
+            foreach (var name in new[] { "Retry-After", "X-RateLimit-Reset", "x-ratelimit-reset-requests" })
+            {
+                var args = new object?[] { name, null };
+                if (tryGet.Invoke(headers, args) is true && args[1] is string value && !string.IsNullOrWhiteSpace(value))
+                {
+                    if (double.TryParse(value, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var seconds))
+                        return TimeSpan.FromSeconds(seconds);
+
+                    // Retry-After may be an HTTP-date rather than a delta.
+                    if (DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.AdjustToUniversal, out var when))
+                    {
+                        var delta = when - DateTimeOffset.UtcNow;
+                        return delta > TimeSpan.Zero ? delta : TimeSpan.Zero;
+                    }
+                }
+            }
+        }
+        catch { /* a failed peek degrades to "no hint", never to a throw while classifying */ }
+        return null;
     }
 
     /// <summary>
@@ -163,7 +223,13 @@ internal static class RateLimitClassifier
 /// **The budget is wall-clock, not just attempts.** A gateway-wide capacity limit
 /// lasts minutes; a plain 5-attempt exponential ladder gives up after ~30 seconds,
 /// which is not a real attempt to outlast it. Retrying continues while both the
-/// attempt cap and the time budget hold.
+/// attempt cap and the time budget hold. The budget counts *backoff only* — pacing is
+/// excluded, since it is a steady-state drag rather than part of fighting one throttle.
+///
+/// **It also measures.** Every wait and every call inside this wrapper is charged to a
+/// run-scoped <see cref="ProviderTime"/>, which becomes <c>provider_ms</c> on the result
+/// trailer. This is the one place that can see all of it, so the wrapper is installed
+/// unconditionally — even with retry and pacing switched off.
 ///
 /// **A throttle also slows the requests that follow it** (see <see cref="PaceAsync"/>).
 /// Retrying only the failed call means a long agentic run charges back in at full
@@ -197,13 +263,17 @@ internal sealed class RetryingChatClient : DelegatingChatClient
     private TimeSpan _pace = TimeSpan.Zero;
     private DateTimeOffset _lastRequest = DateTimeOffset.MinValue;
 
-    private RetryingChatClient(IChatClient inner, int maxRetries, TimeSpan maxDelay, TimeSpan budget, TimeSpan floor) : base(inner)
+    private readonly ProviderTime? _clock;
+
+    private RetryingChatClient(IChatClient inner, int maxRetries, TimeSpan maxDelay, TimeSpan budget,
+        TimeSpan floor, ProviderTime? clock) : base(inner)
     {
         _maxRetries = maxRetries;
         _maxDelay = maxDelay;
         _budget = budget;
         _floor = floor;
         _pace = floor;
+        _clock = clock;
     }
 
     /// <summary>
@@ -212,17 +282,21 @@ internal sealed class RetryingChatClient : DelegatingChatClient
     /// falling back to the root config then to the defaults. <c>MaxRetries: 0</c> opts
     /// out of retry, and with no floor set that returns the client untouched.
     /// </summary>
-    public static IChatClient Wrap(IChatClient inner, IConfiguration root, IConfiguration entry)
+    public static IChatClient Wrap(IChatClient inner, IConfiguration root, IConfiguration entry,
+        ProviderTime? clock = null)
     {
         var maxRetries = Read("MaxRetries") ?? DefaultMaxRetries;
         var floorMs = Math.Max(0, Read("MinRequestIntervalMs") ?? 0);
-        if (maxRetries <= 0 && floorMs == 0) return inner;
 
+        // Always wrap, even with retry and pacing both off. This used to return `inner`
+        // untouched, which left nothing measuring provider time — and provider_ms would
+        // then read 0 rather than "unmeasured", a trailer field silently wrong about
+        // itself. With no retry and no floor the wrapper is a stopwatch and a passthrough.
         var maxDelay = Read("RetryMaxDelaySeconds") ?? DefaultMaxDelaySeconds;
         var budget = Read("RetryBudgetSeconds") ?? DefaultBudgetSeconds;
         return new RetryingChatClient(inner, Math.Max(0, maxRetries),
             TimeSpan.FromSeconds(Math.Max(1, maxDelay)), TimeSpan.FromSeconds(Math.Max(1, budget)),
-            TimeSpan.FromMilliseconds(floorMs));
+            TimeSpan.FromMilliseconds(floorMs), clock);
 
         int? Read(string key) => ReadInt(entry[key]) ?? ReadInt(root[key]);
     }
@@ -234,20 +308,32 @@ internal sealed class RetryingChatClient : DelegatingChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        // Two clocks, measuring different things. `spent` bounds the retry budget and
+        // counts only backoff — see `paced`. `wall` is everything this call cost the run
+        // and is what provider_ms reports.
         var spent = Stopwatch.StartNew();
-        for (var attempt = 0; ; attempt++)
+        var wall = Stopwatch.GetTimestamp();
+        var paced = TimeSpan.Zero;
+        try
         {
-            await PaceAsync(cancellationToken);
-            try
+            for (var attempt = 0; ; attempt++)
             {
-                var response = await base.GetResponseAsync(messages, options, cancellationToken);
-                OnSucceeded();
-                return response;
+                paced += await PaceAsync(cancellationToken);
+                try
+                {
+                    var response = await base.GetResponseAsync(messages, options, cancellationToken);
+                    OnSucceeded();
+                    return response;
+                }
+                catch (Exception ex) when (ShouldRetry(ex, attempt, spent.Elapsed - paced, out var delay))
+                {
+                    await OnThrottledAsync(delay, attempt, cancellationToken);
+                }
             }
-            catch (Exception ex) when (ShouldRetry(ex, attempt, spent.Elapsed, out var delay))
-            {
-                await OnThrottledAsync(delay, attempt, cancellationToken);
-            }
+        }
+        finally
+        {
+            _clock?.Add(Stopwatch.GetElapsedTime(wall));
         }
     }
 
@@ -256,10 +342,17 @@ internal sealed class RetryingChatClient : DelegatingChatClient
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        // Unlike the non-streaming path this cannot time the whole loop: the caller does
+        // its own work between yields, and charging that to the provider would make
+        // provider_ms grow with how slowly nb renders. Only the waits and the time inside
+        // MoveNextAsync count. (Moot once streaming goes — see TODO.md, "Remove streaming".)
         var spent = Stopwatch.StartNew();
+        var paced = TimeSpan.Zero;
         for (var attempt = 0; ; attempt++)
         {
-            await PaceAsync(cancellationToken);
+            var pacedNow = await PaceAsync(cancellationToken);
+            paced += pacedNow;
+            _clock?.Add(pacedNow);
 
             var enumerator = base.GetStreamingResponseAsync(messages, options, cancellationToken)
                 .GetAsyncEnumerator(cancellationToken);
@@ -274,15 +367,20 @@ internal sealed class RetryingChatClient : DelegatingChatClient
                 while (true)
                 {
                     ChatResponseUpdate? update = null;
+                    var moved = Stopwatch.GetTimestamp();
                     try
                     {
                         if (!await enumerator.MoveNextAsync()) { completed = true; }
                         else update = enumerator.Current;
                     }
-                    catch (Exception ex) when (!yielded && ShouldRetry(ex, attempt, spent.Elapsed, out var suggested))
+                    catch (Exception ex) when (!yielded && ShouldRetry(ex, attempt, spent.Elapsed - paced, out var suggested))
                     {
                         delay = suggested;
                         retrying = true;
+                    }
+                    finally
+                    {
+                        _clock?.Add(Stopwatch.GetElapsedTime(moved));
                     }
 
                     if (retrying || completed) break;
@@ -301,7 +399,9 @@ internal sealed class RetryingChatClient : DelegatingChatClient
                 yield break;
             }
 
+            var backoff = Stopwatch.GetTimestamp();
             await OnThrottledAsync(delay, attempt, cancellationToken);
+            _clock?.Add(Stopwatch.GetElapsedTime(backoff));
         }
     }
 
@@ -311,10 +411,26 @@ internal sealed class RetryingChatClient : DelegatingChatClient
         if (attempt >= _maxRetries) return false;
         if (!RateLimitClassifier.IsRateLimit(ex, out var hint)) return false;
 
+        // A hint longer than the budget can cover means the provider has already told us
+        // we cannot win: ComputeDelay would clamp it to _maxDelay and we would retry on a
+        // schedule the provider explicitly rejected. That is how one run spent 300s and
+        // 36 requests against a daily quota whose reset was hours away. Give up now — the
+        // classified body, which names the quota, is what gets printed.
+        if (hint is { } told && told > _budget - spent) return false;
+
         delay = ComputeDelay(hint, attempt);
 
         // Don't start a wait the budget can't cover — sleeping past the budget only
         // to fail anyway wastes the caller's wall clock without buying an attempt.
+        //
+        // `spent` arrives with pacing already subtracted. The budget bounds how long we
+        // fight one throttle; the pace is a steady-state drag that applies to healthy
+        // calls too. Charging it collapsed the effective attempt count exactly when more
+        // attempts were wanted — a run reported "attempt 8/10" having been stopped by a
+        // budget consumed almost entirely by pacing, and a flaky provider truncated an
+        // eval into a scoreable rate_limited result that read as a fact about the model.
+        // The ceiling on total wall time is `budget wall_ms`, which the program declares.
+        // bugs/Rate_Limit_Exhaustion_Hides_Its_Own_Cause.md
         return spent + delay <= _budget;
     }
 
@@ -334,8 +450,11 @@ internal sealed class RetryingChatClient : DelegatingChatClient
     /// further once a throttle has been seen. With no floor the pace is zero until the
     /// first throttle, so an unthrottled run pays nothing for this.
     /// </summary>
-    private async Task PaceAsync(CancellationToken cancellationToken)
+    /// <returns>How long this call actually waited, so the caller can keep pacing out
+    /// of the retry budget and charge it to provider time instead.</returns>
+    private async Task<TimeSpan> PaceAsync(CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
         await _paceGate.WaitAsync(cancellationToken);
         TimeSpan wait;
         try
@@ -353,7 +472,7 @@ internal sealed class RetryingChatClient : DelegatingChatClient
             _paceGate.Release();
         }
 
-        if (wait <= TimeSpan.Zero) return;
+        if (wait <= TimeSpan.Zero) return TimeSpan.Zero;
         await Task.Delay(wait, cancellationToken);
 
         // Task.Delay can overshoot by seconds on a loaded machine. Measuring the next
@@ -369,6 +488,8 @@ internal sealed class RetryingChatClient : DelegatingChatClient
         {
             _paceGate.Release();
         }
+
+        return Stopwatch.GetElapsedTime(started);
     }
 
     // A throttle doubles the pace (from a 1s start, capped at the single-backoff cap);

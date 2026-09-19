@@ -73,8 +73,15 @@ public static class Nb
             foreach (var (name, error) in runtime.Mcp.FailedServers)
                 warnings.Add($"MCP server '{name}' failed to start: {error}");
 
+            // Total wall time for the run, started here rather than at BuildAsync: the
+            // question duration_ms answers is "how long did this program take", not "how
+            // long did nb take to start" (config load, plugin discovery, MCP connects —
+            // order 2s locally, and none of it attributable to the program).
+            var runClock = System.Diagnostics.Stopwatch.GetTimestamp();
+
             var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory, warnings, runtime.DefaultHarnessFor, runtime.TemperatureFor);
             await evaluator.EvaluateAsync(program, cancellationToken);
+            var duration = System.Diagnostics.Stopwatch.GetElapsedTime(runClock);
 
             var events = TranscriptMapper.FromHistory(runtime.Conversation.History, runtime.Conversation.Approvals, runtime.Conversation.OracleAnswers);
             var estimated = runtime.Conversation.UsageIsEstimated;
@@ -98,6 +105,8 @@ public static class Nb
                 Denied = runtime.Conversation.Approvals.DeniedCount,
                 OracleTurns = evaluator.OracleTurnsUsed,
                 OracleVerdict = evaluator.OracleVerdict,
+                Duration = duration,
+                ProviderTime = runtime.ProviderTime.Total,
                 Warnings = warnings,
             };
         }

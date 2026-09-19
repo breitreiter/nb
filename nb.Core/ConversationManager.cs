@@ -777,10 +777,17 @@ public class ConversationManager
         {
             // A throttling rejection that survived RetryingChatClient's backoff gets
             // its own exit_reason: the run is re-runnable, unlike a real model error.
-            if (RateLimitClassifier.IsRateLimit(ex, out _))
+            if (RateLimitClassifier.IsRateLimit(ex, out _, out var classified))
             {
+                // The classified text, not ex.Message: System.ClientModel renders its
+                // message as "Service request failed.\nStatus: 429 (Too Many Requests)"
+                // and leaves the server's explanation on the response body — which the
+                // classifier already read to make this decision, then dropped at the one
+                // moment a human needs it.
+                // bugs/Rate_Limit_Exhaustion_Hides_Its_Own_Cause.md
+                var detail = string.IsNullOrWhiteSpace(classified) ? ex.Message : classified!;
                 AnsiConsole.MarkupLine(
-                    $"[{UIColors.SpectreError}]Rate limited; retries exhausted: {Markup.Escape(ex.Message)}[/]");
+                    $"[{UIColors.SpectreError}]Rate limited; retries exhausted: {Markup.Escape(detail)}[/]");
                 return Transcript.ExitReasons.RateLimited;
             }
 

@@ -44,11 +44,21 @@ public class RetryingChatClientTests
         public void Dispose() { }
     }
 
+    // Was MaxRetriesZero_ReturnsTheClientUntouched, asserting Wrap handed the inner
+    // client straight back. The wrapper is now installed unconditionally, because it is
+    // also what measures provider_ms and an unwrapped client would report 0 rather than
+    // "unmeasured". The contract that actually matters is unchanged and is what this now
+    // asserts: MaxRetries 0 opts out of retrying, whatever the object graph looks like.
     [Fact]
-    public void MaxRetriesZero_ReturnsTheClientUntouched()
+    public async Task MaxRetriesZero_DoesNotRetry()
     {
-        var inner = new ThrottlingChatClient(0);
-        Assert.Same(inner, Wrap(inner, ("MaxRetries", "0")));
+        var inner = new ThrottlingChatClient(failures: int.MaxValue);
+        var client = Wrap(inner, ("MaxRetries", "0"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]));
+
+        Assert.Equal(1, inner.Calls);
     }
 
     [Fact]
@@ -69,9 +79,13 @@ public class RetryingChatClientTests
     [Fact]
     public async Task RetriesStopAtTheWallClockBudget_NotTheAttemptCap()
     {
+        // RetryMaxDelaySeconds also caps the adaptive pace, and the pace is no longer
+        // charged to the budget — so without pinning it this test's wall clock is set by
+        // RaisePace's ladder rather than by the thing it is asserting. 0 keeps it honest.
         var inner = new ThrottlingChatClient(failures: int.MaxValue);
         var client = Wrap(inner,
-            ("MaxRetries", "1000"), ("RetryMaxDelaySeconds", "1"), ("RetryBudgetSeconds", "2"));
+            ("MaxRetries", "1000"), ("RetryMaxDelaySeconds", "1"), ("RetryBudgetSeconds", "2"),
+            ("MinRequestIntervalMs", "0"));
 
         var started = DateTimeOffset.UtcNow;
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -170,5 +184,156 @@ public class RetryingChatClientTests
 
         var gap = inner.CallTimes[1] - inner.CallTimes[0];
         Assert.True(gap >= TimeSpan.FromMilliseconds(250), $"gap {gap.TotalMilliseconds:0}ms");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// bugs/Rate_Limit_Exhaustion_Hides_Its_Own_Cause.md
+// ---------------------------------------------------------------------------
+
+public class RetryBudgetAccountingTests
+{
+    private static IChatClient Wrap(IChatClient inner, params (string Key, string Value)[] settings)
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(settings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value)))
+            .Build();
+        return RetryingChatClient.Wrap(inner, config, config);
+    }
+
+    private sealed class AlwaysThrottling : IChatClient
+    {
+        public int Calls { get; private set; }
+        private readonly string _message;
+
+        public AlwaysThrottling(string message = "Wholesale rate limit exceeded for this gateway.")
+            => _message = message;
+
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            throw new InvalidOperationException(_message);
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
+    // The defect: PaceAsync ran inside the same stopwatch as the backoff, so a rising
+    // pace ate the retry budget and the attempt count collapsed exactly when more
+    // attempts were wanted. A run reported "attempt 8/10" having been stopped by a
+    // budget spent almost entirely on pacing — and for an eval that is a provider's bad
+    // afternoon recorded as a scoreable result about the model.
+    //
+    // The floor must exceed the backoff cap for this to discriminate at all, and that is
+    // worth knowing about the mechanism: PaceAsync measures the gap from the *last
+    // request*, and a backoff has already elapsed since then. So while backoff >= pace,
+    // pacing costs nothing extra and charging it is harmless. It only eats the budget
+    // once the pace outgrows the backoff — which is precisely the regime the reported run
+    // was in, its pace pinned at the 60s cap while backoff delays ran shorter.
+    //
+    // Hence a 2s floor against a 1s backoff cap: each retry waits ~1s of backoff and then
+    // ~1s more of pacing. Uncharged, 3 retries of backoff (~2-2.5s) fit inside the 3s
+    // budget and the attempt cap binds at 4 calls. Charged, the pacing doubles the spend
+    // and the budget runs out first.
+    [Fact]
+    public async Task PacingIsNotChargedToTheRetryBudget()
+    {
+        var inner = new AlwaysThrottling();
+        var client = Wrap(inner,
+            ("MaxRetries", "3"), ("RetryMaxDelaySeconds", "1"), ("RetryBudgetSeconds", "3"),
+            ("MinRequestIntervalMs", "2000"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]));
+
+        Assert.Equal(4, inner.Calls); // the initial call plus MaxRetries
+    }
+
+    // A provider that says "come back in an hour" used to have its hint clamped to
+    // _maxDelay and retried on a schedule it had explicitly rejected — 300 seconds and
+    // 36 requests against a daily quota whose reset was hours away. The hint is now
+    // compared to the budget before clamping.
+    [Fact]
+    public async Task AHintLongerThanTheBudgetStopsImmediately()
+    {
+        var inner = new AlwaysThrottling("Rate limit reached. Please try again in 3600 seconds.");
+        var client = Wrap(inner,
+            ("MaxRetries", "10"), ("RetryMaxDelaySeconds", "1"), ("RetryBudgetSeconds", "30"),
+            ("MinRequestIntervalMs", "0"));
+
+        var started = DateTimeOffset.UtcNow;
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]));
+        var elapsed = DateTimeOffset.UtcNow - started;
+
+        Assert.Equal(1, inner.Calls);
+        Assert.True(elapsed < TimeSpan.FromSeconds(5), $"waited {elapsed.TotalSeconds:0.#}s before giving up");
+    }
+
+    // provider_ms: the wrapper is the one place that sees inference, pacing and backoff,
+    // so it is installed even with retry and pacing off — an unwrapped client would
+    // report 0 rather than "unmeasured".
+    [Fact]
+    public async Task ProviderTimeIsChargedEvenWithRetryDisabled()
+    {
+        var clock = new ProviderTime();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["MaxRetries"] = "0" })
+            .Build();
+        var inner = new SlowClient(TimeSpan.FromMilliseconds(200));
+        var client = RetryingChatClient.Wrap(inner, config, config, clock);
+
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]);
+
+        Assert.True(clock.Total >= TimeSpan.FromMilliseconds(150),
+            $"provider time {clock.Total.TotalMilliseconds:0}ms did not capture a 200ms call");
+    }
+
+    // Backoff and pacing are provider time too — the consumer's question is "how long was
+    // this run blocked on a provider", and a retry ladder is time the run was blocked.
+    [Fact]
+    public async Task ProviderTimeIncludesBackoffAndPacing()
+    {
+        var clock = new ProviderTime();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["MaxRetries"] = "2",
+                ["RetryMaxDelaySeconds"] = "1",
+                ["RetryBudgetSeconds"] = "30",
+                ["MinRequestIntervalMs"] = "300",
+            }).Build();
+        var inner = new AlwaysThrottling();
+        var client = RetryingChatClient.Wrap(inner, config, config, clock);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]));
+
+        // Three calls, each preceded by a >=300ms pace, plus two backoffs.
+        Assert.True(clock.Total >= TimeSpan.FromMilliseconds(600),
+            $"provider time {clock.Total.TotalMilliseconds:0}ms did not include the waits");
+    }
+
+    private sealed class SlowClient(TimeSpan delay) : IChatClient
+    {
+        public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(delay, cancellationToken);
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, "ok"));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
     }
 }

@@ -289,7 +289,17 @@ public sealed record ResultEvent : TranscriptEvent
     public UsageInfo? Usage { get; init; }
     public int? Turns { get; init; }
     public int? ToolCalls { get; init; }
+    /// <summary>Wall-clock time evaluating the program, excluding engine startup.</summary>
     public long? DurationMs { get; init; }
+
+    /// <summary>
+    /// Of <see cref="DurationMs"/>, the part spent blocked on a provider: inference,
+    /// pacing, backoff, retries, and the oracle's side call. One bucket on purpose —
+    /// a consumer cannot act on *why* a provider was slow, only on the complement.
+    /// <c>duration_ms - provider_ms</c> is the run's own work, where a slow tool call
+    /// shows up. bugs/Trailer_Never_Carries_Duration.md
+    /// </summary>
+    public long? ProviderMs { get; init; }
 
     /// <summary>
     /// The provider entry that actually answered. Always emitted, unlike

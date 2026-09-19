@@ -11,6 +11,14 @@ public class ProviderManager
     private readonly List<IChatClientProvider> _providers = new();
     private readonly string _providersDirectory;
 
+    /// <summary>
+    /// Time this run spent blocked on a provider. A ProviderManager is built once per
+    /// run, so every client it hands out — including mid-program swaps and the oracle's
+    /// side call — accumulates into one total without threading a parameter through the
+    /// evaluator.
+    /// </summary>
+    public ProviderTime ProviderTime { get; } = new();
+
     // A library host's AppContext.BaseDirectory is its own output dir, which has no
     // providers/ — so the directory is injectable (from NbOptions/config) and only
     // defaults to the executable-relative path for the CLI. See
@@ -138,7 +146,7 @@ public class ProviderManager
         {
             // Every caller reaches a client through here (facade, REPL, mid-run
             // provider swaps), so this is the one place retry has to be applied.
-            return RetryingChatClient.Wrap(provider.CreateClient(providerConfig), config, providerConfig);
+            return RetryingChatClient.Wrap(provider.CreateClient(providerConfig), config, providerConfig, ProviderTime);
         }
         catch (Exception ex)
         {

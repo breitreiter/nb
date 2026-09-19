@@ -95,7 +95,7 @@ public static class TranscriptMapper
     /// from the emitted events; usage is passed in from the live response (it is
     /// not in history).
     /// </summary>
-    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0, string? provider = null, int oracleTurns = 0, string? oracleVerdict = null)
+    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0, string? provider = null, int oracleTurns = 0, string? oracleVerdict = null, long? durationMs = null, long? providerMs = null)
     {
         // "turns" = assistant rounds: distinct turns carrying an assistant message.
         // (Counting distinct turns rather than the max keeps the number meaningful
@@ -112,6 +112,8 @@ public static class TranscriptMapper
             Usage = usage,
             Turns = turns,
             ToolCalls = toolCalls,
+            DurationMs = durationMs,
+            ProviderMs = providerMs,
             Provider = provider,
             Harness = harness,
             Denied = deniedCount > 0 ? deniedCount : null,

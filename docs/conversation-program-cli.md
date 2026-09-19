@@ -530,18 +530,36 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 **The `result` trailer** (one per run, `turn: null`):
 
 ```json
-{"type":"result","turn":null,"exit_reason":"ok","usage":{"input":10,"output":5,"total":15},"turns":1,"tool_calls":0,"provider":"Mock"}
+{"type":"result","turn":null,"exit_reason":"ok","usage":{"input":10,"output":5,"total":15},"turns":1,"tool_calls":0,"duration_ms":151,"provider_ms":14,"provider":"Mock"}
 ```
 
 Fields: `exit_reason` (§2), `usage{input,output,total,estimated?}`, `turns`,
-`tool_calls`, `duration_ms`?, `provider`, `harness`?, `oracle_turns`? (how many halts an
-answer sheet serviced; omitted when zero). `harness` names the costume the run
+`tool_calls`, `duration_ms`, `provider_ms`, `provider`, `harness`?, `oracle_turns`? (how
+many halts an answer sheet serviced; omitted when zero). `harness` names the costume the run
 wore and is **omitted for nb's own** — so a default run's trailer is unchanged.
 `provider` names the entry that actually answered and is **always emitted**, unlike
 `harness`: it is the field a corpus is attributed by, and omitting it when it matches the
 configured default would leave a reader unable to resolve it, since the default is
 config-dependent. Read `exit_reason` for the outcome; read the last `assistant_text` for
 the answer.
+
+`duration_ms` is wall time for the program — every `run`, model and tool alike. It
+excludes nb's own startup (config load, provider discovery, MCP connect attempts, order
+2s locally), which is nb's cost rather than the program's, and which a consumer timing
+the subprocess cannot separate out.
+
+`provider_ms` is the part of `duration_ms` the run spent **blocked on a provider**:
+inference, the adaptive pace, retry backoff, every retry attempt, and the oracle's side
+call. It is deliberately one bucket and not a breakdown — a consumer cannot act on *why*
+a provider was slow, and a large reasoning model and an overloaded gateway are the same
+non-actionable fact.
+
+The number to read is the difference. `duration_ms - provider_ms` is the run's own work,
+which is where a slow tool call or an expensive query shows up and is the only part
+anyone can change. A `provider_ms` close to `duration_ms` means the time went somewhere
+you do not control — worth discounting an unusually long run by, not worth investigating.
+
+Both are always emitted.
 
 **Estimated usage.** `usage` normally carries the provider's own counts. Two
 degradations are handled rather than papered over:
