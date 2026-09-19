@@ -511,7 +511,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `type` | Fields | Meaning |
 | --- | --- | --- |
 | `system` | `text` \| `content` | System-role message. |
-| `user` | `text` \| `content` | User-role message. Enrichment: `source: "oracle"` + `keys[]` when an answer sheet supplied the turn (§4.1). |
+| `user` | `text` \| `content` | User-role message. Enrichment: `source` names a turn nb injected rather than the program authoring it — `"oracle"` (+ `keys[]`) when an answer sheet supplied it (§4.1), `"loop"` for the doom-loop nudge, `"todo"` for the pending-todo reminder. Absent on a turn the program wrote. |
 | `assistant_text` | `text` \| `content` | Assistant prose. |
 | `tool_call` | `id`, `name`, `arguments` (JSON obj, types preserved), `approved`?, `approval_reason`? | A tool invocation. `id` is the join key. `approved` is `allow`/`deny`; `approval_reason` names the ladder rung that decided it (`pre-approved`, `safe`, `trust`, `default-deny`, `no-match`). A **denial** appends the near miss in parentheses — which rungs were consulted, and for each whether it was *skipped* (switched off elsewhere, e.g. `Trust=false`) or *refused* (evaluated and said no, with the cause). The rung stays the leading token, so filtering on `no-match` by prefix keeps working. |
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
@@ -527,6 +527,17 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 **Enrichment events** (emitted on output, **ignored on seed-load**): `thinking`
 (`text`), `assistant_json` (`value`), and the `approved`/`approval_reason`/`result` fields.
 
+`assistant_json` follows an `assistant_text` whose message **ends** in a ```` ```json ````
+fence that parses, carrying the parsed value — a convenience so a consumer wanting the
+structured answer need not re-parse the fence. It is deliberately strict: prose after the
+fence, an unterminated fence, or invalid JSON emit nothing, so a consumer reading
+`assistant_json` can trust it without re-validating.
+
+Count `source` rather than matching reminder prose. The wording is tunable — the loop
+text already varies on whether an oracle is available — so a regex over it breaks silently
+on the next edit. The `<system_reminder>` wrapper stays in `text`: the transcript records
+what the model actually saw, and stripping it would change replay.
+
 **The `result` trailer** (one per run, `turn: null`):
 
 ```json
@@ -534,14 +545,47 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 ```
 
 Fields: `exit_reason` (§2), `usage{input,output,total,estimated?}`, `turns`,
-`tool_calls`, `duration_ms`, `provider_ms`, `provider`, `harness`?, `oracle_turns`? (how
-many halts an answer sheet serviced; omitted when zero). `harness` names the costume the run
+`tool_calls`, `duration_ms`, `provider_ms`, `provider`, `model`, `cost`?, `harness`?,
+`oracle_turns`? (how many halts an answer sheet serviced; omitted when zero),
+`program_sha256`, `nb_version`. `harness` names the costume the run
 wore and is **omitted for nb's own** — so a default run's trailer is unchanged.
 `provider` names the entry that actually answered and is **always emitted**, unlike
 `harness`: it is the field a corpus is attributed by, and omitting it when it matches the
 configured default would leave a reader unable to resolve it, since the default is
 config-dependent. Read `exit_reason` for the outcome; read the last `assistant_text` for
 the answer.
+
+`model` names the model that actually answered, and is **always emitted** for the same
+reason as `provider` and more urgently. The effective model is frequently in neither the
+program nor the config: a program need not say `model`, the entry need not set `Model`,
+and the plugin's own hard-coded default then decides. nb reads it off the live client, so
+it is downstream of all three. Without it a sweep across model names produces per-model
+results whose attribution comes from the harness's intent rather than from the run, and
+nothing in the output contradicts a mislabel.
+
+`program_sha256` is the SHA-256 of the **resolved** program — the serialized event list
+that ran, not the source text. `@file` includes are expanded at parse time and a `--seed`
+prefix is spliced into the same list, so the source is a recipe and the resolved list is
+what happened. Two runs of one program hash equal. `nb_version` is nb.Core's
+informational version, the engine that ran. Both are always emitted: a reader cannot tell
+"absent because it opted out" from "absent because this is an old nb".
+
+`cost` is USD, and is emitted **only when the provider entry declares a price**, via two
+optional entry fields:
+
+```jsonc
+{ "Name": "Sonnet", "Provider": "Anthropic", "Model": "claude-sonnet-4-6",
+  "InputPricePerMillionTokens": 3.0, "OutputPricePerMillionTokens": 15.0 }
+```
+
+An entry that declares neither produces a trailer byte-identical to before the field
+existed. A declared side that the other omits prices as zero. Cost accumulates per
+round-trip at the price in effect at that moment, so a program that switches provider
+mid-run is charged correctly rather than having its summed usage multiplied by the last
+entry's price. `cost` inherits `usage.estimated` — when usage is nb's size estimate the
+cost is an estimate too, with no second flag — so the warning below about not billing
+from an estimated trailer applies to it. Cache-read and reasoning tokens are not broken
+out in `usage` and price as plain input/output.
 
 `duration_ms` is wall time for the program — every `run`, model and tool alike. It
 excludes nb's own startup (config load, provider discovery, MCP connect attempts, order

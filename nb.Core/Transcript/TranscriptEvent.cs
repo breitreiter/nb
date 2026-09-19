@@ -311,6 +311,33 @@ public sealed record ResultEvent : TranscriptEvent
     public string? Provider { get; init; }
 
     /// <summary>
+    /// The model that actually answered. Always emitted, for the same reason as
+    /// <see cref="Provider"/> and more urgently: the effective model is often in neither
+    /// the program nor the config — a program may name no <c>model</c>, an entry may set
+    /// no <c>Model</c>, and the plugin's own default then decides. A sweep across model
+    /// names otherwise produces per-model results whose attribution comes from the
+    /// harness's intent rather than from the run.
+    /// bugs/Effective_Model_Is_Not_On_The_Trailer.md
+    /// </summary>
+    public string? Model { get; init; }
+
+    /// <summary>
+    /// USD, emitted only when a provider entry declared a price — so a trailer from an
+    /// unpriced entry (every entry in appsettings.example.json, and Mock) is byte-identical
+    /// to before this field existed. Inherits <c>usage.estimated</c>.
+    /// bugs/Feature_Trailer_Carries_Cost_When_The_Entry_Declares_A_Price.md
+    /// </summary>
+    public double? Cost { get; init; }
+
+    /// <summary>SHA-256 of the resolved program — the serialized event list that ran,
+    /// not the source text. Always emitted.</summary>
+    public string? ProgramSha256 { get; init; }
+
+    /// <summary>nb.Core's informational version. Always emitted: a reader cannot tell
+    /// "no version because it opted out" from "no version because this is an old nb".</summary>
+    public string? NbVersion { get; init; }
+
+    /// <summary>
     /// The harness the run wore, when it was not nb's own. Omitted for the default, so a
     /// plain trailer stays byte-identical to before this field existed. Recorded for the
     /// same reason the model is: a corpus of runs spanning more than one costume cannot

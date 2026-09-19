@@ -58,6 +58,31 @@ public sealed record RunResult
 
     /// <summary>Non-fatal evaluator warnings (unknown directive value, unbuildable client, …).</summary>
     /// <summary>
+    /// The model that actually answered — the effective one, not the one the program
+    /// requested. Read off the live client, so it is downstream of every fallback: the
+    /// <c>model</c> directive, the entry's <c>Model</c> field, and the plugin's own
+    /// hard-coded default. Exists so a corpus of runs sweeping model names cannot be
+    /// mis-attributed to a model that never ran.
+    /// </summary>
+    public string? Model { get; init; }
+
+    /// <summary>
+    /// What the run cost in USD, or null when no provider entry declared a price.
+    /// Inherits <see cref="UsageInfo.Estimated"/>: when usage is nb's size estimate the
+    /// cost is estimated too, and there is deliberately no second flag for that.
+    /// </summary>
+    public double? Cost { get; init; }
+
+    /// <summary>SHA-256 of the resolved program (the serialized event list, includes
+    /// expanded and any seed spliced in) — what ran, rather than the source that
+    /// described it.</summary>
+    public string? ProgramSha256 { get; init; }
+
+    /// <summary>nb.Core's informational version — the engine that ran. A library host's
+    /// own version is its own business.</summary>
+    public string? NbVersion { get; init; }
+
+    /// <summary>
     /// Wall-clock time evaluating the program — model calls, tool calls and all. Excludes
     /// engine startup (config, provider discovery, MCP connect), which is nb's cost, not
     /// the program's.

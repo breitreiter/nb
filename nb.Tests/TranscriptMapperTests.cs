@@ -184,4 +184,52 @@ public class TranscriptMapperTests
         Assert.Equal("ok", trailer.ExitReason);
         Assert.Null(trailer.Turn);            // run-level, not a message
     }
+
+    // bugs/Feature_Injected_Reminders_Carry_A_Source_Tag.md — the doom-loop nudge and the
+    // pending-todo reminder are ordinary user messages on the wire, indistinguishable
+    // from a turn the program wrote. The tag is how a consumer counts them without
+    // matching prose that is tunable and already varies at runtime.
+    [Fact]
+    public void InjectedReminders_CarryTheirSource()
+    {
+        var wrote = new ChatMessage(ChatRole.User, "do the thing");
+        var loop = new ChatMessage(ChatRole.User, "<system_reminder>You appear to be stuck…</system_reminder>");
+        var todo = new ChatMessage(ChatRole.User, "<system_reminder>You have pending todo items…</system_reminder>");
+        var history = new List<ChatMessage> { wrote, loop, todo };
+
+        var sources = new Dictionary<ChatMessage, string>(ReferenceEqualityComparer.Instance)
+        {
+            [loop] = "loop",
+            [todo] = "todo",
+        };
+
+        var events = TranscriptMapper.FromHistory(history, injectedSources: sources)
+            .OfType<UserEvent>().ToList();
+
+        Assert.Null(events[0].Source);
+        Assert.Equal("loop", events[1].Source);
+        Assert.Equal("todo", events[2].Source);
+    }
+
+    // The enrichment beside assistant_text: emitted only for a fence that closes the
+    // message and actually parses, so a consumer can trust it without re-validating.
+    [Theory]
+    [InlineData("```json\n{\"a\":1}\n```", true)]
+    [InlineData("here you go:\n\n```json\n{\"a\":1}\n```", true)]
+    [InlineData("```json\n{\"a\":1}\n```\n\nhope that helps", false)]
+    [InlineData("```json\n{not json}\n```", false)]
+    [InlineData("```json\n{\"a\":1}", false)]
+    [InlineData("no fence at all", false)]
+    public void AssistantJson_IsEmittedOnlyForAClosedParseableFence(string text, bool expected)
+    {
+        var history = new List<ChatMessage>
+        {
+            new(ChatRole.User, "go"),
+            new(ChatRole.Assistant, text),
+        };
+
+        var events = TranscriptMapper.FromHistory(history);
+
+        Assert.Equal(expected, events.OfType<AssistantJsonEvent>().Any());
+    }
 }

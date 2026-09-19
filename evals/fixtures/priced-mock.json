@@ -1,0 +1,12 @@
+{
+  "ActiveProvider": "Mock",
+  "Harness": "nb",
+  "ChatProviders": [
+    {
+      "Name": "Mock",
+      "Response": "OK",
+      "InputPricePerMillionTokens": 1000,
+      "OutputPricePerMillionTokens": 2000
+    }
+  ]
+}

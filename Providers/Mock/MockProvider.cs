@@ -47,7 +47,11 @@ public class MockChatClient : IChatClient
         _model = model;
     }
 
-    public ChatClientMetadata Metadata => new("MockProvider", new Uri("mock://localhost"), "mock-model");
+    // The model the entry configured, falling back to a stable placeholder. Mock drives
+    // nearly every test and eval, so this is what the trailer's `model` field reads in
+    // almost all of them — a hard-coded "mock-model" here would have made Mock report a
+    // model it was not asked for.
+    public ChatClientMetadata Metadata => new("MockProvider", new Uri("mock://localhost"), _model ?? "mock-model");
 
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> chatMessages,
@@ -183,7 +187,12 @@ public class MockChatClient : IChatClient
         yield return new ChatResponseUpdate(ChatRole.Assistant, new List<AIContent> { new UsageContent(usage) });
     }
 
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+    // Was `=> null` unconditionally, while the class already exposed Metadata — so the
+    // one contract Microsoft.Extensions.AI uses to ask a client what it is went
+    // unanswered, and nb's effective-model reporting would have been absent from nearly
+    // every test and eval. bugs/Effective_Model_Is_Not_On_The_Trailer.md
+    public object? GetService(Type serviceType, object? serviceKey = null) =>
+        serviceType == typeof(ChatClientMetadata) ? Metadata : null;
 
     public void Dispose() { }
 

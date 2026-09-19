@@ -258,7 +258,8 @@ public class Program
     private static void EmitResult(RunResult result, string mode)
     {
         var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied, result.Provider, result.OracleTurns, result.OracleVerdict,
-            (long)result.Duration.TotalMilliseconds, (long)result.ProviderTime.TotalMilliseconds);
+            (long)result.Duration.TotalMilliseconds, (long)result.ProviderTime.TotalMilliseconds,
+            result.Model, result.ProgramSha256, result.NbVersion, result.Cost);
         if (mode == "porcelain") EmitPorcelain(result.Events, trailer);
         else EmitJsonl(result.Events, trailer);
     }

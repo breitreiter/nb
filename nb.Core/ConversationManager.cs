@@ -50,6 +50,15 @@ public class ConversationManager
     // Token usage accumulated across the whole invocation — every run and every
     // tool-loop round-trip within it. Never reset per run, so a multi-run program's
     // trailer reports the aggregate, not just the last run.
+    // Cost is accumulated per round-trip at the price live at that moment, not by
+    // multiplying the summed usage by the last entry's price: a program that switches
+    // provider mid-run spent its early tokens at the early price, and the trailer names
+    // only the provider that answered last.
+    // bugs/Feature_Trailer_Carries_Cost_When_The_Entry_Declares_A_Price.md
+    private double _sessionCost;
+    private bool _sessionHadPrice;
+    private Func<string, (double? Input, double? Output)>? _priceLookup;
+
     private long _sessionInputTokens;
     private long _sessionOutputTokens;
     private long _sessionTotalTokens;
@@ -159,6 +168,44 @@ public class ConversationManager
     public string GetCurrentProvider() => _currentProviderName;
 
     /// <summary>
+    /// How an entry's declared per-million-token prices are found, by entry label. Null
+    /// (the default) means no entry prices anything and no <c>cost</c> is reported.
+    /// </summary>
+    public void SetPriceLookup(Func<string, (double? Input, double? Output)>? lookup) => _priceLookup = lookup;
+
+    /// <summary>Accumulated USD across the run, or null when no entry declared a price.</summary>
+    public double? TotalCost => _sessionHadPrice ? _sessionCost : null;
+
+    // Charged at the price in effect for this round-trip. A side that the entry left
+    // undeclared prices as zero: the entry still said something by declaring the other.
+    private void ChargeCost(long input, long output)
+    {
+        if (_priceLookup is null) return;
+        var (inPrice, outPrice) = _priceLookup(_currentProviderName);
+        if (inPrice is null && outPrice is null) return;
+
+        _sessionCost += input * (inPrice ?? 0) / 1_000_000 + output * (outPrice ?? 0) / 1_000_000;
+        _sessionHadPrice = true;
+    }
+
+    /// <summary>
+    /// The model the live client will actually send, read off the client itself rather
+    /// than from config or the program.
+    /// </summary>
+    /// <remarks>
+    /// That source is the point. The effective model diverges from the requested one in
+    /// more ways than the provider does: a program need not say <c>model</c> at all, the
+    /// entry need not set <c>Model</c> either, and each plugin then applies its own
+    /// hard-coded default from inside the plugin. Reading
+    /// <see cref="ChatClientMetadata.DefaultModelId"/> is downstream of every one of
+    /// those fallbacks, so it reports what will be sent. Copying the evaluator's
+    /// requested model would record intent and read as observation — the defect
+    /// bugs/Failed_Provider_Directive_Silently_Substitutes.md was filed about.
+    /// </remarks>
+    public string? GetCurrentModel() =>
+        _client?.GetService(typeof(ChatClientMetadata)) is ChatClientMetadata m ? m.DefaultModelId : null;
+
+    /// <summary>
     /// Set the tool surface in effect for subsequent runs — the resolved effect of
     /// the <c>mcp</c>/<c>tools</c> directives. The evaluator pushes this before each
     /// run, exactly as a provider change flows through <see cref="SwitchProvider"/>.
@@ -222,6 +269,17 @@ public class ConversationManager
 
     public IReadOnlyDictionary<AIChatMessage, OracleAnswer> OracleAnswers => _oracleAnswers;
 
+    // The other two things nb says in the user's voice that the program did not write:
+    // the doom-loop nudge and the pending-todo reminder. On the wire they were
+    // indistinguishable from a user turn the program authored, so a consumer counting
+    // them had to regex the reminder prose — which is tunable (the loop text already
+    // varies on _oracleAvailable) and would give a silently wrong count on the next
+    // wording change. Tagged the same way the oracle's answers are.
+    // bugs/Feature_Injected_Reminders_Carry_A_Source_Tag.md
+    private readonly Dictionary<AIChatMessage, string> _injectedSources = new(ReferenceEqualityComparer.Instance);
+
+    public IReadOnlyDictionary<AIChatMessage, string> InjectedSources => _injectedSources;
+
     /// <summary>The last assistant prose in history, or empty — what the oracle is shown.</summary>
     public string LastAssistantText =>
         _conversationHistory.LastOrDefault(m => m.Role == ChatRole.Assistant && !string.IsNullOrEmpty(m.Text))?.Text ?? "";
@@ -246,6 +304,7 @@ public class ConversationManager
         if (client == null) return new ChatResponse();
         var response = await client.GetResponseAsync(messages, options, cancellationToken);
         var (input, output, total) = MeasureOrEstimateUsage(response, options.Tools);
+        ChargeCost(input, output);
         _sessionInputTokens += input;
         _sessionOutputTokens += output;
         _sessionTotalTokens += total;
@@ -465,6 +524,7 @@ public class ConversationManager
             // to write a carve-out. The guess is flagged all the way out to the trailer so
             // it is never passed off as a measurement.
             var (roundInput, roundOutput, roundTotal) = MeasureOrEstimateUsage(response, requestOptions.Tools);
+            ChargeCost(roundInput, roundOutput);
             _sessionInputTokens += roundInput;
             _sessionOutputTokens += roundOutput;
             _sessionTotalTokens += roundTotal;
@@ -724,7 +784,9 @@ public class ConversationManager
                     var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and end the turn, stating plainly what is blocked and what you would need to proceed. " + (_oracleAvailable
                         ? "If you need information from the user, end the turn and ask for it plainly; an answer may follow."
                         : "No one is available to answer a question mid-run.") + "</system_reminder>";
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
+                    var loopMessage = new AIChatMessage(ChatRole.User, reminder);
+                    _conversationHistory.Add(loopMessage);
+                    _injectedSources[loopMessage] = "loop";
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Loop detected ({reps} reps); reminding model[/]");
                     _doomLoopDetector.Reset();
                     nextInjectedReminder = "loop";
@@ -757,7 +819,11 @@ public class ConversationManager
                         var reminder = "<system_reminder>You have pending todo items that must be completed or cancelled before finishing this turn:\n"
                                      + list
                                      + "\n\nContinue working through the list, or mark items as cancelled via todo_write if they are no longer relevant.</system_reminder>";
-                        _conversationHistory.Add(new AIChatMessage(ChatRole.User, reminder));
+                        var todoMessage = new AIChatMessage(ChatRole.User, reminder);
+                        _conversationHistory.Add(todoMessage);
+                        // "todo" singular on the wire, matching the tool name and `tools
+                        // -todo`; the turn-dump label says "todos" and is left alone.
+                        _injectedSources[todoMessage] = "todo";
                         _lastRemindedTodos = currentSet;
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Pending todos; reminding model[/]");
                         return await SendMessageInternalAsync("todos", cancellationToken);

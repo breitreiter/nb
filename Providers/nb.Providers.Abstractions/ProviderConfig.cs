@@ -28,6 +28,30 @@ public static class ProviderConfig
 {
     public const string HeadersKey = "Headers";
 
+    /// <summary>Entry keys declaring what a million tokens costs, in USD.</summary>
+    /// <remarks>
+    /// Named in the entry's existing unit-suffixed style (<c>RetryBudgetSeconds</c>,
+    /// <c>MaxContextTokens</c>). USD without a currency field: the only currency any
+    /// price sheet nb's users read is quoted in, and documenting it costs nothing.
+    /// Lives here rather than in nb.Core so an out-of-tree provider shares the parse.
+    /// </remarks>
+    public const string InputPriceKey = "InputPricePerMillionTokens";
+    public const string OutputPriceKey = "OutputPricePerMillionTokens";
+
+    /// <summary>
+    /// The entry's declared prices, or nulls when it declares none. A missing side
+    /// prices as zero rather than suppressing the field — an entry that declares only an
+    /// output price has said something, and reporting nothing would discard it.
+    /// </summary>
+    public static (double? Input, double? Output) Prices(IConfiguration config) =>
+        (ReadPrice(config[InputPriceKey]), ReadPrice(config[OutputPriceKey]));
+
+    private static double? ReadPrice(string? value) =>
+        double.TryParse(value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var parsed) && parsed >= 0
+            ? parsed
+            : null;
+
     /// <summary>The entry's extra headers, empty when it declares none.</summary>
     public static IReadOnlyList<KeyValuePair<string, string>> Headers(IConfiguration config) =>
         config.GetSection(HeadersKey).GetChildren()

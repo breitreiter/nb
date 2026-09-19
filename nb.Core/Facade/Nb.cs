@@ -79,11 +79,20 @@ public static class Nb
             // order 2s locally, and none of it attributable to the program).
             var runClock = System.Diagnostics.Stopwatch.GetTimestamp();
 
+            // Hash the *resolved* program, not source text: the facade never sees source.
+            // @file includes are expanded at parse time and a --seed prefix is spliced
+            // into this same list, so the serialized event list is what actually ran and
+            // the source is only a recipe for it. Two runs of one program therefore hash
+            // equal, and a program hashes the same as its expanded form.
+            var programSha256 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(TranscriptSerializer.Serialize(program))));
+
             var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory, warnings, runtime.DefaultHarnessFor, runtime.TemperatureFor);
             await evaluator.EvaluateAsync(program, cancellationToken);
             var duration = System.Diagnostics.Stopwatch.GetElapsedTime(runClock);
 
-            var events = TranscriptMapper.FromHistory(runtime.Conversation.History, runtime.Conversation.Approvals, runtime.Conversation.OracleAnswers);
+            var events = TranscriptMapper.FromHistory(runtime.Conversation.History, runtime.Conversation.Approvals, runtime.Conversation.OracleAnswers, runtime.Conversation.InjectedSources);
             var estimated = runtime.Conversation.UsageIsEstimated;
             UsageInfo? usage = runtime.Conversation.TotalUsage is { } u
                 ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total, Estimated = estimated }
@@ -105,8 +114,12 @@ public static class Nb
                 Denied = runtime.Conversation.Approvals.DeniedCount,
                 OracleTurns = evaluator.OracleTurnsUsed,
                 OracleVerdict = evaluator.OracleVerdict,
+                Model = runtime.Conversation.GetCurrentModel(),
+                Cost = runtime.Conversation.TotalCost,
                 Duration = duration,
                 ProviderTime = runtime.ProviderTime.Total,
+                ProgramSha256 = programSha256,
+                NbVersion = global::nb.NbVersion.Current,
                 Warnings = warnings,
             };
         }

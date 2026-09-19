@@ -33,8 +33,15 @@ public static class TranscriptMapper
     /// message identity, each with the sheet ids it selected. Same route as approvals —
     /// live instrumentation, not recovered from the message.
     /// </param>
+    /// <param name="injectedSources">
+    /// Optional: user messages nb injected rather than the program authoring them — the
+    /// doom-loop nudge (<c>"loop"</c>) and the pending-todo reminder (<c>"todo"</c>) —
+    /// keyed by message identity, mapped to the <c>source</c> tag. Same live-instrumentation
+    /// route as <paramref name="oracleAnswers"/>.
+    /// </param>
     public static List<TranscriptEvent> FromHistory(IEnumerable<ChatMessage> history, ApprovalLedger? approvals = null,
-        IReadOnlyDictionary<ChatMessage, OracleAnswer>? oracleAnswers = null)
+        IReadOnlyDictionary<ChatMessage, OracleAnswer>? oracleAnswers = null,
+        IReadOnlyDictionary<ChatMessage, string>? injectedSources = null)
     {
         var events = new List<TranscriptEvent>();
         int turn = 0;
@@ -59,7 +66,17 @@ public static class TranscriptMapper
             {
                 var text = ExtractText(msg);
                 if (!string.IsNullOrEmpty(text))
+                {
                     events.Add(new AssistantTextEvent { Turn = turn, Text = text });
+
+                    // Enrichment beside the canonical text event: the parsed trailing
+                    // ```json fence, so a consumer wanting the structured answer does not
+                    // re-parse it. The type, its writer/reader and its golden test all
+                    // existed; nothing ever constructed one.
+                    // bugs/Assistant_Json_Event_Is_Never_Emitted.md
+                    if (ParseTrailingJsonFence(text) is { } node)
+                        events.Add(new AssistantJsonEvent { Turn = turn, Value = node });
+                }
                 foreach (var call in msg.Contents.OfType<FunctionCallContent>())
                 {
                     string? verdict = null, approvalReason = null;
@@ -83,6 +100,8 @@ public static class TranscriptMapper
                 var user = BuildMessage(msg, turn);
                 if (oracleAnswers is not null && oracleAnswers.TryGetValue(msg, out var answer))
                     user = user with { Source = "oracle", Keys = answer.Keys, Verdict = answer.Verdict };
+                else if (injectedSources is not null && injectedSources.TryGetValue(msg, out var source))
+                    user = user with { Source = source };
                 events.Add(user);
             }
         }
@@ -90,12 +109,30 @@ public static class TranscriptMapper
         return events;
     }
 
+    // A trailing ```json fence, parsed, or null. Deliberately strict: only a fence that
+    // actually closes the message and actually parses becomes an event, because a
+    // consumer reading assistant_json must be able to trust it without re-validating.
+    // Prose after the fence, an unterminated fence, or invalid JSON all yield nothing.
+    private static JsonNode? ParseTrailingJsonFence(string text)
+    {
+        var trimmed = text.TrimEnd();
+        if (!trimmed.EndsWith("```", StringComparison.Ordinal)) return null;
+
+        var open = trimmed.LastIndexOf("```json", trimmed.Length - 3, StringComparison.OrdinalIgnoreCase);
+        if (open < 0) return null;
+
+        var bodyStart = open + "```json".Length;
+        var body = trimmed[bodyStart..^3];
+        try { return JsonNode.Parse(body); }
+        catch (JsonException) { return null; }
+    }
+
     /// <summary>
     /// Build the run-level <see cref="ResultEvent"/> trailer. Counts are derived
     /// from the emitted events; usage is passed in from the live response (it is
     /// not in history).
     /// </summary>
-    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0, string? provider = null, int oracleTurns = 0, string? oracleVerdict = null, long? durationMs = null, long? providerMs = null)
+    public static ResultEvent ResultTrailer(IReadOnlyList<TranscriptEvent> events, string exitReason = "ok", UsageInfo? usage = null, string? harness = null, int deniedCount = 0, string? provider = null, int oracleTurns = 0, string? oracleVerdict = null, long? durationMs = null, long? providerMs = null, string? model = null, string? programSha256 = null, string? nbVersion = null, double? cost = null)
     {
         // "turns" = assistant rounds: distinct turns carrying an assistant message.
         // (Counting distinct turns rather than the max keeps the number meaningful
@@ -115,6 +152,10 @@ public static class TranscriptMapper
             DurationMs = durationMs,
             ProviderMs = providerMs,
             Provider = provider,
+            Model = model,
+            Cost = cost,
+            ProgramSha256 = programSha256,
+            NbVersion = nbVersion,
             Harness = harness,
             Denied = deniedCount > 0 ? deniedCount : null,
             OracleTurns = oracleTurns > 0 ? oracleTurns : null,

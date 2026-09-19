@@ -2,9 +2,9 @@
 kind: bug
 title: '`assistant_json` is defined, documented, and serialised, and nothing ever constructs one'
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: low
 cluster: schema-vs-dispatch
 ---
@@ -88,3 +88,27 @@ fence, asserting the resulting event list contains an `AssistantJsonEvent` with 
 correct `Value` immediately after the `AssistantTextEvent`, and a second case — a
 response with no fence, or a fence that fails to parse — asserting no `AssistantJsonEvent`
 is added.
+
+## Fix (2026-09-19)
+
+Option 1 — emit it — as the report's own default, given proctor's `answer_json` check is
+a live consumer.
+
+`TranscriptMapper.FromHistory` appends an `AssistantJsonEvent` after an
+`AssistantTextEvent` whose text ends in a ```` ```json ```` fence that parses. That is
+the site the report identified, and the right one: it is already where the live
+conversation becomes transcript events, and the event is enrichment, ignored on
+seed-load, the same status `ResultEvent` has.
+
+**Deliberately strict**, which the report did not specify and which is worth stating: the
+fence must actually close the message and the body must actually parse. Prose after the
+fence, an unterminated fence, and invalid JSON all emit nothing. The type exists so a
+consumer does not have to re-parse; a consumer that has to re-validate what it is handed
+is no better off.
+
+## Test
+
+Unit: `AssistantJson_IsEmittedOnlyForAClosedParseableFence` covers a bare fence, a fence
+after prose, a fence with trailing prose, unparseable contents, an unterminated fence,
+and no fence at all. Eval: a Mock response ending in a fence yields an `assistant_json`
+whose value parses; a plain response yields none.

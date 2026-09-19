@@ -190,10 +190,14 @@ public static class TranscriptSerializer
         if (r.DurationMs is { } d) w.WriteNumber("duration_ms", d);
         if (r.ProviderMs is { } pm) w.WriteNumber("provider_ms", pm);
         if (r.Provider is { } prov) w.WriteString("provider", prov);
+        if (r.Model is { } model) w.WriteString("model", model);
+        if (r.Cost is { } cost) w.WriteNumber("cost", cost);
         if (r.Harness is { } h) w.WriteString("harness", h);
         if (r.Denied is { } denied) w.WriteNumber("denied", denied);
         if (r.OracleTurns is { } oracleTurns) w.WriteNumber("oracle_turns", oracleTurns);
         if (r.OracleVerdict is not null) w.WriteString("oracle_verdict", r.OracleVerdict);
+        if (r.ProgramSha256 is { } sha) w.WriteString("program_sha256", sha);
+        if (r.NbVersion is { } ver) w.WriteString("nb_version", ver);
     }
 
     // ---- Reading ----
@@ -313,6 +317,10 @@ public static class TranscriptSerializer
                     Denied = GetInt(root, "denied"),
                     OracleTurns = GetInt(root, "oracle_turns"),
                     OracleVerdict = GetString(root, "oracle_verdict"),
+                    Model = GetString(root, "model"),
+                    Cost = GetDouble(root, "cost"),
+                    ProgramSha256 = GetString(root, "program_sha256"),
+                    NbVersion = GetString(root, "nb_version"),
                 };
             default:
                 warnings?.Add($"line {lineNumber}: unknown event type \"{type}\" — skipped");
@@ -394,6 +402,9 @@ public static class TranscriptSerializer
 
     private static long? GetLong(JsonElement root, string name) =>
         root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt64(out var v) ? v : null;
+
+    private static double? GetDouble(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number && el.TryGetDouble(out var v) ? v : null;
 
     private static string RequireString(JsonElement root, string name, int lineNumber, string type)
     {

@@ -2,9 +2,9 @@
 kind: bug
 title: 'Feature: the result trailer carries `cost` when the provider entry declares a price'
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: low
 cluster: provider-truthfulness
 ---
@@ -89,3 +89,29 @@ Mock's 10 input tokens, and the existing default-config trailer eval has no `cos
   the sum by the final entry's price.
 - Cache-read and reasoning tokens are not on `UsageInfo`; they price as plain
   input/output. Fine for a first cut; say so in the docs.
+
+## Fix (2026-09-19)
+
+Implemented as specified, including the open decision the report flagged.
+
+`InputPricePerMillionTokens` / `OutputPricePerMillionTokens` on a `ChatProviders` entry,
+parsed by `ProviderConfig.Prices` in `nb.Providers.Abstractions` so an out-of-tree
+provider shares the parse. USD, no currency field. `cost` is emitted only when an entry
+declares a price, so every existing config — and Mock, which drives nearly every test and
+eval — produces a byte-identical trailer.
+
+**Provider switches: accumulated per round-trip at the price live at that moment**, the
+option the report preferred, not the summed usage multiplied by the final entry's price.
+`ConversationManager` charges at both usage sites (the tool-loop round-trip and the
+oracle's side call) through a price lookup resolved lazily by entry label, so a
+mid-program `provider` directive charges at the new entry's price without the
+conversation needing to be told about the swap.
+
+`cost` inherits `usage.estimated` with no second flag, as the report argued. Cache-read
+and reasoning tokens are not on `UsageInfo` and price as plain input/output; that is
+stated in the docs.
+
+## Test
+
+Eval: a default-config run has no `cost` key at all; a fixture whose Mock entry declares
+1000/2000 per million yields `0.02` from Mock's 10 input and 5 output tokens.

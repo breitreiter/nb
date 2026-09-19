@@ -195,6 +195,19 @@ run_prog_jsonl "oracle: loop nudge says to ask plainly with a sheet" \
     '[.[]|select(.type=="user").text//""|test("end the turn and ask")]|any' "true" \
     $'oracle @'"$SHEET"$'\nbudget tool_calls 8\nrun MOCK:loop=bash echo hi'
 
+# bugs/Feature_Injected_Reminders_Carry_A_Source_Tag.md — count the tag, not the prose.
+# The two evals above match on reminder wording precisely because there was no tag; that
+# wording is tunable (it already varies on whether an oracle is attached), so a consumer
+# counting nudges that way gets a silently wrong number on the next edit.
+run_prog_jsonl "reminders: the doom-loop nudge carries source=loop" \
+    '[[.[]|select(.type=="user" and .source=="loop")]|length]|.[0]>0' "true" \
+    $'budget tool_calls 8\nrun MOCK:loop=bash echo hi'
+
+# A turn the program wrote carries no source at all — the field marks injection.
+run_prog_jsonl "reminders: a program-authored turn has no source" \
+    '[[.[]|select(.type=="user" and has("source"))]|length]|.[0]' '0' \
+    "run MOCK:response=hi"
+
 echo ""
 echo "--- Transcript Schema (jsonl / --seed) ---"
 echo ""
@@ -668,6 +681,51 @@ run_prog_jsonl "trailer: provider_ms is present and within duration_ms" \
 run_prog_jsonl "trailer: tool time lands outside provider_ms" \
     '[.[]|select(.type=="result")][0]|(.duration_ms - .provider_ms > 700)' 'true' \
     "$(printf 'approval bash sleep *\nrun MOCK:tool=bash sleep 1')" --output jsonl
+
+# bugs/Effective_Model_Is_Not_On_The_Trailer.md — the trailer recorded which entry
+# answered but not what it was, so a sweep across models produced per-model results
+# whose attribution came from the harness's intent rather than from the run.
+run_prog_jsonl "trailer: records the effective model" \
+    '[.[]|select(.type=="result")][0]|.model' 'mock-model' \
+    "run MOCK:response=hi" --output jsonl
+
+# bugs/Feature_Trailer_Carries_Program_Hash_And_Nb_Version.md — the hash is over the
+# *resolved* program, so the same program run twice hashes the same.
+sha_a=$(cd "$NB_DIR" && printf 'run MOCK:response=hi\n' | "$NB" --config "$MOCK_CONFIG" --output jsonl 2>/dev/null | jq -rs '[.[]|select(.type=="result")][0].program_sha256')
+sha_b=$(cd "$NB_DIR" && printf 'run MOCK:response=hi\n' | "$NB" --config "$MOCK_CONFIG" --output jsonl 2>/dev/null | jq -rs '[.[]|select(.type=="result")][0].program_sha256')
+sha_c=$(cd "$NB_DIR" && printf 'run MOCK:response=other\n' | "$NB" --config "$MOCK_CONFIG" --output jsonl 2>/dev/null | jq -rs '[.[]|select(.type=="result")][0].program_sha256')
+if [[ -n "$sha_a" && "$sha_a" == "$sha_b" && "$sha_a" != "$sha_c" ]]; then
+    echo -e "${GREEN}PASS${NC}: trailer: program_sha256 is stable and distinguishes programs"; PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}FAIL${NC}: trailer: program_sha256 is stable and distinguishes programs"
+    echo "  a=$sha_a b=$sha_b c=$sha_c"
+    FAILED=$((FAILED + 1))
+fi
+
+run_prog_jsonl "trailer: nb_version is non-empty" \
+    '[.[]|select(.type=="result")][0]|(.nb_version|length>0)' 'true' \
+    "run MOCK:response=hi" --output jsonl
+
+# bugs/Feature_Trailer_Carries_Cost_When_The_Entry_Declares_A_Price.md — emitted only
+# when an entry declares a price, so the default trailer is byte-identical to before.
+run_prog_jsonl "trailer: no cost when the entry declares no price" \
+    '[.[]|select(.type=="result")][0]|has("cost")' 'false' \
+    "run MOCK:response=hi" --output jsonl
+
+# Mock bills 10 input / 5 output; 1000 and 2000 per million give 0.01 + 0.01.
+run_prog_jsonl "trailer: cost when the entry declares a price" \
+    '[.[]|select(.type=="result")][0]|.cost' '0.02' \
+    "run MOCK:response=hi" --output jsonl --config "$FIX/priced-mock.json"
+
+# bugs/Assistant_Json_Event_Is_Never_Emitted.md — the type, its writer/reader and its
+# golden test all existed; nothing ever constructed one.
+run_prog_jsonl "assistant_json: a trailing json fence is parsed out" \
+    '[.[]|select(.type=="assistant_json")][0]|.value.a' '1' \
+    "$(printf 'run MOCK:response=\x60\x60\x60json \\\n{"a":1} \\\n\x60\x60\x60')" --output jsonl
+
+run_prog_jsonl "assistant_json: no event when there is no fence" \
+    '[[.[]|select(.type=="assistant_json")]|length]|.[0]' '0' \
+    "run MOCK:response=hi" --output jsonl
 
 echo ""
 

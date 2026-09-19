@@ -173,6 +173,15 @@ internal sealed class NbRuntime : IDisposable
             doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget,
             wallClockBudgetMs: wallBudgetMs);
 
+        // Prices live on the entry, so the lookup is by entry label and resolved lazily:
+        // a mid-program provider switch then charges at the new entry's price without the
+        // conversation having to be told about the swap.
+        conversation.SetPriceLookup(label =>
+        {
+            var entry = ProviderEntries.Find(ProviderEntries.ReadAll(config), label);
+            return entry is null ? (null, null) : ProviderConfig.Prices(entry.Config);
+        });
+
         return new NbRuntime(config, providers, mcp, conversation, startupWarnings, options.Harness);
     }
 

@@ -2,9 +2,9 @@
 kind: bug
 title: 'Feature: the doom-loop and pending-todo reminders carry a `source` tag on their `user` event'
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: low
 cluster: feature-gap
 ---
@@ -76,3 +76,33 @@ directive, trailer unchanged" eval (`:186`) guards the additive side.
 
 Whether the `<system_reminder>` wrapper stays in `text` once `source` exists. Keep it:
 the transcript records what the model saw, and stripping it would change replay.
+
+## Fix (2026-09-19)
+
+As specified. `ConversationManager` records injected user messages in an
+`InjectedSources` map keyed by message identity — a sibling to `_oracleAnswers` rather
+than a generalisation of it, so the oracle keeps its `keys`/`verdict` without the two
+concerns being entangled. `TranscriptMapper.FromHistory` takes it alongside
+`oracleAnswers` and stamps `source`.
+
+Wire values are `"loop"` and `"todo"` — singular, matching the tool name and `tools
+-todo`, as the report asked. The turn-dump label still says `"todos"` and is left alone;
+it is a human-facing string, not the wire.
+
+The `<system_reminder>` wrapper stays in `text`, per the report's own open decision: the
+transcript records what the model actually saw, and stripping it would change replay.
+
+A program that never loops and never leaves a todo open emits no reminder, so its
+transcript is unchanged.
+
+## Test
+
+Unit: `InjectedReminders_CarryTheirSource` — a loop message maps to `source: "loop"`, a
+todo message to `"todo"`, and a program-authored turn to null. Eval: a Mock program
+driven into the doom loop yields at least one `user` event with `source == "loop"`, and a
+plain run yields no `user` event carrying the field at all.
+
+Worth noting alongside: the two existing oracle evals assert on reminder *wording*
+(`"No one is available"`, `"end the turn and ask"`) precisely because there was no tag to
+count. That wording varies at runtime on whether a sheet is attached, which is the
+fragility this report was filed about.

@@ -2,9 +2,9 @@
 kind: bug
 title: 'Feature: the result trailer carries `program_sha256` and `nb_version`'
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: low
 cluster: provider-truthfulness
 ---
@@ -79,3 +79,26 @@ expanded form, proving the hash is over the resolved list.
 - Whether `--resolve` should print the hash so a program can be checked without running.
 - Library hosts (`Nb.RunAsync` in-process): `nb_version` is nb.Core's, which is the
   engine that ran; the host's own version is its own business.
+
+## Fix (2026-09-19)
+
+Both fields, always emitted, hashing the resolved program exactly as the report
+specified — `TranscriptSerializer.Serialize` over the event list `Nb.RunAsync` receives,
+not the source text, because the facade never sees source and `@file` includes and a
+`--seed` prefix are both resolved into that list before it arrives.
+
+`nb_version` reads `NbVersion.Current`, shared with the `--version` flag
+(`Feature_Version_Flag.md`) so the two cannot disagree — the convergence this report
+asked for.
+
+The version machinery landed with the flag. Two things differed from this report's
+"Where it lands": `GenerateAssemblyInfo=false` had to be *removed* from the csprojs
+rather than worked around, because `Directory.Build.props` is imported before the project
+body and the per-project setting wins; and the SDK appends the commit sha to the
+informational version on its own, so the hand-written `AssemblyInfo.cs` fallback this
+report anticipated was unnecessary.
+
+## Test
+
+Eval: the same one-line program run twice yields equal `program_sha256`, a different
+program yields a different one, and `nb_version` is non-empty.

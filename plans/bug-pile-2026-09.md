@@ -4,7 +4,7 @@ title: Working order for the open bug pile (14 reports, 2026-09-19)
 created: 2026-09-19
 updated: 2026-09-19
 status: accepted
-state: batch 0 done; batch 1 done (5 providers, not 2); batch 2 remaining
+state: batches 0-2 done (9 of 14 closed); batches 3-6 remaining
 touches:
   files:
     - nb.Core/Transcript/TranscriptEvent.cs
@@ -176,7 +176,7 @@ file header): `MinRequestIntervalMs: 500`, `RetryBudgetSeconds: 2`, `MaxRetries:
 charged, pacing eats the budget and you get ~2 calls; uncharged, you reach the attempt
 cap at 4. About 3 seconds, red before the fix.
 
-## Batch 2 — one pass over the transcript layer
+## Batch 2 — one pass over the transcript layer — DONE 2026-09-19
 
 All of these touch `TranscriptMapper.FromHistory` / `ResultTrailer` / `WriteResultBody`.
 One branch, one docs-table edit, one eval block. Order within:
@@ -317,9 +317,42 @@ answers it.
 
 696 unit tests, 110 evals, all green.
 
-### Still open in batch 2
+### 2026-09-19 — batch 2 landed
 
-`Effective_Model` (plus the `MockProvider.GetService` returns-null prerequisite),
-`Program_Hash_And_Nb_Version` (batch 0 unblocked it), `Cost`, `Assistant_Json`,
-`Injected_Reminders_Source_Tag`. All five still land in the same
-`FromHistory`/`ResultTrailer` surface, which is now already widened by two parameters.
+All five, in one pass over `FromHistory`/`ResultTrailer` as the plan argued for. The
+trailer now reads:
+
+```json
+{"type":"result",...,"duration_ms":151,"provider_ms":14,"provider":"Mock","model":"mock-model","program_sha256":"…","nb_version":"0.9.0+…"}
+```
+
+Notes worth keeping:
+
+- **`Effective_Model`** needed two Mock fixes, not the one the report predicted.
+  `GetService` returned null while `Metadata` existed — that was the known prerequisite.
+  But `Metadata` also reported a hard-coded `"mock-model"` regardless of the entry's
+  configured `Model`, so answering the contract would have been honest about *having* an
+  answer and wrong about the answer. It now reports the configured model.
+- **`Assistant_Json`** is deliberately strict beyond what the report specified: the fence
+  must close the message and the body must parse, so prose-after-fence, an unterminated
+  fence and invalid JSON all emit nothing. A consumer that has to re-validate what it is
+  handed gains nothing from the type existing.
+- **`Cost`** took the report's preferred option on its open decision — accumulated per
+  round-trip at the price live at that moment, via a lazily-resolved lookup by entry
+  label, so a mid-program provider switch prices correctly without the conversation being
+  told about the swap.
+- **`Injected_Reminders`** got a sibling map to `_oracleAnswers` rather than the
+  generalisation the report sketched, keeping the oracle's `keys`/`verdict` unentangled.
+  The two existing oracle evals match on reminder *wording* precisely because there was
+  no tag; that wording varies at runtime, which is the fragility the report named.
+
+696 unit tests, 119 evals, all green.
+
+### Remaining: batches 3-6
+
+`Seed_And_Program_Turn_Numbers_Collide` (batch 3) is the next real bug and is
+self-contained. `PackAsTool` / `Release_Workflow` (batch 4) are unblocked by batch 0's
+`<Version>`. `sample seed` (batch 5) is cheaper now that the trailer plumbing is open.
+`Feature_Resume_A_Run_From_Its_Log` (batch 6) still carries its own gate — decide which
+class of loss is actually costing runs before building, and do not ship `--resume`
+before the envelope (gap 2) is recorded in the log.

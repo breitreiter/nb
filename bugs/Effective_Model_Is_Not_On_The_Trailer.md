@@ -2,9 +2,9 @@
 kind: bug
 title: 'The result trailer records the provider that answered but not the model, so a model sweep can be mis-attributed'
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: medium
 cluster: provider-truthfulness
 ---
@@ -132,3 +132,34 @@ metadata. The unit-level case that matters is the one the program never states: 
 with **no `model` directive** whose entry has no `Model` field, asserting the trailer
 carries the plugin's default rather than nothing. That is the mis-attribution this report
 is about, and it is the assertion a config-reading implementation would fail.
+
+## Fix (2026-09-19)
+
+As the report specified, including the source it argued for:
+`ConversationManager.GetCurrentModel()` reads
+`client.GetService<ChatClientMetadata>()?.DefaultModelId` off the live client, so it is
+downstream of every fallback — the `model` directive, the entry's `Model` field, and the
+plugin's own hard-coded default. The evaluator's requested `Model` is deliberately *not*
+the source, for the reason the report gives: it records intent and would read as
+observation, exactly the defect `Failed_Provider_Directive_Silently_Substitutes` named.
+
+Always emitted, beside `provider`.
+
+**The Mock wrinkle, taken as recommended.** `MockProvider.GetService` returned `null`
+unconditionally while the class already exposed a `ChatClientMetadata` property, so the
+one contract Microsoft.Extensions.AI uses to ask a client what it is went unanswered and
+the field would have been absent from nearly every test and eval. Mock now answers it.
+One further step beyond the report: its metadata reported a hard-coded `"mock-model"`
+even when the entry configured a `Model`, so it would have been honest about the contract
+and dishonest about the answer. It now reports the configured model, falling back to
+`mock-model`.
+
+The report's open question about `--resolve` is left open; it is a separate surface and
+nothing in this change depends on it.
+
+## Test
+
+Eval: the trailer of a plain Mock run carries `"model":"mock-model"`. The unit-level case
+the report identified as the one that matters — a program with no `model` directive whose
+entry sets no `Model`, asserting the plugin's own default reaches the trailer — is what
+that eval *is*, since `evals/test-appsettings.json` sets neither.
