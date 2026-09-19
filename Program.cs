@@ -31,6 +31,7 @@ public class Program
     private static string? _mcpManifest = null;
     private static bool _validate = false;
     private static bool _resolve = false;
+    private static bool _showVersion = false;
 
     private static string[] ParseFlags(string[] args)
     {
@@ -87,6 +88,10 @@ public class Program
             {
                 _resolve = true;
             }
+            else if (args[i] == "--version")
+            {
+                _showVersion = true;
+            }
             else if (args[i] == "--help" || args[i] == "-h")
             {
                 _showHelp = true;
@@ -111,6 +116,15 @@ public class Program
         };
 
         var remainingArgs = ParseFlags(args);
+
+        // Before anything else: no config to load, no console to re-point, and
+        // notably no stdin check — `nb --version` answers "what would run" without
+        // needing a program, which is the whole point of asking.
+        if (_showVersion)
+        {
+            Console.WriteLine(NbVersion.Current);
+            return;
+        }
 
         // The input is a program: a positional file, `-`, or piped stdin. nb is not
         // a chat client: there is no positional prompt, and no interactive mode.
@@ -208,6 +222,7 @@ public class Program
         Console.WriteLine();
         Console.WriteLine("Options (each varies how a program runs; it never replaces a program verb):");
         Console.WriteLine("  --help, -h              Show this help message");
+        Console.WriteLine("  --version               Print nb's version and exit");
         Console.WriteLine("  --output <mode>         jsonl (default for a program), porcelain, or interactive. jsonl/porcelain put the transcript on stdout, chrome on stderr");
         Console.WriteLine("  --seed <file>           Prepend a transcript (jsonl) as premise history before the program runs");
         Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");

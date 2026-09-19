@@ -2,9 +2,9 @@
 kind: bug
 title: 'Feature: a `--version` flag that prints nb''s informational version and exits'
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-19
 status: current
-state: open
+state: fixed
 severity: low
 cluster: cli-surface
 ---
@@ -79,3 +79,41 @@ attempt to read a program file. Once `<Version>` is set, the printed string shou
 non-`1.0.0` and match the value `nb_version` would carry on a trailer per
 `Feature_Trailer_Carries_Program_Hash_And_Nb_Version.md`, so the two reports converge on
 one version, not two independently-chosen ones.
+
+## Fix (2026-09-19)
+
+Both parts, as proposed.
+
+**A version to report.** A root `Directory.Build.props` sets `<Version>0.9.0</Version>`
+for every project — chosen over per-csproj `<Version>` because four separate items want
+one version (this flag, `nb_version` on the trailer, the tool package id, the release
+tag) and a value in one place cannot disagree with itself.
+
+Two things differed from what this report predicted:
+
+- **`GenerateAssemblyInfo=false` had to be removed from the two csprojs, not worked
+  around.** Props is imported *before* the project body, so the per-project setting wins;
+  setting `<Version>` in props while the csproj still disabled generation emitted no
+  attribute at all. The SDK's generator is all-or-nothing, so it is now on with the
+  attributes we don't want individually suppressed. `GenerateTargetFrameworkAttribute`
+  stays per-project — the test project needs the SDK default there.
+- **The git sha comes free.** This report and its sibling sketched `0.9.0+e34e762` and
+  assumed hand-rolled machinery. The SDK appends `SourceRevisionId` to the informational
+  version by itself, so no `git rev-parse` target was needed, and it works in CI and on a
+  detached HEAD. The sha is full-length rather than short. Caveat recorded on
+  `NbVersion`: it names HEAD, not the working tree, so a build with uncommitted edits
+  reports a clean sha.
+
+**The flag.** `--version` parses beside `--help` and short-circuits in `Main`
+*immediately* after `ParseFlags`, earlier than the `_showHelp` shape this report pointed
+at. That placement is load-bearing: nb infers a program from piped stdin
+(`Program.cs:~130`), so a check placed after that inference would consume or block on the
+pipe. It prints `NbVersion.Current` — read off nb.Core, the assembly that actually runs a
+program, shared with the trailer field so the two cannot report different things.
+
+## Test
+
+Three cases in `evals/run.sh` (the level that drives the real binary): `--version` exits
+0 with a non-empty string and no attempt to read a program file; the string is not
+`1.0.0`, guarding the SDK default this report identified as the silent failure; and
+`--version` with a program piped to stdin prints the same thing rather than running it.

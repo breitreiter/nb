@@ -1,0 +1,27 @@
+<Project>
+
+  <!-- One version for the whole repo. nb had none at all until 2026-09-19, so
+       FileVersionInfo read the SDK's default 1.0.0 and no informational-version
+       attribute existed to read at all. Four separate asks converge here: the
+       version flag, `nb_version` on the result trailer, the tool package id and the
+       release tag. The value lives in one place so it cannot disagree with itself. See plans/bug-pile-2026-09.md batch 0. -->
+  <PropertyGroup>
+    <Version>0.9.0</Version>
+  </PropertyGroup>
+
+  <!-- Both projects hand-write an AssemblyInfo.cs (InternalsVisibleTo across the
+       CLI/engine split), which is why generation was switched off wholesale. We need
+       exactly one generated attribute back — AssemblyInformationalVersion — and the
+       SDK's generator is all-or-nothing, so turn it on and suppress the rest. GenerateTargetFrameworkAttribute stays per-project: the test
+       project needs the SDK's default there. -->
+  <PropertyGroup>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <GenerateAssemblyTitleAttribute>false</GenerateAssemblyTitleAttribute>
+    <GenerateAssemblyDescriptionAttribute>false</GenerateAssemblyDescriptionAttribute>
+    <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
+    <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+    <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
+    <GenerateNeutralResourcesLanguageAttribute>false</GenerateNeutralResourcesLanguageAttribute>
+  </PropertyGroup>
+
+</Project>

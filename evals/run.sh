@@ -545,6 +545,42 @@ run_prog_contains "mcp: dead server left unnamed is a warning, run still exits 0
 rm -f "$MCP_DEAD_MANIFEST"
 
 echo ""
+echo "--- version ---"
+echo ""
+
+# bugs/Feature_Version_Flag.md — `--version` used to fall through to the positional
+# path and die as "program file not found: --version". The stdin case is the one that
+# actually regressed in review: nb infers a program from piped stdin, so a --version
+# that is checked *after* that inference silently waits on or consumes the pipe.
+version_out=$(cd "$NB_DIR" && "$NB" --version 2>/dev/null); version_rc=$?
+if [[ $version_rc -eq 0 && -n "$version_out" && "$version_out" != *"not found"* ]]; then
+    echo -e "${GREEN}PASS${NC}: version: --version prints a version and exits 0"; PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}FAIL${NC}: version: --version prints a version and exits 0"
+    echo "  rc=$version_rc out='${version_out:0:200}'"
+    FAILED=$((FAILED + 1))
+fi
+
+# Not 1.0.0: that was the SDK default nb reported when no project set <Version> at all,
+# which is indistinguishable from a real 1.0.0 release. See Directory.Build.props.
+if [[ -n "$version_out" && "$version_out" != "1.0.0" ]]; then
+    echo -e "${GREEN}PASS${NC}: version: reports a chosen version, not the SDK default"; PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}FAIL${NC}: version: reports a chosen version, not the SDK default"
+    echo "  got '$version_out'"
+    FAILED=$((FAILED + 1))
+fi
+
+piped_out=$(cd "$NB_DIR" && printf 'run MOCK:response=hi\n' | "$NB" --version 2>/dev/null); piped_rc=$?
+if [[ $piped_rc -eq 0 && "$piped_out" == "$version_out" ]]; then
+    echo -e "${GREEN}PASS${NC}: version: --version ignores a piped program"; PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}FAIL${NC}: version: --version ignores a piped program"
+    echo "  rc=$piped_rc out='${piped_out:0:200}'"
+    FAILED=$((FAILED + 1))
+fi
+
+echo ""
 echo "--- validate / resolve ---"
 echo ""
 
