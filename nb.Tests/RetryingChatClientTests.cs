@@ -237,17 +237,21 @@ public class RetryBudgetAccountingTests
     // once the pace outgrows the backoff — which is precisely the regime the reported run
     // was in, its pace pinned at the 60s cap while backoff delays ran shorter.
     //
-    // Hence a 2s floor against a 1s backoff cap: each retry waits ~1s of backoff and then
-    // ~1s more of pacing. Uncharged, 3 retries of backoff (~2-2.5s) fit inside the 3s
-    // budget and the attempt cap binds at 4 calls. Charged, the pacing doubles the spend
-    // and the budget runs out first.
+    // Hence a 3s floor against a 1s backoff cap: each retry waits 0.5-1s of backoff and
+    // then ~2s more of pacing. Uncharged, the budget check before the third retry sees
+    // two backoffs (at most 2s) plus the next delay (at most 1s) against a 6s budget, so
+    // the attempt cap binds at 4 calls with 3s to spare for a loaded runner's Task.Delay
+    // overshoot. Charged, each retry costs the full 3s of pace, so the check before the
+    // third retry sees 6s spent plus a delay and the budget runs out at 3 calls. (A 3s
+    // budget with a 2s floor discriminated too, with no margin at all: CI dropped an
+    // attempt on the first run that exercised it.)
     [Fact]
     public async Task PacingIsNotChargedToTheRetryBudget()
     {
         var inner = new AlwaysThrottling();
         var client = Wrap(inner,
-            ("MaxRetries", "3"), ("RetryMaxDelaySeconds", "1"), ("RetryBudgetSeconds", "3"),
-            ("MinRequestIntervalMs", "2000"));
+            ("MaxRetries", "3"), ("RetryMaxDelaySeconds", "1"), ("RetryBudgetSeconds", "6"),
+            ("MinRequestIntervalMs", "3000"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]));
