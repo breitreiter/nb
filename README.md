@@ -40,6 +40,7 @@ inspect afterwards. A program can also put the run in another agent's costume wi
 | [`docs/mcp.md`](docs/mcp.md) | Configuring MCP servers, auth headers, the built-in test server. |
 | [`docs/testing.md`](docs/testing.md) | The Mock provider, fake tools, the eval suite, the oracle bench. |
 | [`docs/distribution.md`](docs/distribution.md) | Publishing self-contained binaries, the container image, and what ships in them. |
+| [`docs/containers.md`](docs/containers.md) | Running nb in a container: the image, the invocation, file ownership, the network, and what nb leaves in the model's reach. |
 
 ## What it's for
 

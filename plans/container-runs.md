@@ -2,9 +2,9 @@
 kind: plan
 title: Running nb in a container, well — --compile, a Containerfile, the runbook
 created: 2026-09-21
-updated: 2026-09-21
-status: in progress (items 1 and 2 of 3 done; 3 waits on proctor's live run)
-state: active
+updated: 2026-09-22
+status: done
+state: done
 touches:
   files:
     - Program.cs
@@ -112,6 +112,15 @@ The cookbook's *basic container case, and podman well* row, written once:
 
 Not a security document; the *Sharp edges* framing from the cookbook
 applies.
+
+*Status 2026-09-22: written*, from proctor's first containerised run
+(`code-change`, nine cells in nine containers on the .NET SDK image, docker on
+the host that ran it). Two things the run added to the list above: `docker exec`
+buffers stdout, so a harness that execs into a long-lived container gets the
+transcript whole at the end; and a LAN host known through `/etc/hosts` needs
+`--add-host` inside. Rootless podman's `--userns=keep-id` is described from
+podman's contract, not from that run. The artefact inventory is a table with
+one mitigation per row; `--compile` covers three of them.
 
 ## Build order
 
