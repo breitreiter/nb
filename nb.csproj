@@ -97,6 +97,15 @@
     <ItemGroup>
       <ProviderProjects Include="$(MSBuildThisFileDirectory)Providers\*\nb.Providers.*Provider.csproj" />
     </ItemGroup>
+    <!-- Restore first, in its own evaluation: nothing else restores the providers when
+         nb.csproj is published on its own from a clean checkout (the Containerfile's
+         case; CI happened to restore the solution first). Restore and Build must not
+         share a project instance — the assets file Build reads would be stale — so the
+         extra property forces a fresh evaluation for the Build call, which is MSBuild's
+         own documented shape for this. -->
+    <MSBuild Projects="@(ProviderProjects)"
+             Targets="Restore"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=;SelfContained=false;RestoreOnly=true" />
     <MSBuild Projects="@(ProviderProjects)"
              Targets="Build"
              Properties="Configuration=$(Configuration);RuntimeIdentifier=;SelfContained=false" />

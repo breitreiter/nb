@@ -3,7 +3,7 @@ kind: plan
 title: Running nb in a container, well — --compile, a Containerfile, the runbook
 created: 2026-09-21
 updated: 2026-09-21
-status: in progress (item 1 of 3 done)
+status: in progress (items 1 and 2 of 3 done; 3 waits on proctor's live run)
 state: active
 touches:
   files:
@@ -79,6 +79,17 @@ COPY --from=nb /opt/nb /opt/nb
 Publishing it to a registry is a distribution question for later; the
 Containerfile and a `podman build -t nb .` line in `docs/distribution.md`
 are this plan's scope.
+
+*Status 2026-09-21: built.* `Containerfile` at the root, `runtime-deps:10.0`
+as the final base so the image runs on its own for a smoke test as well as
+serving as a layer; `.dockerignore` is an allowlist so the developer's
+`appsettings.json` and `mcp.json` never enter the build context. Building
+it found that `dotnet publish nb.csproj` on a clean checkout had never
+worked: nothing restored the provider projects (CI restores the solution
+first, which hid it). The publish target now restores them itself. Verified
+by hand with docker: `--version`, a Mock program with a mounted config, and
+`--compile` with no config all run; the layer is 132 MB, 232 files, seven
+providers, no `appsettings.json`, no `mcp.json`, no test platform.
 
 ### 3. `docs/containers.md`
 

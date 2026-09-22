@@ -39,7 +39,7 @@ inspect afterwards. A program can also put the run in another agent's costume wi
 | [`docs/providers.md`](docs/providers.md) | Shipped providers, selecting one, gateway routing, the Azure variants, writing your own. |
 | [`docs/mcp.md`](docs/mcp.md) | Configuring MCP servers, auth headers, the built-in test server. |
 | [`docs/testing.md`](docs/testing.md) | The Mock provider, fake tools, the eval suite, the oracle bench. |
-| [`docs/distribution.md`](docs/distribution.md) | Publishing self-contained binaries and what ships in them. |
+| [`docs/distribution.md`](docs/distribution.md) | Publishing self-contained binaries, the container image, and what ships in them. |
 
 ## What it's for
 

@@ -1,0 +1,19 @@
+# Build context for the Containerfile: an allowlist, because the risk runs the other
+# way. The working tree holds appsettings.json and mcp.json with live keys, TODO.md,
+# seeds and runs; a denylist forgets one of them the day it appears. Only what
+# `dotnet publish nb.csproj` reads gets in. Docker and podman both honour this file.
+*
+!nb.csproj
+!Directory.Build.props
+!Program.cs
+!AssemblyInfo.cs
+!nb.ico
+!appsettings.example.json
+!theme.json
+!LICENSE.txt
+!THIRD-PARTY-NOTICES.md
+!prompts/
+!nb.Core/
+!Providers/
+**/bin/
+**/obj/
