@@ -31,6 +31,7 @@ public class Program
     private static string? _mcpManifest = null;
     private static bool _validate = false;
     private static bool _resolve = false;
+    private static bool _compile = false;
     private static bool _showVersion = false;
 
     private static string[] ParseFlags(string[] args)
@@ -87,6 +88,10 @@ public class Program
             else if (args[i] == "--resolve")
             {
                 _resolve = true;
+            }
+            else if (args[i] == "--compile")
+            {
+                _compile = true;
             }
             else if (args[i] == "--version")
             {
@@ -188,7 +193,7 @@ public class Program
         // succeeding silently: a bare `nb` used to start a REPL, and a returning user
         // needs to be told the mode is gone rather than left staring at a prompt-less
         // success.
-        if (_programFile == null && !_validate && !_resolve)
+        if (_programFile == null && !_validate && !_resolve && !_compile)
         {
             PrintHelp();
             Environment.Exit(2);
@@ -229,6 +234,7 @@ public class Program
         Console.WriteLine("  --mcp <file>            Use this MCP manifest only (hermetic); default layers mcp.json across install/user/project");
         Console.WriteLine("  --validate              Parse and check the program, run nothing (exit 1 on error)");
         Console.WriteLine("  --resolve               Print the effective envelope at each run point, run nothing");
+        Console.WriteLine("  --compile               Parse, resolve @includes (and --seed), print the program as jsonl, run nothing");
         Console.WriteLine("  --verbose               Verbose engine diagnostics (to stderr)");
         Console.WriteLine("  --dump-tools            Write the MCP tool manifest to mcp-tools.json and exit");
         Console.WriteLine();
@@ -267,7 +273,7 @@ public class Program
     // Evaluate a conversation-program: read it (positional file / stdin), optionally
     // prepend a --seed transcript, detect source vs bytecode, then run it through the
     // library facade (which assembles its own engine, connects MCP, evaluates) and
-    // emit. --validate / --resolve inspect without running.
+    // emit. --validate / --resolve / --compile inspect without running.
     private static async Task RunProgramAsync(IConfiguration config)
     {
         var warnings = new List<string>();
@@ -289,12 +295,25 @@ public class Program
         // Refuse a directive nb cannot honour rather than dropping it and reporting that
         // at the end of the run: `--validate` already calls these errors, and the run
         // path disagreeing with it is what let an ignored `approval` value cost a whole
-        // token budget before saying so.
+        // token budget before saying so. --compile shares the check: it needs no config,
+        // so a host compiling for a container learns here rather than inside it.
         var shapeErrors = CheckDirectiveShape(program);
         if (shapeErrors.Count > 0)
         {
             foreach (var e in shapeErrors) Console.Error.WriteLine($"Error: {e}");
             Environment.ExitCode = 1;
+            return;
+        }
+
+        // --compile: the program as nb would evaluate it — includes resolved, the seed
+        // folded in — as the JSONL it also accepts on stdin. Nothing in the output names a
+        // file, so it can travel into a container that holds none of them
+        // (plans/container-runs.md). Always JSONL, whatever --output says: this is the
+        // bytecode, not a rendering of it.
+        if (_compile)
+        {
+            foreach (var w in warnings) Console.Error.WriteLine($"program: {w}");
+            TranscriptSerializer.Write(Console.Out, program);
             return;
         }
 

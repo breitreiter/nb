@@ -619,6 +619,52 @@ run_prog_stdout_lacks "resolve: native harness prints no wire line" "wire=" \
     "$(cat "$FIX/prog-native-resolve.nb")" --resolve
 
 echo ""
+echo "--- compile (plans/container-runs.md item 1) ---"
+echo ""
+
+# --compile: parse, resolve @includes, emit the JSONL bytecode, run nothing. The point
+# is what the output no longer references: a program with a sheet on disk compiles to
+# one that carries the sheet body, so it can travel over stdin into a container that
+# holds no path to the sheet.
+COMPILE_PROG=$'system @'"$SHEET"$'\noracle @'"$SHEET"$'\nrun MOCK:response=Which environment should I deploy to? MOCK:oracle=deploy-target'
+run_prog_stdout_contains "compile: inlines an @include body" "Staging only" "$COMPILE_PROG" --compile
+run_prog_stdout_lacks "compile: the output names no include path" "oracle-sheet.md" "$COMPILE_PROG" --compile
+run_prog_jsonl "compile: emits one event per directive, no trailer" 'map(.type)|join(",")' "system,oracle,run" \
+    "$COMPILE_PROG" --compile
+run_prog "compile: needs no harness and no provider" 0 "$COMPILE_PROG" --compile --config "$FIX/no-harness-appsettings.json"
+run_prog_contains "compile: a parse error exits 1" 1 "unknown directive" "$(cat "$FIX/prog-bad.nb")" --compile
+run_prog_contains "compile: a directive nb cannot honour exits 1" 1 "invalid approval key" \
+    "$(cat "$FIX/prog-approval-badkey.nb")" --compile
+# --seed folds in: the compiled program carries its premise too, so the container needs
+# no seed file either.
+run_prog_jsonl "compile: --seed is compiled into the program" 'length' "5" \
+    "$COMPILE_PROG" --compile --seed "$FIX/seed-basic.jsonl"
+
+# The compiled form runs identically to the source (the plan's acceptance test). The
+# trailer is excluded: program_sha256 hashes the bytes nb was given, which differ by
+# design, and the timings differ by chance.
+compiled=$(cd "$NB_DIR" && printf '%s\n' "$COMPILE_PROG" | "$NB" --config "$MOCK_CONFIG" --compile 2>/dev/null)
+src_run=$(cd "$NB_DIR" && printf '%s\n' "$COMPILE_PROG" | "$NB" --config "$MOCK_CONFIG" 2>/dev/null | jq -c 'select(.type!="result")')
+cmp_run=$(cd "$NB_DIR" && printf '%s\n' "$compiled" | "$NB" --config "$MOCK_CONFIG" 2>/dev/null | jq -c 'select(.type!="result")')
+if [[ -n "$src_run" && "$src_run" == "$cmp_run" ]]; then
+    echo -e "${GREEN}PASS${NC}: compile: the compiled program runs identically to the source"; PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}FAIL${NC}: compile: the compiled program runs identically to the source"
+    echo "  source:   ${src_run:0:200}"
+    echo "  compiled: ${cmp_run:0:200}"
+    FAILED=$((FAILED + 1))
+fi
+recompiled=$(cd "$NB_DIR" && printf '%s\n' "$compiled" | "$NB" --config "$MOCK_CONFIG" --compile 2>/dev/null)
+if [[ -n "$compiled" && "$compiled" == "$recompiled" ]]; then
+    echo -e "${GREEN}PASS${NC}: compile: compiling bytecode is the identity"; PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}FAIL${NC}: compile: compiling bytecode is the identity"
+    echo "  first:  ${compiled:0:200}"
+    echo "  second: ${recompiled:0:200}"
+    FAILED=$((FAILED + 1))
+fi
+
+echo ""
 echo "--- harness is required ---"
 echo ""
 

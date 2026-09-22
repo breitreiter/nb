@@ -98,7 +98,7 @@ once in a session this month; the cookbook's first job is to stop the second der
 | --- | --- | --- |
 | **Hide a fixture file from discovery** (answer sheet, fake site, anything the model must not grep into context) | a dot-directory that is *also* on the native tools' skip list (`.nuget/`, `.idea/`), plus an `.ignore` at the fixture root for `rg --hidden`; keep the program that names the path out of the tree or on stdin | a session 2026-09-09 (sheet), the fake-website harness |
 | **Detect that the model read something it wasn't given** | a canary entry (nonsense token no question would select) + a `jq` assertion over every `assistant_text` and every `tool_call.arguments`; reads via bash are recorded tool calls anyway | the oracle plan's step 1 live check (`zzqq` sentinel) |
-| **Ship a program into a container without it resting on disk** | compile source to JSONL outside, pipe over stdin; the sheet body travels on the `oracle` event | design in `plans/oracle-resolver.md`; needs `--compile` (small, not yet built) |
+| **Ship a program into a container without it resting on disk** | compile source to JSONL outside, pipe over stdin; the sheet body travels on the `oracle` event | design in `plans/oracle-resolver.md`; `nb --compile`, built 2026-09-21 (`plans/container-runs.md`) |
 | **Service a model's questions without a human** | `oracle @sheet.md`, bodies written as the full answer a user would give, `oracle_miss` as the maintenance signal | `plans/oracle-resolver.md`, live 2026-09-09 |
 | **Fabricate a prior exchange the model believes happened** | `user`/`assistant` turns and JSONL tool rounds as premise; `--seed` for a captured one | CLI reference §5.7, §7; evals |
 | **Script a deterministic test of a program** | the Mock provider's `MOCK:` riders (`response=`, `loop=`, `throw`, `oracle=`), one program line scripting both halves | `Providers/Mock`, `evals/run.sh` throughout |
@@ -162,6 +162,7 @@ to show the workaround is worse than the feature:
 
 - `--compile` — parse + resolve includes + emit JSONL, run nothing. Case understood
   (the sheet argument); the smallest of these.
+  **Built 2026-09-21** (`plans/container-runs.md` item 1).
 - `--config -` or env-only config — keys never on the container filesystem. Case not
   yet written down; wait for the artefact-inventory recipe.
 - A fetch-not-given assertion, or an `approval fetch <allowlist>` — depends on which of

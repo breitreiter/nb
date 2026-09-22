@@ -19,7 +19,7 @@ Written to be loaded into context and acted on directly.
 > (use the `approval bash` directive), `--nobash` (use `tools none`), `--trust`
 > (use `"Trust": true` in config). The **`output` program verb is gone** — output
 > format is the `--output` flag only. Kept flags: `--output`, `--seed`, `--config`,
-> `--mcp`, `--validate`, `--resolve`, `--verbose`, `--dump-tools`.
+> `--mcp`, `--validate`, `--resolve`, `--compile`, `--verbose`, `--dump-tools`.
 
 ---
 
@@ -58,6 +58,7 @@ make it a program: `echo 'run summarize this' | nb -`.
 | `--mcp <file>` | Use this MCP manifest only; otherwise `mcp.json` resolves in layers. |
 | `--validate` | Parse + semantically check the program, run nothing. Exit 1 on any error. |
 | `--resolve` | Print the effective envelope at each run point, run nothing. Under a `harness` costume it adds a second line — `wire=` (the tool names the model is actually offered) and `dropped=` (canonical tools the costume discards) — because `tools=` echoes the directives, which under a costume are *requested*, not effective. |
+| `--compile` | Parse the program, resolve every `@file` include and fold in `--seed`, print the result as JSONL on stdout, run nothing. Exit 1 on a parse error or a directive nb cannot honour. Needs no provider, harness or config: it is the same code path as a run, stopped before evaluation. |
 | `--verbose` | Verbose engine diagnostics (to stderr). |
 | `--dump-tools` | Write the MCP tool manifest to `mcp-tools.json` and exit. |
 
@@ -159,6 +160,20 @@ run
 
 Syntactic errors (unknown verb, missing value, malformed delta token) are parse
 errors → exit 1. Semantic errors (unknown provider) are caught by `--validate`.
+
+**Includes are resolved on the machine that parses.** `nb --compile flow.nb` prints
+the program with every include already in it, as the JSONL nb also accepts on stdin,
+so a program whose sheet, system prompt or seed sits beside it on one machine can be
+piped into a container that holds none of those files:
+
+```bash
+nb --compile flow.nb > flow.jsonl              # on the host, beside the includes
+podman run -i … /opt/nb/nb --output jsonl - < flow.jsonl
+```
+
+The compiled form runs identically to the source (the oracle sheet body already
+travels on the event, §4.5), except that the trailer's `program_sha256` hashes the
+bytes nb was given, which are now the JSONL. Compiling JSONL is the identity.
 
 ---
 
@@ -685,6 +700,7 @@ asked, then add the entry.
 ```bash
 nb --resolve flow.nb    # print provider/model/output/surface/approval per run
 nb --validate flow.nb   # semantic check; exit 1 on any error
+nb --compile flow.nb    # the program with its includes resolved, as JSONL; exit 1 on a parse error
 ```
 
 ---
