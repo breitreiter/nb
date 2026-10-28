@@ -37,6 +37,11 @@ purpose: the design moves machinery *out* of nb, not into it.
 
 ## Revisions
 
+- **2026-10-27.** `plans/atif-and-acp.md` answers the two ATIF/ACP open
+  questions, replaces item 2 with ATIF step metrics (its "old readers ignore
+  an unknown event type" is false for proctor's strict `NbAtif`), and
+  schedules item 5 now that proctor's 2026-10-20 run met its precondition.
+  Items 3, 4 and 6 are unchanged.
 - **2026-10-14.** Proctor adopted Harbor, the Terminal-Bench 2.0 harness, as
   its container runner and vendor-agent layer
   (`../proctor/project/learnings/harbor.md`). Four changes here follow:
