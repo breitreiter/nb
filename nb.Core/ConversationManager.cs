@@ -30,10 +30,25 @@ public class ConversationManager
     private readonly float? _presencePenalty;
 
     private static readonly System.Text.RegularExpressions.Regex ThinkBlockRegex =
-        new(@"<think>[\s\S]*?</think>", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"<think>([\s\S]*?)</think>", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static string StripThinkBlocks(string text) =>
         string.IsNullOrEmpty(text) ? text : ThinkBlockRegex.Replace(text, string.Empty).Trim();
+
+    // What the model reasoned before answering: reasoning content the provider returned,
+    // and <think> blocks a local model wrote inline. The record keeps it; what the model is
+    // shown next does not.
+    private static string? ThinkingOf(IEnumerable<AIChatMessage> messages)
+    {
+        var parts = messages.SelectMany(m => m.Contents).SelectMany(c => c switch
+            {
+                TextReasoningContent r => [r.Text],
+                TextContent t => ThinkBlockRegex.Matches(t.Text ?? "").Select(m => m.Groups[1].Value),
+                _ => Enumerable.Empty<string>(),
+            })
+            .Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
+        return parts.Count > 0 ? string.Join("\n\n", parts) : null;
+    }
 
     private static AIChatMessage StripThinkBlocksFromMessage(AIChatMessage message)
     {
@@ -246,10 +261,10 @@ public class ConversationManager
     }
 
     // Every message enters the model's view and the record together.
-    private void Append(AIChatMessage message, RoundMetrics? round = null, string? source = null, OracleAnswer? oracle = null)
+    private void Append(AIChatMessage message, RoundMetrics? round = null, string? source = null, OracleAnswer? oracle = null, string? thinking = null)
     {
         _conversationHistory.Add(message);
-        Journal.Append(message, round, source, oracle);
+        Journal.Append(message, round, source, oracle, thinking);
     }
 
     // ---- Oracle seams (plans/oracle-resolver.md). The loop itself lives in
@@ -530,7 +545,8 @@ public class ConversationManager
                 }
 
                 // Add assistant message with tool calls to history (think blocks stripped)
-                foreach (var message in response.Messages) Append(StripThinkBlocksFromMessage(message), round);
+                foreach (var message in response.Messages)
+                    Append(StripThinkBlocksFromMessage(message), round, thinking: ThinkingOf([message]));
 
                 // Collect all tool results in a single list
                 var allToolResults = new List<ToolOutcome>();
@@ -772,7 +788,7 @@ public class ConversationManager
                 if (!string.IsNullOrEmpty(assistantMessage))
                 {
                     // Text was already streamed through MarkdownRenderer above.
-                    Append(new AIChatMessage(ChatRole.Assistant, StripThinkBlocks(assistantMessage)), round);
+                    Append(new AIChatMessage(ChatRole.Assistant, StripThinkBlocks(assistantMessage)), round, thinking: ThinkingOf(response.Messages));
                 }
 
                 // Pending-todos reminder: if the model tries to end the turn with

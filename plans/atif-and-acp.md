@@ -188,6 +188,18 @@ in the same hour.
 
 ### 2. The run journal (2–3 days, no interop change)
 
+**Done 2026-10-28.** `nb.Core/Transcript/RunJournal.cs`. The identity gate was checked
+directly as well as by the suites: every eval invocation's stdout captured before and
+after and diffed, 131 of them, differing only in `nb_version` and a clock tool's output.
+One departure from the text below: the compaction change could not be its own commit,
+because an append-only journal keeps compacted turns by construction; mimicking the old
+loss would have meant writing the deletion just to remove it. It has its own test
+(`RunJournalTests`). The other change, `thinking`, is its own commit, covering provider
+reasoning content and the inline `<think>` blocks nb already stripped. Not built yet:
+journal subscribers. Stage 5 is their first reader, so they arrive with it. Approvals now
+land on the call they decided; the old ledger stamped a reused call id's last verdict on
+every call carrying it (the Mock reuses ids).
+
 `ConversationManager` appends `TranscriptEvent`s to a `RunJournal` as things
 happen: the user turn when it's added, assistant text and tool calls when the
 response lands, the approval decision when it's made, the tool result when it

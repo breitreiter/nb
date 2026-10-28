@@ -48,6 +48,21 @@ public class RunJournalTests
         Assert.Equal(entries.Select(e => e.At).Order(), entries.Select(e => e.At));
     }
 
+    // A local model's inline <think> block is stripped from what the model is shown next;
+    // it used to be dropped from the record too.
+    [Fact]
+    public async Task InlineThinkBlock_IsEmittedAsThinking_BeforeTheAnswer()
+    {
+        var result = await Nb.Program().Run("MOCK:response=<think>weigh it</think>hi").RunAsync(MockConfig(), Options());
+
+        var thinking = Assert.Single(result.Events.OfType<ThinkingEvent>());
+        var answer = Assert.Single(result.Events.OfType<AssistantTextEvent>());
+        Assert.Equal("weigh it", thinking.Text);
+        Assert.Equal("hi", answer.Text);
+        Assert.Equal(answer.Turn, thinking.Turn);
+        Assert.True(result.Events.ToList().IndexOf(thinking) < result.Events.ToList().IndexOf(answer));
+    }
+
     private static ProgramEvaluator Evaluator(NbRuntime runtime) =>
         new(runtime.Conversation, runtime.ClientFactory, new List<string>(), runtime.DefaultHarnessFor, runtime.TemperatureFor);
 

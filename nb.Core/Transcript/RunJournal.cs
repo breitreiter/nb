@@ -32,13 +32,17 @@ public sealed class RunJournal
     /// that produced it (assistant messages only; null for anything nb or the program
     /// authored). <paramref name="source"/> tags a user message nb injected (<c>loop</c>,
     /// <c>todo</c>); <paramref name="oracle"/> marks the oracle's answer.
+    /// <paramref name="thinking"/> is the round's reasoning, recorded before the message
+    /// and at its turn; history does not carry it.
     /// </summary>
-    public void Append(ChatMessage message, RoundMetrics? round = null, string? source = null, OracleAnswer? oracle = null)
+    public void Append(ChatMessage message, RoundMetrics? round = null, string? source = null, OracleAnswer? oracle = null, string? thinking = null)
     {
         if (message.Role != ChatRole.Tool && _started) _turn++;
         _started = true;
 
         var at = DateTimeOffset.UtcNow;
+        if (thinking is not null)
+            _entries.Add(new JournalEntry(new ThinkingEvent { Turn = _turn, Text = thinking }, at, round));
         foreach (var e in TranscriptMapper.FromMessage(message, _turn))
         {
             var tagged = e switch
