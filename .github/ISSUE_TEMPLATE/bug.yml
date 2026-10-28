@@ -1,0 +1,75 @@
+name: Bug report
+description: nb did something it shouldn't, or said something wrong to a model or a human.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful report names **what nb emitted** (the exact refusal text, exit
+        reason, trailer field or JSONL event) next to what it should have emitted.
+
+        **Scrub before posting.** Transcripts and configs carry API keys, endpoints,
+        gateway tokens and prompt content, and anything you post or attach here is public.
+
+  - type: input
+    id: version
+    attributes:
+      label: nb version
+      description: Output of `nb --version`, or the commit you built from.
+      placeholder: "e34e762"
+    validations:
+      required: true
+
+  - type: input
+    id: surface
+    attributes:
+      label: Provider / model / harness
+      description: The entry the run resolved. Write `Mock` if it reproduces against the Mock provider.
+      placeholder: "LocalLlm / qwen3-coder-next / qwen-code"
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro
+      description: |
+        The exact invocation and the program. Inline it if it's short, which most repros
+        are. A repro that drives `MOCK:` prompts is the best kind, because anyone can run it.
+      render: bash
+      placeholder: |
+        printf 'user keep going\nrun\n' | ./nb - --seed prior.jsonl --output jsonl
+        echo $?
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed
+      description: What nb did. Quote the literal output, an excerpt of the JSONL, or the exit code.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What it should have done, and why it matters (a corrupted eval, a misleading message, a crash).
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Cause (optional)
+      description: If you traced it, point at the code (`Program.cs:403`). Leave it blank if not; a clean repro is enough.
+
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Artifacts
+      description: |
+        Anything too big to inline: full transcripts, seed files, fixture trees, data sets.
+        Use a gist (`gh gist create run.jsonl program.nb probe.sh`) and link it here, or drag
+        files into this box (`.nb`/`.sh` files must be zipped or renamed to `.txt` first).
+        If a data set can't be shared, describe its size and shape.

@@ -117,6 +117,25 @@ public class TranscriptLoaderTests
         Assert.Equal("You are terse.", reloaded[0].Text);
     }
 
+    // Issue #1: `system @empty-file` reached Anthropic as an empty text block, which the
+    // Messages API rejects ("system: text content blocks must be non-empty").
+    [Theory]
+    [InlineData("")]
+    [InlineData("  \n\t")]
+    public void BlankSystemMessage_IsDropped(string text)
+    {
+        var events = new List<TranscriptEvent>
+        {
+            new SystemEvent { Turn = 0, Text = text },
+            new UserEvent { Turn = 1, Text = "hi" },
+        };
+
+        var history = TranscriptLoader.ToHistory(events);
+
+        Assert.Single(history);
+        Assert.Equal(ChatRole.User, history[0].Role);
+    }
+
     [Fact]
     public void ImageEvent_LoadsAsTextNote()
     {

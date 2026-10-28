@@ -31,8 +31,15 @@ public static class TranscriptLoader
         var messages = new List<ChatMessage>();
         foreach (var group in GroupByTurn(events))
         {
+            // A blank system message tells the model nothing, and Anthropic rejects the whole
+            // request over it ("text content blocks must be non-empty") — drop it everywhere
+            // so `system @empty-file` is a portable "no system prompt" baseline (issue #1).
             foreach (var sys in group.OfType<SystemEvent>())
-                messages.Add(new ChatMessage(ChatRole.System, ToContents(sys)));
+            {
+                var contents = ToContents(sys);
+                if (contents.All(c => c is TextContent t && string.IsNullOrWhiteSpace(t.Text))) continue;
+                messages.Add(new ChatMessage(ChatRole.System, contents));
+            }
 
             foreach (var usr in group.OfType<UserEvent>())
                 messages.Add(new ChatMessage(ChatRole.User, ToContents(usr)));

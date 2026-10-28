@@ -1,0 +1,33 @@
+name: Feature request
+description: Something nb should do that it doesn't do now.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you're trying to do
+      description: The workload, not the mechanism. For example, "resume a run from its log after a provider outage," not "add a --resume flag."
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What happens today
+      description: The closest thing that works now and where it falls short. Include a program or invocation if one shows it.
+      render: bash
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal (optional)
+      description: |
+        A sketch of the directive, flag or trailer field you have in mind. nb is a stateless
+        evaluator and not a sandbox (see CLAUDE.md), so a proposal that needs hidden state
+        or confinement will probably be redirected.
+
+  - type: input
+    id: version
+    attributes:
+      label: nb version
+      description: Output of `nb --version`, or the commit you built from.
