@@ -26,26 +26,17 @@ internal sealed class NbRuntime : IDisposable
     public ConversationManager Conversation { get; }
     public McpManager Mcp { get; }
 
-    /// <summary>
-    /// Non-fatal problems found while assembling the run — deprecated configuration, so
-    /// far. Distinct from the evaluator's warnings, which are about the program; these are
-    /// about the environment the program was handed. Both end up on the same
-    /// <c>RunResult.Warnings</c> list, because a caller does not care which layer noticed.
-    /// </summary>
-    public IReadOnlyList<string> StartupWarnings { get; }
-
     /// <summary>Time this run spent blocked on a provider; becomes <c>provider_ms</c>.</summary>
     public ProviderTime ProviderTime => _providers.ProviderTime;
 
     private NbRuntime(IConfiguration config, ProviderManager providers, McpManager mcp,
-        ConversationManager conversation, IReadOnlyList<string> startupWarnings, string? optionHarness)
+        ConversationManager conversation, string? optionHarness)
     {
         _config = config;
         _optionHarness = optionHarness;
         _providers = providers;
         Mcp = mcp;
         Conversation = conversation;
-        StartupWarnings = startupWarnings;
     }
 
     // The client factory the evaluator uses for mid-stream provider/model swaps —
@@ -69,8 +60,6 @@ internal sealed class NbRuntime : IDisposable
 
     public static async Task<NbRuntime> BuildAsync(IConfiguration config, NbOptions options)
     {
-        var startupWarnings = new List<string>();
-
         ShellEnvironment shell;
         try { shell = ShellEnvironment.Detect(); }
         catch (InvalidOperationException ex) { throw new NbStartupException(ex.Message); }
@@ -101,13 +90,8 @@ internal sealed class NbRuntime : IDisposable
             try { searchWeb = SearchWebTool.FromConfig(config["Search:Provider"], config["Search:ApiKey"], config["Search:Endpoint"], config["Search:AuthHeader"]); }
             catch (ArgumentException ex) { throw new NbStartupException(ex.Message); }
 
-            // Every edit tool is built; EditToolStyle decides only which of them nb's own
-            // surface *advertises*. The runtime used to build one and not the other, which
-            // meant a costume inherited a hole from provider config it had no say in —
-            // the qwen costume lost its edit tools under EditToolStyle: ApplyPatch, and the
-            // codex costume, which needs apply_patch, would have had none without it.
-            // Construction is cheap and advertisement is the harness's business.
-            // (plans/harness-emulation.md, "No clutter, either")
+            // Every edit tool is built; EditToolStyle decides only which of them the surface
+            // advertises. Construction is cheap and advertisement is the harness's business.
             writeFile = new WriteFileTool(shell);
             editFile = new EditFileTool(shell);
             applyPatch = new ApplyPatchTool(shell);
@@ -115,16 +99,11 @@ internal sealed class NbRuntime : IDisposable
             var providerConfig = config.GetSection("ChatProviders").GetChildren()
                 .FirstOrDefault(c => string.Equals(c["Name"], config["ActiveProvider"], StringComparison.OrdinalIgnoreCase));
 
-            // DEPRECATED (2026-08-15). EditToolStyle is a proto-harness: it predates the
-            // idea, and says a fraction of what `harness codex` says properly. It still
-            // works and still means what it meant — the deprecation is a warning and a
-            // documented replacement, not a behaviour change — because it is documented
-            // config that is presumably in use. See plans/harness-emulation.md, step 7.
-            var editToolStyle = providerConfig?["EditToolStyle"];
-            applyPatchStyle = string.Equals(editToolStyle, "ApplyPatch", StringComparison.OrdinalIgnoreCase);
-
-            if (!string.IsNullOrWhiteSpace(editToolStyle))
-                startupWarnings.Add(EditToolStyleDeprecation(providerConfig!["Name"], editToolStyle, applyPatchStyle));
+            // GPT-family models do better with apply_patch than with edit_file, and confuse
+            // the two when both are offered, so an entry can pick one. Deprecated 2026-08-15
+            // in favour of the codex costume; un-deprecated when it retired
+            // (plans/agent-neutral-runs.md item 5).
+            applyPatchStyle = string.Equals(providerConfig?["EditToolStyle"], "ApplyPatch", StringComparison.OrdinalIgnoreCase);
         }
 
         var trust = options.Trust || string.Equals(config["Trust"], "true", StringComparison.OrdinalIgnoreCase);
@@ -169,7 +148,7 @@ internal sealed class NbRuntime : IDisposable
         var conversation = new ConversationManager(
             client, mcp, fakeTools, harness,
             approval, providerName, options.Verbose, trust, maxToolCalls, maxContextTokens, compactionThreshold,
-            debugStream: false, temperature, presencePenalty,
+            temperature, presencePenalty,
             doomLoopThreshold: doomThreshold, doomLoopEnabled: doomEnabled, tokenBudget: tokenBudget,
             wallClockBudgetMs: wallBudgetMs);
 
@@ -182,24 +161,7 @@ internal sealed class NbRuntime : IDisposable
             return entry is null ? (null, null) : ProviderConfig.Prices(entry.Config);
         });
 
-        return new NbRuntime(config, providers, mcp, conversation, startupWarnings, options.Harness);
-    }
-
-    /// <summary>
-    /// The deprecation notice, naming the entry so it is findable in a layered config, and
-    /// pointing at the directive that replaces it. `harness codex` is the replacement for
-    /// <c>ApplyPatch</c> because apply_patch *is* the Codex edit surface, and the costume
-    /// brings the rest of that surface with it rather than a fragment of it.
-    /// </summary>
-    private static string EditToolStyleDeprecation(string? entryName, string value, bool applyPatch)
-    {
-        var where = string.IsNullOrEmpty(entryName) ? "the active provider entry" : $"provider entry '{entryName}'";
-        var replacement = applyPatch
-            ? "use the program directive `harness codex` instead, which advertises apply_patch as part of the whole Codex surface"
-            : "it is already the default and can simply be removed";
-
-        return $"EditToolStyle is deprecated (set to '{value}' on {where}) — {replacement}. "
-             + "It still works and still means what it meant; it will be removed in a future version.";
+        return new NbRuntime(config, providers, mcp, conversation, options.Harness);
     }
 
     // Build the approval policy from the Approval config block + the run's approve

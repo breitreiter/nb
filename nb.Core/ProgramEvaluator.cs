@@ -34,7 +34,6 @@ public sealed class ProgramEvaluator
     // Message-bearing events awaiting the next run (or the final flush). Batched
     // per turn by TranscriptLoader.ToHistory, the same path a seed takes.
     private readonly List<TranscriptEvent> _turnBuffer = new();
-    private readonly NbHarness _baseHarness;
     private readonly Func<string?, string?>? _defaultHarness;
     // Provider label (null = active) -> that entry's configured Temperature, for the oracle's side call.
     private readonly Func<string?, float?>? _temperatureFor;
@@ -43,7 +42,7 @@ public sealed class ProgramEvaluator
     public string? Provider { get; private set; }
     public string? Model { get; private set; }
 
-    /// <summary>The harness in effect — nb's own surface unless a <c>harness</c> directive says otherwise.</summary>
+    /// <summary>The harness in effect. Always nb's own surface; kept for the trailer and <c>--resolve</c>.</summary>
     public string Harness { get; private set; } = HarnessRegistry.Default;
 
     /// <summary>
@@ -79,17 +78,15 @@ public sealed class ProgramEvaluator
     private const long DefaultOracleTurns = 8;
 
     /// <param name="defaultHarness">
-    /// The harness to wear when the program has named none by its first <c>run</c>, given
-    /// the provider label in effect (null = the active one). Null, or a resolver returning
-    /// null, means the run is refused: a harness is never assumed.
+    /// The harness config names for a program that names none by its first <c>run</c>,
+    /// given the provider label in effect (null = the active one). Null means nb; a
+    /// retired or unknown name is refused before any model call.
     /// </param>
     public ProgramEvaluator(ConversationManager conversation, Func<string?, string?, IChatClient?> clientFactory, IList<string>? warnings = null,
         Func<string?, string?>? defaultHarness = null, Func<string?, float?>? temperatureFor = null)
     {
         _temperatureFor = temperatureFor;
         _conversation = conversation;
-        // The runtime-wired surface every costume is built over.
-        _baseHarness = conversation.Harness;
         _clientFactory = clientFactory;
         _warnings = warnings ?? new List<string>();
         _defaultHarness = defaultHarness;
@@ -126,12 +123,11 @@ public sealed class ProgramEvaluator
                 SwapClient();
                 break;
             case HarnessEvent h:
-                // Name validity is settled by the parser (and by the serializer's reader
-                // for JSONL bytecode). A costume swaps what is advertised, over the same
-                // tool instances the runtime wired.
-                Harness = h.Name;
+                // The parser refuses a bad name with a line number; JSONL bytecode reaches
+                // here unchecked, so the evaluator is where both paths meet.
+                if (HarnessRegistry.Refusal(h.Name) is { } refusal)
+                    throw new NbStartupException(refusal);
                 _harnessNamed = true;
-                ApplyHarness(h.Name);
                 break;
             case OracleEvent o:
                 if (o.Provider is not null)
@@ -222,58 +218,18 @@ public sealed class ProgramEvaluator
         }
     }
 
-    // A run wears a harness on purpose. The bare surface used to be what forgetting the
-    // directive got you, and the runs it produced were labelled by the model they meant to
-    // test while wearing a surface nothing was trained on. Resolved once, at the first run,
-    // from config keyed by the provider label in effect; refused if config is silent too.
+    // A program that names no harness runs on nb's own surface, unless config names one,
+    // which is then checked like a directive: a config written before the costumes retired
+    // fails with the redirect rather than silently running bare.
     private void EnsureHarnessNamed()
     {
         if (_harnessNamed) return;
-
-        var name = _defaultHarness?.Invoke(Provider);
-        if (string.IsNullOrWhiteSpace(name))
-            throw new NbStartupException(HarnessRegistry.RequiredMessage);
-        if (!HarnessRegistry.IsKnown(name))
-            throw new NbStartupException($"unknown harness '{name}' in config. Known: {HarnessRegistry.KnownNamesForError()}.");
-
-        Harness = HarnessRegistry.Canonicalize(name);
         _harnessNamed = true;
-        ApplyHarness(Harness);
+
+        if (_defaultHarness?.Invoke(Provider) is { } name && !string.IsNullOrWhiteSpace(name)
+            && HarnessRegistry.Refusal(name) is { } refusal)
+            throw new NbStartupException(refusal);
     }
-
-    // Swap the harness, and surface what the costume knowingly does not reproduce, so a
-    // behavioural diff against the real harness arrives with a suspect list rather than
-    // sending someone hunting through the costume's source for what it quietly skips.
-    private void ApplyHarness(string name)
-    {
-        var harness = HarnessRegistry.Create(name, _baseHarness);
-        _conversation.SetHarness(harness);
-
-        // A named harness brings its prompt and its context furniture — no second
-        // directive for either. Both materialise as ordinary system messages rather than
-        // special engine-held slots, so they round-trip through the transcript and a
-        // --seed replay reproduces the run even if the costume, or the project's own
-        // instruction file, has been edited since (plans/harness-emulation.md, "The
-        // preamble arrives with the costume"). They go to the FRONT of the pending turns:
-        // the costume speaks first and the program's own system directives get the last
-        // word, which is how these harnesses layer project context onto their own prompts
-        // anyway. The costume orders its own fragments — preamble, project instructions,
-        // environment block — because the real harnesses disagree about that order.
-        var leading = harness.LeadingContext();
-
-        var turn = FirstPendingTurn();
-        for (var i = 0; i < leading.Count; i++)
-            _turnBuffer.Insert(i, new SystemEvent { Turn = turn, Text = leading[i] });
-
-        foreach (var omission in harness.Omissions)
-            _warnings.Add($"harness '{harness.Name}' does not reproduce — {omission}");
-    }
-
-    // Turn numbers must be non-decreasing within a flush batch, so a preamble joining the
-    // front of the buffer takes the turn already at the front rather than assuming zero —
-    // a harness named after the first run would otherwise flush an out-of-order batch.
-    private int FirstPendingTurn() =>
-        _turnBuffer.OfType<MessageEvent>().Select(e => e.Turn ?? 0).DefaultIfEmpty(0).Min();
 
     // Batch buffered turns into history via the same loader a seed uses, so a
     // turn's assistant text + tool calls become one assistant message and its

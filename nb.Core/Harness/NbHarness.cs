@@ -22,20 +22,12 @@ public readonly record struct ToolOutcome(FunctionResultContent Content, bool Is
 }
 
 /// <summary>
-/// The tool surface a run advertises to the model — nb's own, canonical surface.
-///
-/// This is the base of the harness-emulation hierarchy (`plans/harness-emulation.md`):
-/// costumes that imitate another agent's harness (Claude Code, Codex, Cursor,
-/// qwen-code) derive from this and override the parts they change, so each costume
-/// reads as a diff against a legible default rather than a from-scratch declaration.
-/// The default is a real object, not a null check.
-///
-/// It owns *what is advertised*. It does not own approval, the trust sandbox, the
-/// read-tracker or budgets — those keep working in canonical tool identities.
-/// MCP tools are not part of a harness either: they are user configuration, not
-/// part of the costume.
+/// The tool surface a run advertises to the model — nb's own, and since the costumes
+/// retired (plans/atif-and-acp.md stage 1) the only one — and the capabilities that run
+/// those tools under approval, the read-tracker and the trust sandbox. MCP tools are not
+/// part of it: they are user configuration.
 /// </summary>
-public class NbHarness
+public sealed class NbHarness
 {
     private readonly TodoManager _todos = new();
     private readonly TodoTool _todoTool;
@@ -67,24 +59,7 @@ public class NbHarness
         _todoTool = new TodoTool(_todos);
     }
 
-    /// <summary>
-    /// Wear the same tools as an existing harness. Costumes are built this way so the
-    /// ten-tool list is spelled out in one place instead of at every construction site —
-    /// they are all the same nullable types, so a mis-ordered positional argument would
-    /// compile.
-    ///
-    /// <see cref="ApplyPatchStyle"/> is deliberately not carried across: it selects which
-    /// edit surface *nb's own* harness advertises, and a costume advertises whatever its
-    /// target has.
-    /// </summary>
-    protected NbHarness(NbHarness source)
-        : this(source.Bash, source.ReadFile, source.WriteFile, source.EditFile, source.FindFiles,
-               source.Grep, source.ListDir, source.FetchUrl, source.SearchWeb, source.ApplyPatch)
-    {
-    }
-
-    // Null only when not wired: --nobash nulls the lot. Every edit tool is built
-    // otherwise, so a costume never inherits a hole from provider config.
+    // Null only when not wired: --nobash nulls the lot.
     public BashTool? Bash { get; }
     public ReadFileTool? ReadFile { get; }
     public WriteFileTool? WriteFile { get; }
@@ -99,8 +74,7 @@ public class NbHarness
     /// <summary>
     /// <c>EditToolStyle: ApplyPatch</c> on the active provider entry. It selects which
     /// edit surface nb's own harness advertises — apply_patch, or write_file + edit_file —
-    /// and nothing else; both are always constructed. Costumes ignore it and advertise
-    /// whatever their target has.
+    /// and nothing else; both are always constructed.
     /// </summary>
     public bool ApplyPatchStyle { get; }
 
@@ -108,206 +82,9 @@ public class NbHarness
     public TodoManager Todos => _todos;
     public TodoTool Todo => _todoTool;
 
-    /// <summary>The registry name this harness answers to.</summary>
-    public virtual string Name => HarnessRegistry.Default;
-
-    /// <summary>
-    /// What this costume knowingly does not reproduce. Surfaced with the run so a
-    /// surprising behavioural diff against the real harness arrives with a suspect list
-    /// attached — silent approximation is what turns a bounded placebo into an
-    /// unfalsifiable one. nb's own surface omits nothing, being the real thing.
-    /// </summary>
-    public virtual IReadOnlyList<string> Omissions => Array.Empty<string>();
-
-    /// <summary>
-    /// The system-prompt fragment this costume contributes, ahead of the program's own
-    /// <c>system</c> directives. Null for nb's own surface: a program that names no
-    /// harness gets exactly the system text it writes, as §5.5 promises.
-    ///
-    /// Opting into a costume opts into the whole costume — there is no second directive
-    /// to remember, because telling a user "of course it didn't work, you never
-    /// *explicitly* asked for the prompt" would be a failure of the tool. The evaluator
-    /// materialises this into history as an ordinary system message, so it lands in the
-    /// transcript and a <c>--seed</c> replay reproduces the run even if the costume has
-    /// been edited since.
-    /// </summary>
-    public virtual string? Preamble => null;
-
-    /// <summary>
-    /// Load a preamble from <c>prompts/harness/</c> beside the executable — data, not a
-    /// C# string literal, so it can be revised without a rebuild and reviewed as prose.
-    /// Missing or unreadable resolves to null rather than throwing: the costume still
-    /// works as a tool surface, and its omission list is what says the prompt is absent.
-    /// </summary>
-    protected static string? LoadPreamble(string fileName)
-    {
-        try
-        {
-            var path = Path.Combine(AppContext.BaseDirectory, "prompts", "harness", fileName);
-            if (!File.Exists(path)) return null;
-            var text = StripLeadingComment(File.ReadAllText(path)).Trim();
-            return text.Length == 0 ? null : text;
-        }
-        catch (IOException) { return null; }
-        catch (UnauthorizedAccessException) { return null; }
-    }
-
-    /// <summary>
-    /// The project instruction files this harness's target reads — AGENTS.md for Codex,
-    /// CLAUDE.md for Claude Code — rendered in that harness's own wrapper, or null when
-    /// there are none.
-    ///
-    /// This is context furniture rather than prompt: a channel the real harness fills
-    /// from the filesystem on every run, which a costume must reproduce or a whole class
-    /// of instruction never arrives (plans/harness-emulation.md, tier 1). Evaluated when
-    /// the harness is applied, not cached, because it reads the working directory.
-    ///
-    /// Null for nb's own surface. nb has no project instruction file of its own, and
-    /// §5.5 promises a program that names no harness gets exactly what it writes.
-    /// </summary>
-    public virtual string? ProjectInstructions() => null;
-
-    /// <summary>
-    /// The environment block this harness's target injects — cwd, platform, shell, date,
-    /// git state — in that harness's own wrapper, or null when it injects none.
-    ///
-    /// The second half of context furniture, alongside <see cref="ProjectInstructions"/>.
-    /// Every real harness tells the model where it is before the model asks, and a costume
-    /// that omits it produces a model that opens by running <c>pwd</c> and <c>uname</c> —
-    /// a behavioural diff with an obvious cause that would otherwise get misattributed to
-    /// the prompt. Evaluated on apply, not cached: it reads the clock and the cwd.
-    ///
-    /// Null for nb's own surface, which sends no environment block today. §5.5 promises a
-    /// program that names no harness gets exactly the system text it writes, and this is
-    /// not the change that should quietly break that promise.
-    /// </summary>
-    public virtual string? EnvironmentContext() => null;
-
-    /// <summary>
-    /// Everything the costume contributes ahead of the program's own <c>system</c>
-    /// directives, in the order the model should read it.
-    ///
-    /// Order is a costume's own business rather than the evaluator's, because the real
-    /// harnesses disagree about it: Codex sends the environment block after the workspace
-    /// instructions, Claude Code carries its environment inside the system prompt and
-    /// attaches project instructions to the first user turn — so the two want opposite
-    /// orders and neither is a default the other can live with.
-    /// </summary>
-    public virtual IReadOnlyList<string> LeadingContext() =>
-        Compose(Preamble, ProjectInstructions(), EnvironmentContext());
-
-    /// <summary>
-    /// Drop the parts a costume does not supply and materialise the rest, so an override
-    /// of <see cref="LeadingContext"/> reads as nothing but its ordering decision.
-    /// </summary>
-    protected static IReadOnlyList<string> Compose(params string?[] parts) =>
-        parts.Where(p => !string.IsNullOrEmpty(p)).Select(p => p!).ToList();
-
-    /// <summary>Whether the working directory sits inside a git repository — furniture every costume reports.</summary>
-    protected bool InGitRepository()
-    {
-        for (var dir = SafeDirectory(WorkingDirectory); dir != null; dir = dir.Parent)
-        {
-            var git = Path.Combine(dir.FullName, ".git");
-            if (Directory.Exists(git) || File.Exists(git)) return true;
-        }
-        return false;
-    }
-
-    private static DirectoryInfo? SafeDirectory(string path)
-    {
-        try
-        {
-            var dir = new DirectoryInfo(Path.GetFullPath(path));
-            return dir.Exists ? dir : null;
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Where the run's tools operate. Falls back to the process cwd under --nobash.</summary>
-    protected string WorkingDirectory =>
-        Bash?.GetCwd() ?? ReadFile?.GetCwd() ?? Directory.GetCurrentDirectory();
-
-    /// <summary>
-    /// Walk the project root down to the working directory collecting instruction files,
-    /// shallowest first, so a deeper file's instructions land last and win.
-    ///
-    /// The root is the nearest ancestor holding a <c>.git</c> entry; without one, only
-    /// the working directory is considered, and the walk never passes the root. Within a
-    /// directory the first name in <paramref name="fileNames"/> that exists wins, so a
-    /// caller orders overrides ahead of defaults. Reading stops at
-    /// <paramref name="maxTotalBytes"/> across all files, truncating the file that
-    /// crosses it — the same budget the real harnesses apply, and the thing standing
-    /// between a large repo's docs and the context window.
-    /// </summary>
-    protected static IReadOnlyList<(string Path, string Text)> DiscoverProjectDocs(
-        string workingDirectory, int maxTotalBytes, params string[] fileNames)
-    {
-        var docs = new List<(string, string)>();
-        if (maxTotalBytes <= 0) return docs;
-
-        DirectoryInfo? cwd;
-        try { cwd = new DirectoryInfo(Path.GetFullPath(workingDirectory)); }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException) { return docs; }
-        if (!cwd.Exists) return docs;
-
-        // Shallowest first: push each ancestor onto the front until the root is reached.
-        var chain = new List<DirectoryInfo>();
-        for (var dir = cwd; dir != null; dir = dir.Parent)
-        {
-            chain.Insert(0, dir);
-            if (Directory.Exists(Path.Combine(dir.FullName, ".git")) ||
-                File.Exists(Path.Combine(dir.FullName, ".git")))
-                break;
-
-            // No marker anywhere above: the working directory alone is the scope.
-            if (dir.Parent is null) { chain.Clear(); chain.Add(cwd); }
-        }
-
-        var remaining = maxTotalBytes;
-        foreach (var dir in chain)
-        {
-            if (remaining <= 0) break;
-
-            var path = fileNames
-                .Select(n => Path.Combine(dir.FullName, n))
-                .FirstOrDefault(File.Exists);
-            if (path is null) continue;
-
-            string text;
-            try { text = File.ReadAllText(path); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
-
-            if (text.Length > remaining) text = text[..remaining];
-            if (string.IsNullOrWhiteSpace(text)) continue;
-
-            docs.Add((path, text));
-            remaining -= text.Length;
-        }
-
-        return docs;
-    }
-
-    // A preamble file opens with an HTML comment carrying its provenance — where the
-    // text came from, what it deliberately is not, what that costs. That is for whoever
-    // reviews the file, not for the model, so it does not go on the wire.
-    private static string StripLeadingComment(string text)
-    {
-        var trimmed = text.TrimStart();
-        if (!trimmed.StartsWith("<!--", StringComparison.Ordinal)) return text;
-        var end = trimmed.IndexOf("-->", StringComparison.Ordinal);
-        return end < 0 ? text : trimmed[(end + 3)..];
-    }
-
-
     // ---- Execution state -------------------------------------------------------
     // The capabilities below run tools, which means they own approval, the
-    // read-before-edit tracker and the trust sandbox. Costumes never touch these:
-    // a costume declares tools whose bodies call the capabilities, and the shared
-    // base is where the safety concerns stay.
+    // read-before-edit tracker and the trust sandbox.
 
     private ApprovalPolicy _approvalPolicy = null!;
     private bool _verbose;
@@ -333,7 +110,7 @@ public class NbHarness
 
     /// <summary>
     /// Where approval verdicts are recorded for the transcript. Null in contexts that emit
-    /// no transcript (tests constructing a bare harness). Owned by the run, not the costume,
+    /// no transcript (tests constructing a bare harness). Owned by the run, not the harness,
     /// so it survives a <c>harness</c> directive swapping the surface mid-run.
     /// </summary>
     private ApprovalLedger? _approvals;
@@ -343,7 +120,7 @@ public class NbHarness
     /// <c>tools</c> directive folded. Order is meaningful — it is the order the model
     /// sees — and is pinned by <c>ToolSurfaceGoldenTests</c>.
     /// </summary>
-    public virtual IReadOnlyList<AIFunction> CreateTools(ToolSurface surface)
+    public IReadOnlyList<AIFunction> CreateTools(ToolSurface surface)
     {
         var tools = new List<AIFunction>();
 
@@ -382,48 +159,10 @@ public class NbHarness
     public async Task<ToolOutcome?> InvokeAsync(
         string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken = default)
     {
-        _wireName = name;
-        try
-        {
-            var outcome = await DispatchAsync(name, callId, arguments, cancellationToken);
-            if (outcome is { } o) LogToolCall(name, arguments, DescribeForLog(o));
-            return outcome;
-        }
-        finally
-        {
-            _wireName = null;
-        }
+        var outcome = await DispatchAsync(name, callId, arguments, cancellationToken);
+        if (outcome is { } o) LogToolCall(name, arguments, DescribeForLog(o));
+        return outcome;
     }
-
-    /// <summary>
-    /// The name the model called this round, or null outside a dispatch. Set here rather
-    /// than threaded through every capability method because the capabilities are shared
-    /// across costumes and deliberately know nothing about wire vocabulary — see
-    /// <see cref="ToolLabel"/> for the one place that difference has to surface.
-    /// </summary>
-    private string? _wireName;
-
-    /// <summary>
-    /// What to call a tool when talking to the model: the name it actually used, falling
-    /// back to nb's canonical name outside a dispatch (direct capability calls in tests).
-    ///
-    /// A refusal is the only thing a blocked model reads, so naming a tool its costume
-    /// never advertised is worse than merely untidy — it invites a retry under the name
-    /// the model does know. Found 2026-08-15 by the step 5 denial goldens, which showed
-    /// a claude-code run calling <c>Write</c> being told <c>write_file</c> was denied.
-    /// </summary>
-    protected string ToolLabel(string canonical) => _wireName ?? canonical;
-
-    /// <summary>
-    /// The bare name the model called, with no detail attached — for refusal templates
-    /// that quote a tool name on its own (qwen-code's does) and would read wrongly with a
-    /// whole label like <c>bash (Read): /etc/passwd</c> inside the quotes.
-    ///
-    /// Falls back to a generic phrase outside a dispatch, which is the MCP denial path in
-    /// <c>ConversationManager</c>: it refuses on behalf of a tool the harness never
-    /// dispatched, so there is no wire name to report. The detail label still names it.
-    /// </summary>
-    protected string ToolName => _wireName ?? "the tool";
 
     private static string DescribeForLog(ToolOutcome outcome) => outcome.Content.Result switch
     {
@@ -433,14 +172,9 @@ public class NbHarness
     };
 
     /// <summary>
-    /// Map an advertised tool name and its arguments onto the shared capabilities.
-    ///
-    /// This is the half a costume overrides: it declares its target's names and schemas
-    /// in <see cref="CreateTools"/>, and unpacks its target's argument spellings here
-    /// before calling the same capability methods. There is no separate translation
-    /// layer — the costume's own dispatch *is* the adaptation.
+    /// Map an advertised tool name and its arguments onto the capabilities.
     /// </summary>
-    protected virtual async Task<ToolOutcome?> DispatchAsync(
+    private async Task<ToolOutcome?> DispatchAsync(
         string name, string callId, IDictionary<string, object?>? arguments, CancellationToken cancellationToken)
     {
         switch (name)
@@ -494,17 +228,10 @@ public class NbHarness
 
     // ---- Result formatting -------------------------------------------------------
     // The exact text a tool call returns is the *observation* half of the loop, and
-    // models are trained on it as hard as on the action half — so it is part of the
-    // costume, ranked second in plans/harness-emulation.md behind only the advertised
-    // surface. These are the seams: the capability methods below own approval, the
-    // sandbox and the read tracker, and call one of these to render what the model
-    // sees. A costume overrides the rendering without re-implementing any of the rest.
-    //
-    // nb's own strings are the defaults, so overriding nothing preserves behaviour
-    // exactly — which is what the golden masters check.
+    // models read it as closely as the action half; the golden masters pin it.
 
     /// <summary>What the model sees after a shell command runs.</summary>
-    protected virtual string FormatShellResult(ShellResult result)
+    private string FormatShellResult(ShellResult result)
     {
         var output = new System.Text.StringBuilder();
 
@@ -519,17 +246,17 @@ public class NbHarness
     }
 
     /// <summary>What the model sees after a file is written. <paramref name="created"/> distinguishes a new file from an overwrite.</summary>
-    protected virtual string FormatWriteResult(string path, long bytesWritten, bool created) =>
+    private string FormatWriteResult(string path, long bytesWritten, bool created) =>
         $"Successfully wrote {bytesWritten} bytes to {path}";
 
     /// <summary>What the model sees after a targeted edit lands.</summary>
-    protected virtual string FormatEditResult(string path, int replacements) =>
+    private string FormatEditResult(string path, int replacements) =>
         replacements == 1
             ? $"Successfully edited {path} (1 replacement)"
             : $"Successfully edited {path} ({replacements} replacements)";
 
     /// <summary>What the model sees after a patch applies.</summary>
-    protected virtual string FormatApplyPatchResult(PatchPreview preview)
+    private string FormatApplyPatchResult(PatchPreview preview)
     {
         var added = preview.Files.Count(f => f.Kind == FileOpKind.Add);
         var updated = preview.Files.Count(f => f.Kind == FileOpKind.Update || f.Kind == FileOpKind.UpdateAndMove);
@@ -539,40 +266,32 @@ public class NbHarness
 
     // ---- Argument unpacking ------------------------------------------------------
     // A model can omit an argument its schema calls required, so every reader tolerates
-    // a missing key rather than throwing (see the bash-arm bug the qwen costume exposed).
+    // a missing key rather than throwing (a bash-arm bug found 2026-08 under a since-retired costume).
 
-    protected static string Str(IDictionary<string, object?>? args, string key) => StrOrNull(args, key) ?? "";
+    private static string Str(IDictionary<string, object?>? args, string key) => StrOrNull(args, key) ?? "";
 
-    protected static string? StrOrNull(IDictionary<string, object?>? args, string key) =>
+    private static string? StrOrNull(IDictionary<string, object?>? args, string key) =>
         args != null && args.TryGetValue(key, out var v) ? v?.ToString() : null;
 
-    /// <summary>
-    /// Every costume nb wears declares its bash timeout in milliseconds; nb's is in seconds.
-    /// Rounds up, so a sub-second request becomes 1s rather than 0 (which would read as
-    /// "no timeout requested" and silently restore the default).
-    /// </summary>
-    protected static int? MillisToSeconds(int? millis) =>
-        millis is null ? null : Math.Max(1, (int)Math.Ceiling(millis.Value / 1000.0));
 
-    protected static int? Int(IDictionary<string, object?>? args, string key) =>
+    private static int? Int(IDictionary<string, object?>? args, string key) =>
         StrOrNull(args, key) is { Length: > 0 } s && int.TryParse(s, out var n) ? n : null;
 
-    protected static bool? Bool(IDictionary<string, object?>? args, string key) =>
+    private static bool? Bool(IDictionary<string, object?>? args, string key) =>
         StrOrNull(args, key) is { Length: > 0 } s ? s.Equals("true", StringComparison.OrdinalIgnoreCase) : null;
 
 
 
     // ---- Read-side capabilities -------------------------------------------------
-    // Extracted so a costume's own tool method can call them. Each owns its approval
-    // check and its console chrome; the caller owns argument unpacking, which is where
-    // costumes differ.
+    // Each owns its approval check and its console chrome; DispatchAsync owns argument
+    // unpacking.
 
     /// <summary>Read a file. Auto-approves inside the cwd sandbox, denies outside it.</summary>
-    protected ToolOutcome HandleReadFileToolCall(string callId, string path, int? offset, int? limit)
+    private ToolOutcome HandleReadFileToolCall(string callId, string path, int? offset, int? limit)
     {
         var fullReadPath = ReadFile!.ResolvePath(path);
         if (!ApproveReadPath("Read", fullReadPath, ReadFile.GetCwd()))
-            return Deny(callId, $"{ToolLabel("read_file")} → {path}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"read_file → {path}", DenyRung, OutsideCwdRemedy);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• reading {Markup.Escape(path)}[/]");
 
@@ -602,11 +321,11 @@ public class NbHarness
     }
 
     /// <summary>Glob for files. Auto-approves inside the cwd sandbox, denies outside it.</summary>
-    protected ToolOutcome HandleFindFilesToolCall(string callId, string pattern, string? path, int? maxResults)
+    private ToolOutcome HandleFindFilesToolCall(string callId, string pattern, string? path, int? maxResults)
     {
         var fullFindPath = FindFiles!.ResolvePath(path);
         if (!ApproveReadPath("Find", fullFindPath, FindFiles.GetCwd()))
-            return Deny(callId, $"{ToolLabel("find_files")} → {path ?? "."}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"find_files → {path ?? "."}", DenyRung, OutsideCwdRemedy);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• find_files: {Markup.Escape(pattern)}[/]");
 
@@ -616,12 +335,12 @@ public class NbHarness
     }
 
     /// <summary>Regex search across files. Auto-approves inside the cwd sandbox, denies outside it.</summary>
-    protected ToolOutcome HandleGrepToolCall(string callId, string pattern, string? path, string? filePattern,
+    private ToolOutcome HandleGrepToolCall(string callId, string pattern, string? path, string? filePattern,
         bool? caseInsensitive, int? maxResults, string? outputMode)
     {
         var fullGrepPath = Grep!.ResolvePath(path);
         if (!ApproveReadPath("Grep", fullGrepPath, Grep.GetCwd()))
-            return Deny(callId, $"{ToolLabel("grep")} → {path ?? "."}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"grep → {path ?? "."}", DenyRung, OutsideCwdRemedy);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• grep: {Markup.Escape(pattern)}{(filePattern != null ? $" ({Markup.Escape(filePattern)})" : "")}[/]");
 
@@ -631,11 +350,11 @@ public class NbHarness
     }
 
     /// <summary>List a directory. Auto-approves inside the cwd sandbox, denies outside it.</summary>
-    protected ToolOutcome HandleListDirToolCall(string callId, string? path)
+    private ToolOutcome HandleListDirToolCall(string callId, string? path)
     {
         var fullListPath = ListDir!.ResolvePath(path);
         if (!ApproveReadPath("List", fullListPath, ListDir.GetCwd()))
-            return Deny(callId, $"{ToolLabel("list_dir")} → {path ?? "."}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"list_dir → {path ?? "."}", DenyRung, OutsideCwdRemedy);
 
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• list_dir: {Markup.Escape(path ?? ".")}[/]");
 
@@ -667,7 +386,7 @@ public class NbHarness
     }
 
     /// <summary>Record todo changes. Always auto-approves.</summary>
-    protected ToolOutcome HandleTodoWriteToolCall(string callId, IDictionary<string, object?>? arguments)
+    private ToolOutcome HandleTodoWriteToolCall(string callId, IDictionary<string, object?>? arguments)
     {
         var changes = ParseTodoChanges(arguments);
         var resultString = Todo.Write(changes);
@@ -675,59 +394,8 @@ public class NbHarness
         return ToolOutcome.Ok(callId, resultString);
     }
 
-    /// <summary>
-    /// Turn a whole-list checklist into the incremental changes nb's todo_write expects.
-    ///
-    /// Codex's <c>update_plan</c> and Claude Code's <c>TodoWrite</c> both send the entire
-    /// list on every call and the new list replaces the old one; nb's todo_write merges by
-    /// content and keeps what it is not told about. Cancelling the items the new list
-    /// dropped is what makes a replace out of a merge — without it a costume that reports
-    /// three steps would render five.
-    /// </summary>
-    protected static List<TodoChange> ParseChecklist(
-        IDictionary<string, object?>? args, string arrayKey, string textField)
-    {
-        var items = new List<TodoChange>();
-        if (TodoArgumentJson(args, arrayKey) is not { } json) return items;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) return items;
-
-            foreach (var item in doc.RootElement.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Object) continue;
-                var text = item.TryGetProperty(textField, out var t) ? t.GetString() : null;
-                if (string.IsNullOrWhiteSpace(text)) continue;
-                var status = item.TryGetProperty("status", out var s) ? s.GetString() : null;
-                items.Add(new TodoChange(text!, status ?? "pending"));
-            }
-        }
-        catch (JsonException)
-        {
-            // Leave it empty; todo_write reports "no changes submitted".
-        }
-        return items;
-    }
-
-    protected IDictionary<string, object?> AsWholeListReplacement(IReadOnlyList<TodoChange> items)
-    {
-        var kept = items.Select(i => i.Content).ToHashSet(StringComparer.Ordinal);
-        var changes = Todos.GetAll()
-            .Where(t => !kept.Contains(t.Content))
-            .Select(t => new TodoChange(t.Content, "cancelled"))
-            .Concat(items)
-            .ToList();
-
-        return new Dictionary<string, object?>
-        {
-            ["changes"] = JsonSerializer.Serialize(changes),
-        };
-    }
-
     /// <summary>Read the todo list. Always auto-approves.</summary>
-    protected ToolOutcome HandleTodoReadToolCall(string callId)
+    private ToolOutcome HandleTodoReadToolCall(string callId)
     {
         var resultString = Todo.Read();
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]• todo_read[/]");
@@ -752,17 +420,9 @@ public class NbHarness
     ///
     /// *The human* gets the refusal plus the line that would have authorized it — the half
     /// that did not exist before. A directive is pasteable into the program; where no
-    /// directive can grant the thing, say so plainly rather than inventing one. This half
-    /// is nb's own and stays here: the console is nb's observation channel, not the
-    /// emulated harness's, and an operator reading a run needs the truth about *nb's*
-    /// policy regardless of which costume is being worn.
+    /// directive can grant the thing, say so plainly rather than inventing one.
     ///
-    /// *The model* gets <see cref="RefusalText"/>, which costumes override.
-    ///
-    /// Deliberately not virtual — recording the ledger verdict and printing the operator's
-    /// line are obligations no costume should be able to drop, and a costume that
-    /// overrode this whole method would silently drop both. Overriding only the text makes
-    /// the seam exactly as wide as the thing that actually differs.
+    /// *The model* gets <see cref="RefusalText"/>.
     /// </summary>
     /// <param name="tool">What was refused, as the reader sees it — "bash (run)", "write_file → /etc/motd".</param>
     /// <param name="rung">The <see cref="ApprovalLedger"/> rung that decided it; also selects the explanation.</param>
@@ -790,12 +450,12 @@ public class NbHarness
     }
 
     /// <summary>Why the call was refused, in nb's own terms. Shared by both audiences.</summary>
-    protected static string Because(string rung) => rung == ApprovalLedger.DefaultDeny
+    private static string Because(string rung) => rung == ApprovalLedger.DefaultDeny
         ? "the approval policy default is deny, and no allow-rule matched"
         : "nothing in the approval policy allows it";
 
     /// <summary>Whether a remedy is a pasteable <c>approval …</c> line rather than prose guidance.</summary>
-    protected static bool IsDirective(string remedy) => remedy.StartsWith("approval ", StringComparison.Ordinal);
+    private static bool IsDirective(string remedy) => remedy.StartsWith("approval ", StringComparison.Ordinal);
 
     /// <summary>
     /// The refusal the model reads. nb's own is **terminal**: what was refused, which rule
@@ -803,14 +463,8 @@ public class NbHarness
     /// Nobody is going to say yes mid-run, so a refusal implying otherwise buys wasted
     /// turns. Naming the deciding rule follows qwen-code, which puts its matching deny
     /// rule in the string the model reads.
-    ///
-    /// <c>virtual</c> because the three emulated harnesses do not agree on what a refusal
-    /// implies about the next move, and that disagreement moves model behaviour — codex
-    /// retries with elevated permission, claude-code stops and waits for a person, qwen
-    /// gives up. Handing every costume nb's class would erase a real difference
-    /// (plans/approval-without-prompts.md step 6).
     /// </summary>
-    protected virtual string RefusalText(string tool, string rung, string remedy, string? miss = null) =>
+    private static string RefusalText(string tool, string rung, string remedy, string? miss = null) =>
         $"Error: {tool} was denied — {Because(rung)}.{(miss is null ? "" : $" Near miss: {miss}.")} " +
         "This will not succeed on retry; nothing in this run " +
         $"will grant it. {(IsDirective(remedy) ? $"It would require this directive in the program: {remedy}." : remedy)} " +
@@ -834,9 +488,7 @@ public class NbHarness
 
     /// <summary>
     /// Approve and run one bash call. <paramref name="timeoutSeconds"/> is the model's
-    /// requested timeout in *seconds*; costumes whose target declares milliseconds convert at
-    /// their own dispatch site, because the conversion is a property of the costume and not
-    /// of this capability (bugs/Bash_Advertises_A_Timeout_It_Ignores.md).
+    /// requested timeout in *seconds* (bugs/Bash_Advertises_A_Timeout_It_Ignores.md).
     /// </summary>
     public async Task<ToolOutcome> HandleBashToolCall(string callId, string command, string description,
         int? timeoutSeconds = null)
@@ -878,7 +530,7 @@ public class NbHarness
             if (classified.IsDangerous && classified.DangerReason != null)
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: {classified.DangerReason}[/]");
 
-            return Deny(callId, $"{ToolLabel("bash")} ({classified.Category}): {classified.DisplayText}",
+            return Deny(callId, $"bash ({classified.Category}): {classified.DisplayText}",
                 DenyRung, BashRemedy(command), miss);
         }
         catch (Exception ex)
@@ -924,8 +576,8 @@ public class NbHarness
             // Resolve path for display
             var fullPath = WriteFile?.ResolvePath(path) ?? path;
 
-            // Captured before the write, because a costume's acknowledgment distinguishes
-            // creating a file from overwriting one.
+            // Captured before the write: the acknowledgment distinguishes creating a file
+            // from overwriting one.
             var created = !File.Exists(fullPath);
 
             // Guard: if file exists, it must have been read first
@@ -977,7 +629,7 @@ public class NbHarness
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Write:[/] {Markup.Escape(fullPath)}");
             AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  {lineCount} lines, {byteCount} bytes[/]");
 
-            return Task.FromResult(Deny(callId, $"{ToolLabel("write_file")} → {path}", DenyRung, OutsideCwdRemedy));
+            return Task.FromResult(Deny(callId, $"write_file → {path}", DenyRung, OutsideCwdRemedy));
         }
         catch (Exception ex)
         {
@@ -991,7 +643,7 @@ public class NbHarness
         try
         {
             if (_approvalPolicy.DecideSearch() != ApprovalDecision.Allow)
-                return Deny(callId, $"{ToolLabel("search_web")}: {query}", DenyRung, "approval search allow");
+                return Deny(callId, $"search_web: {query}", DenyRung, "approval search allow");
 
             var result = await SearchWeb!.SearchAsync(query);
 
@@ -1017,7 +669,7 @@ public class NbHarness
         try
         {
             if (_approvalPolicy.DecideFetch() != ApprovalDecision.Allow)
-                return Deny(callId, $"{ToolLabel("fetch_url")}: {url}", DenyRung, "approval fetch allow");
+                return Deny(callId, $"fetch_url: {url}", DenyRung, "approval fetch allow");
 
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Fetch:[/] {Markup.Escape(url)}");
             AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: outbound network request[/]");
@@ -1099,7 +751,7 @@ public class NbHarness
             if (replaceAll)
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]  (replace all occurrences)[/]");
 
-            return Deny(callId, $"{ToolLabel("edit_file")} → {path}", DenyRung, OutsideCwdRemedy);
+            return Deny(callId, $"edit_file → {path}", DenyRung, OutsideCwdRemedy);
         }
         catch (Exception ex)
         {
@@ -1181,7 +833,7 @@ public class NbHarness
 
         // At least one path leaves the sandbox. RenderPatchSummary above already showed the
         // whole patch, so the human can see exactly which files put it out of bounds.
-        return Deny(callId, $"{ToolLabel("apply_patch")} (path outside working directory)", DenyRung, OutsideCwdRemedy);
+        return Deny(callId, $"apply_patch (path outside working directory)", DenyRung, OutsideCwdRemedy);
     }
 
     private static void RenderPatchSummary(PatchPreview preview)
@@ -1270,8 +922,7 @@ public class NbHarness
 
     /// <summary>
     /// Unpack nb's own <c>todo_write</c> argument shape: a <c>changes</c> array of
-    /// content/status pairs, already incremental. Costumes whose target sends a whole
-    /// checklist go through <see cref="ParseChecklist"/> instead.
+    /// content/status pairs, already incremental.
     /// </summary>
     public static List<TodoChange> ParseTodoChanges(IDictionary<string, object?>? args)
     {

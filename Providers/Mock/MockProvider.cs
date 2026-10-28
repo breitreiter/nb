@@ -230,18 +230,8 @@ public class MockChatClient : IChatClient
             // Content is fixed: these scripted calls exercise approval and the tool loop,
             // and no test so far has cared what got written — only whether it was allowed.
             "write_file" => new() { ["path"] = arg, ["content"] = "scripted by MockProvider\n" },
-            // read_file keeps its name across the qwen-code costume but changes its
-            // parameter spelling, and the mock cannot see which harness is active — so
-            // send both; the unused one is ignored either way.
-            "read_file" => new() { ["path"] = arg, ["file_path"] = arg },
+            "read_file" => new() { ["path"] = arg },
             "list_dir" => new() { ["path"] = arg },
-
-            // The qwen-code costume's spellings, so a scripted call exercises the
-            // harness's inbound translation end to end (plans/harness-emulation.md).
-            "run_shell_command" => new() { ["command"] = arg, ["is_background"] = false, ["timeout"] = 30000 },
-            "list_directory" => new() { ["file_path"] = arg, ["path"] = arg },
-            "glob" => new() { ["pattern"] = arg },
-            "grep_search" => new() { ["pattern"] = arg, ["glob"] = "*", ["limit"] = 5 },
 
             _ => new() { ["input"] = arg },
         };

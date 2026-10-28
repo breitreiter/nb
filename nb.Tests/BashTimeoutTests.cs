@@ -65,15 +65,14 @@ public class BashTimeoutTests
 
     // --- The dispatch path reads the argument at all ---
 
-    private static async Task<string> Dispatch(string? costume, string wireName, IDictionary<string, object?> args)
+    private static async Task<string> Dispatch(IDictionary<string, object?> args)
     {
-        NbHarness instance = new NbHarness(Tool(def: 2));
-        if (costume is not null) instance = HarnessRegistry.Create(costume, instance);
+        var instance = new NbHarness(Tool(def: 2));
         instance.Configure(
             new ApprovalPolicy(trust: false, new ApprovalPatterns(new[] { "*" }), _ => false, null, ApprovalDefault.Prompt),
             verbose: false, new ApprovalLedger());
 
-        var outcome = await instance.InvokeAsync(wireName, "call-1", args, CancellationToken.None);
+        var outcome = await instance.InvokeAsync("bash", "call-1", args, CancellationToken.None);
         return outcome!.Value.Content.Result?.ToString() ?? "";
     }
 
@@ -82,31 +81,11 @@ public class BashTimeoutTests
     {
         // Default is 2s; the call asks for 30. Before the dispatch wiring the argument was
         // accepted and discarded, so this timed out.
-        var output = await Dispatch(null, "bash", new Dictionary<string, object?>
+        var output = await Dispatch(new Dictionary<string, object?>
         {
             ["command"] = "sleep 4; echo done",
             ["description"] = "sleep past the default",
             ["timeout_seconds"] = 30,
-        });
-
-        Assert.Contains("done", output);
-        Assert.DoesNotContain("exceeded", output);
-    }
-
-    [Theory]
-    [InlineData("codex", "shell_command", "timeout_ms")]
-    [InlineData("claude-code", "Bash", "timeout")]
-    [InlineData("qwen-code", "run_shell_command", "timeout")]
-    public async Task Costumes_ConvertTheirMillisecondTimeout(string costume, string wireName, string key)
-    {
-        // All three targets declare their timeout in milliseconds. nb's is in seconds, and
-        // nothing converted between them because the shared capability took no timeout at
-        // all — so each costume advertised a parameter it could not honour.
-        var output = await Dispatch(costume, wireName, new Dictionary<string, object?>
-        {
-            ["command"] = "sleep 4; echo done",
-            ["description"] = "sleep past the default",
-            [key] = 30000,
         });
 
         Assert.Contains("done", output);

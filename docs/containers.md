@@ -133,7 +133,7 @@ the tree:
 | artefact | what it leaks | keep it out with |
 | --- | --- | --- |
 | the program file | the task, the system prompt, the path of every include | `nb --compile program.nb` on the host, the JSONL on stdin; nothing rests on disk |
-| `@file` includes: an oracle sheet, a costume's instruction file | the answers | the same: `--compile` inlines every include, so the container never holds a path to one |
+| `@file` includes: an oracle sheet, a system prompt | the answers | the same: `--compile` inlines every include, so the container never holds a path to one |
 | `--seed` transcript | the fabricated history, as a file | the same again: `--compile --seed` folds it into the output |
 | `appsettings.json` | the keys | keep keys as `${VAR}` in the config and pass them with `-e`; the key is still readable in the environment, but a config file with no literal key leaks nothing on its own |
 | `mcp.json` | server commands and header values | there is none in the image; a `--mcp <file>` on a read-only mount when a run needs one, with headers as `${VAR}` too |

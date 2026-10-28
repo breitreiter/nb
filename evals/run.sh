@@ -603,21 +603,6 @@ run_prog_contains "validate: unknown provider exits 1" 1 "unknown provider" \
 run_prog_stdout_contains "resolve: prints per-run envelope" "run 1:" \
     "$(cat "$FIX/prog-swap.nb")" --resolve
 
-# bugs/Resolve_Does_Not_Show_The_Costumed_Wire_Surface.md — the program names nine
-# canonical tools and codex advertises two of them, under other names. Reporting only
-# the canonical list told a harness author the run could edit a file when it could not.
-run_prog_stdout_contains "resolve: costume prints the wire surface" "wire=shell_command,view_image" \
-    "$(cat "$FIX/prog-costume-resolve.nb")" --resolve
-run_prog_stdout_contains "resolve: costume names the dropped tools" "dropped=edit_file,fetch_url,find_files,grep,list_dir,search_web,write_file" \
-    "$(cat "$FIX/prog-costume-resolve.nb")" --resolve
-# The canonical line is unchanged: `tools=` still echoes the directives, which is the
-# documented vocabulary. The wire line is additive.
-run_prog_stdout_contains "resolve: costume keeps the canonical tools line" "tools=bash,edit_file,fetch_url,find_files,grep,list_dir,read_file,search_web,write_file" \
-    "$(cat "$FIX/prog-costume-resolve.nb")" --resolve
-# No costume, no divergence to report — the extra line would be noise on every run.
-run_prog_stdout_lacks "resolve: native harness prints no wire line" "wire=" \
-    "$(cat "$FIX/prog-native-resolve.nb")" --resolve
-
 echo ""
 echo "--- compile (plans/container-runs.md item 1) ---"
 echo ""
@@ -669,28 +654,35 @@ else
 fi
 
 echo ""
-echo "--- harness is required ---"
+echo "--- harness: nb is the only one, and the default ---"
 echo ""
 
-# A run wears a harness on purpose. A program that names none, under a config whose
-# entry names none, is refused before a model is called — the bare surface is `harness
-# nb`, asked for by name. (The mock config every other eval uses says `"Harness": "nb"`.)
-run_prog_contains "harness: no harness anywhere is refused" 1 "no harness named" \
-    $'run hi' --config "$FIX/no-harness-appsettings.json"
-run_prog_contains "harness: the refusal says how to ask for the bare surface" 1 "harness nb" \
-    $'run hi' --config "$FIX/no-harness-appsettings.json"
-run_prog_contains "harness: the refusal pairs costumes with their vendors' models" 1 "claude-code with an Anthropic model" \
+# The costumes retired 2026-10-28 (plans/atif-and-acp.md stage 1): to test in a real
+# harness, run it — a proctor arm. With one surface left there is nothing to name, so a
+# program or config that names none runs on nb. `harness nb` stays valid.
+run_prog_jsonl "harness: no harness anywhere runs on nb" '.[-1].exit_reason' "ok" \
     $'run hi' --config "$FIX/no-harness-appsettings.json"
 run_prog_jsonl "harness: explicit harness nb runs bare" '.[-1].harness' "null" \
     $'harness nb\nrun hi' --config "$FIX/no-harness-appsettings.json"
-run_prog_jsonl "harness: the provider entry's Harness is worn and recorded" '.[-1].harness' "qwen-code" \
-    $'run hi' --config "$FIX/entry-harness-appsettings.json"
-run_prog_jsonl "harness: the program directive beats the entry" '.[-1].harness' "null" \
-    $'harness nb\nrun hi' --config "$FIX/entry-harness-appsettings.json"
-run_prog_stdout_contains "resolve: shows the entry's harness" "harness=qwen-code" \
-    $'run hi' --resolve --config "$FIX/entry-harness-appsettings.json"
-run_prog_stdout_contains "resolve: names a missing harness" "harness=(none" \
+run_prog_stdout_contains "resolve: no harness resolves to nb" "harness=nb" \
     $'run hi' --resolve --config "$FIX/no-harness-appsettings.json"
+
+# A retired name is refused with what happened and what to do instead, not as unknown:
+# a config written last month should say the costume retired, not that it never existed.
+for costume in claude-code codex qwen-code; do
+    run_prog_contains "harness: $costume in a program is refused as retired" 1 "harness $costume was retired on 2026-10-28" \
+        "harness $costume"$'\nrun hi'
+done
+run_prog_contains "harness: the refusal names the real harness" 1 'a proctor arm with "agent": "claude-code"' \
+    $'harness claude-code\nrun hi'
+run_prog_contains "harness: the refusal names nb's own surface" 1 "write harness nb" \
+    $'harness codex\nrun hi'
+run_prog_contains "harness: a retired entry Harness is refused before any model call" 1 "harness qwen-code was retired" \
+    $'run hi' --config "$FIX/retired-harness-appsettings.json"
+run_prog_jsonl "harness: the program directive beats a retired entry" '.[-1].exit_reason' "ok" \
+    $'harness nb\nrun hi' --config "$FIX/retired-harness-appsettings.json"
+run_prog_contains "harness: an unknown name is still unknown" 1 "unknown harness 'cursor'" \
+    $'harness cursor\nrun hi'
 
 echo ""
 echo "--- provider substitution (bugs/Failed_Provider_Directive_Silently_Substitutes.md) ---"

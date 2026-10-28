@@ -12,7 +12,6 @@
 !theme.json
 !LICENSE.txt
 !THIRD-PARTY-NOTICES.md
-!prompts/
 !nb.Core/
 !Providers/
 **/bin/

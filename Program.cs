@@ -24,7 +24,7 @@ public class Program
     private static bool _verbose = false;
     private static bool _dumpTools = false;
     private static bool _showHelp = false;
-    private static string _outputMode = "interactive"; // interactive | porcelain | jsonl
+    private static string _outputMode = "jsonl"; // jsonl | porcelain
     private static string? _seedFile = null;
     private static string? _configPath = null;
     private static string? _programFile = null;        // program path, "-" for stdin, or null
@@ -43,9 +43,9 @@ public class Program
         if (!string.IsNullOrEmpty(envOutput))
         {
             _outputMode = envOutput.ToLowerInvariant();
-            if (_outputMode is not ("interactive" or "jsonl" or "porcelain"))
+            if (_outputMode is not ("jsonl" or "porcelain"))
             {
-                Console.Error.WriteLine($"Error: unknown NB_OUTPUT mode '{_outputMode}'. Valid modes: interactive, porcelain, jsonl.");
+                Console.Error.WriteLine($"Error: unknown NB_OUTPUT mode '{_outputMode}'. Valid modes: jsonl, porcelain.");
                 Environment.Exit(1);
             }
         }
@@ -63,9 +63,9 @@ public class Program
             else if (args[i] == "--output" && i + 1 < args.Length)
             {
                 _outputMode = args[++i].ToLowerInvariant();
-                if (_outputMode is not ("interactive" or "jsonl" or "porcelain"))
+                if (_outputMode is not ("jsonl" or "porcelain"))
                 {
-                    Console.Error.WriteLine($"Error: unknown --output mode '{_outputMode}'. Valid modes: interactive, porcelain, jsonl.");
+                    Console.Error.WriteLine($"Error: unknown --output mode '{_outputMode}'. Valid modes: jsonl, porcelain.");
                     Environment.Exit(1);
                 }
             }
@@ -112,14 +112,6 @@ public class Program
 
     public static async Task Main(string[] args)
     {
-        // Ctrl+C short-circuits our normal cleanup, so the spinner's cursor-hide
-        // (`\x1b[?25l`) and bracketed-paste-enable (`\x1b[?2004h`) can bleed into
-        // the parent shell. Restore both before the default handler kills us.
-        Console.CancelKeyPress += (_, _) =>
-        {
-            try { Console.Write("\x1b[?25h\x1b[?2004l"); Console.Out.Flush(); } catch { }
-        };
-
         var remainingArgs = ParseFlags(args);
 
         // Before anything else: no config to load, no console to re-point, and
@@ -141,21 +133,12 @@ public class Program
         _programFile = remainingArgs.Length == 1 ? remainingArgs[0]
             : (Console.IsInputRedirected ? "-" : null);
 
-        // A program run is machine-oriented: default its output to jsonl (the
-        // bytecode) so chrome relocates to stderr like the other machine modes.
-        if (_programFile != null && _outputMode == "interactive")
-            _outputMode = "jsonl";
-
-        // Machine-output modes send all chrome (banners, streamed render, tool
-        // noise) to stderr so stdout carries only the transcript. One seam: every
-        // AnsiConsole.* call relocates with this.
-        if (_outputMode is "jsonl" or "porcelain")
+        // All chrome (streamed render, tool noise, warnings) goes to stderr so stdout
+        // carries only the transcript. One seam: every AnsiConsole.* call relocates with this.
+        AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
         {
-            AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Out = new AnsiConsoleOutput(Console.Error),
-            });
-        }
+            Out = new AnsiConsoleOutput(Console.Error),
+        });
 
         // Honor NO_COLOR (https://no-color.org). Spectre drops ANSI when output is
         // redirected but does not read NO_COLOR itself; applied after the jsonl swap.
@@ -228,7 +211,7 @@ public class Program
         Console.WriteLine("Options (each varies how a program runs; it never replaces a program verb):");
         Console.WriteLine("  --help, -h              Show this help message");
         Console.WriteLine("  --version               Print nb's version and exit");
-        Console.WriteLine("  --output <mode>         jsonl (default for a program), porcelain, or interactive. jsonl/porcelain put the transcript on stdout, chrome on stderr");
+        Console.WriteLine("  --output <mode>         jsonl (default) or porcelain. The transcript goes on stdout, chrome on stderr");
         Console.WriteLine("  --seed <file>           Prepend a transcript (jsonl) as premise history before the program runs");
         Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
         Console.WriteLine("  --mcp <file>            Use this MCP manifest only (hermetic); default layers mcp.json across install/user/project");
@@ -455,7 +438,7 @@ public class Program
                 // Vocabulary decision in plans/harness-emulation.md. Unchecked, an
                 // unknown name folded into the allow-set and did nothing at all: a
                 // program that believed it had removed a tool still exposed it, and
-                // nothing said so. A typo and a costume's wire name fail the same way.
+                // nothing said so.
                 case ToolsEvent t:
                     foreach (var name in t.Add.Concat(t.Remove))
                         if (!ConversationManager.NativeToolNames.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -473,9 +456,8 @@ public class Program
     /// transcript full of `Edit` and reasonably assumed that is what a program writes.
     /// </summary>
     private static string UnknownNativeTool(string name) =>
-        $"unknown tool '{name}' in a `tools` directive. `tools` names nb's canonical tools under "
-        + "every harness — a costume changes the names the model sees, not the names a program "
-        + $"writes. Valid: {string.Join(", ", ConversationManager.NativeToolNames)}.";
+        $"unknown tool '{name}' in a `tools` directive. `tools` names nb's canonical tools, "
+        + $"not another harness's names for them. Valid: {string.Join(", ", ConversationManager.NativeToolNames)}.";
 
     // --resolve: walk the directives without invoking, printing the effective
     // envelope at each run point (the ordering inspector for anywhere-config).
@@ -498,9 +480,6 @@ public class Program
             {
                 case ProviderEvent p: provider = p.Name; break;
                 case ModelEvent m: model = m.Name; break;
-                // A costume changes the whole advertised surface, so an inspector that
-                // omits it prints canonical tool names without saying they will reach the
-                // model under other ones.
                 case HarnessEvent h: harness = h.Name; break;
                 case SurfaceDirectiveEvent sd: surfaceDirectives.Add(sd); break;
                 case ApprovalEvent { Key: "default" } a: approvalDefault = a.Value; break;
@@ -514,7 +493,8 @@ public class Program
                 case RunEvent:
                     run++;
                     harness ??= HarnessRegistry.ConfiguredDefault(config, provider == "(default)" ? null : provider);
-                    var harnessStr = harness ?? "(none — a run needs `harness <name>` or a config `Harness`)";
+                    var harnessStr = harness is null ? HarnessRegistry.Default
+                        : HarnessRegistry.Refusal(harness) is { } refused ? $"{harness} (refused: {refused})" : harness;
                     // Fold through the same resolver the evaluator runs, so what this
                     // prints is provably what a run exposes (plans/tool-surface-directives.md).
                     var surface = ToolSurface.Fold(surfaceDirectives, ConversationManager.NativeToolNames);
@@ -524,58 +504,14 @@ public class Program
                         : surface.NativeAllow.Count > 0 ? string.Join(",", surface.NativeAllow.OrderBy(n => n)) : "(none)";
                     var budgetStr = $"tokens:{(tokenBudget?.ToString() ?? "-")} tool_calls:{(toolCallBudget?.ToString() ?? "-")} wall_ms:{(wallBudget?.ToString() ?? "-")}";
                     Console.WriteLine($"run {run}: provider={provider} model={model} harness={harnessStr} output={output} mcp=[{mcpStr}] tools={toolStr} approval={approvalDefault}(bash:{bashRules} mcp:{mcpRules}) sandbox={sandbox} loop={loop} budget=[{budgetStr}]");
-                    // `tools=` echoes the canonical directives, which is the documented
-                    // vocabulary — but under a costume those names are requested, not
-                    // effective: a costume advertises a subset under different names, so a
-                    // program naming nine tools can reach the model holding two.
-                    // bugs/Resolve_Does_Not_Show_The_Costumed_Wire_Surface.md
-                    if (harness is not null && harness != HarnessRegistry.Default)
-                    {
-                        var (wire, dropped) = ResolveWireSurface(harness, surface);
-                        Console.WriteLine($"       wire={wire} dropped={dropped}");
-                    }
                     break;
             }
         }
 
         if (run == 0)
-            Console.WriteLine($"no runs. provider={provider} model={model} harness={harness ?? "(none)"} output={output}");
+            Console.WriteLine($"no runs. provider={provider} model={model} harness={harness ?? HarnessRegistry.Default} output={output}");
     }
 
-
-    /// <summary>
-    /// What a costume will actually advertise, and which canonical tools it discards.
-    ///
-    /// <para>`dropped` is the load-bearing half — a costume that quietly discards seven of
-    /// nine named tools is worth seeing before spending a run. It is derived by probing the
-    /// costume one canonical tool at a time, because costumes keep no canonical-to-wire map:
-    /// each <c>CreateTools</c> arm gates on a single <c>AllowsNative</c> check, so a tool
-    /// that yields nothing on its own yields nothing in company either.</para>
-    /// </summary>
-    private static (string Wire, string Dropped) ResolveWireSurface(string harness, ToolSurface surface)
-    {
-        var env = ShellEnvironment.Detect(Array.Empty<string>());
-
-        // Every capability is present, so a name missing from the wire surface is the
-        // costume's decision and not an absent tool. search_web is normally config-gated on
-        // an API key; constructing it here keeps the report about the costume.
-        NbHarness probe = new(
-            new BashTool(env), new ReadFileTool(env), new WriteFileTool(env), new EditFileTool(env),
-            new FindFilesTool(env), new GrepTool(env), new ListDirTool(env), new FetchUrlTool(),
-            new SearchWebTool(), new ApplyPatchTool(env), applyPatchStyle: false);
-        probe = HarnessRegistry.Create(harness, probe);
-
-        var wire = probe.CreateTools(surface).Select(t => t.Name).OrderBy(n => n).ToList();
-
-        var named = surface.NativeAllow ?? ConversationManager.NativeToolNames.ToHashSet();
-        var dropped = named
-            .Where(n => probe.CreateTools(new ToolSurface { NativeAllow = new HashSet<string> { n } }).Count == 0)
-            .OrderBy(n => n)
-            .ToList();
-
-        return (wire.Count > 0 ? string.Join(",", wire) : "(none)",
-                dropped.Count > 0 ? string.Join(",", dropped) : "(none)");
-    }
 
     // First non-blank, non-comment line starting with '{' => JSONL bytecode.
     private static bool LooksLikeJsonl(string source)

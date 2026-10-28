@@ -210,6 +210,9 @@ over ACP, and nb does not speak ACP (*Open questions*).
 
 ### 5. Retire the costumes
 
+**Done 2026-10-28** (`plans/atif-and-acp.md` stage 1). `harness` survives as an
+optional directive whose only value, `nb`, is the default.
+
 **The rule a costume survives by:** it is the native surface of a model nb
 is the right way to run, and there is no real-harness route for it. After
 this plan:

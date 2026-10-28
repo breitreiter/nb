@@ -34,9 +34,9 @@ Omit `Provider` and it defaults to `Name`.
 
 Per-entry fields worth knowing:
 
-- `Harness`: the costume a run wears when its program names no `harness`. Pair each
-  entry with its vendor's costume (`claude-code` for Anthropic, `codex` for OpenAI and
-  Azure, `qwen-code` for Qwen). A run that resolves no harness is refused.
+- `Harness`: optional, and `nb` is the only value. The costumes (`claude-code`,
+  `codex`, `qwen-code`) retired on 2026-10-28, and an entry still naming one is refused
+  with the replacement; delete the field.
 - `MaxContextTokens`: set when a model's context window is non-standard.
 - `Temperature`: sent on every call for that entry, including the oracle's side call
   when the entry is the judge. Leave it unset on an entry for a Claude 5 model; those
@@ -82,18 +82,13 @@ family name. If Azure shows an endpoint on `services.ai.azure.com` with a
 `/api/projects/<project>/...` path, that is the newer Foundry Unified Endpoint and
 neither provider targets it directly. Open an issue if you need that variant.
 
-## `EditToolStyle` (deprecated)
+## `EditToolStyle`
 
 A per-entry field that selects the file-edit surface: `EditReplace` (default)
 advertises `edit_file` and `write_file`; `ApplyPatch` advertises `apply_patch` instead.
 They are mutually exclusive because GPT-family models confuse the two when both are
-present.
-
-It still works, and setting it prints a warning. Use the `harness codex` program
-directive instead. `apply_patch` is the Codex edit surface, and the costume brings the
-rest of that surface with it: shell-only file access, the plan tool, `AGENTS.md`, the
-environment block. If you set `EditReplace`, remove the field; that is the default. A
-program that names a `harness` overrides this field either way.
+present. Set `ApplyPatch` on an entry for a GPT-family model: it offers that model its
+preferred edit tool on nb's own surface.
 
 ## Writing your own provider
 

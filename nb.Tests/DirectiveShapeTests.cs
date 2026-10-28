@@ -87,15 +87,14 @@ public class DirectiveShapeTests
     }
 
     /// <summary>
-    /// The decided rule: `tools` speaks nb's canonical names under every costume, because
-    /// it states what the run may do rather than what the model is shown. A wire name is
+    /// `tools` speaks nb's canonical names. Another harness's name for the same tool is
     /// therefore an error — and it used to be worse than an error, it was nothing at all.
     /// </summary>
     [Theory]
-    [InlineData("Edit")]          // claude-code's wire name for edit_file
-    [InlineData("shell_command")] // codex's for bash
+    [InlineData("Edit")]          // Claude Code's name for edit_file
+    [InlineData("shell_command")] // Codex's for bash
     [InlineData("run_shell_command")]
-    public void ACostumesWireName_IsAnErrorAndSaysWhy(string wireName)
+    public void AnotherHarnesssToolName_IsAnErrorAndSaysWhy(string wireName)
     {
         var errors = Program.CheckDirectiveShape(
             new TranscriptEvent[] { new ToolsEvent { Remove = new[] { wireName } } });

@@ -4,59 +4,42 @@ using nb.Providers;
 namespace nb.Harness;
 
 /// <summary>
-/// The named harnesses a program can select with the <c>harness</c> directive.
+/// The names a <c>harness</c> directive or a config <c>Harness</c> may say. There is one
+/// surface, nb's own, and it is the default: a program that names none runs on it.
 ///
-/// <see cref="Default"/> is nb's own canonical surface; costumes that imitate another
-/// agent's harness (see plans/harness-emulation.md) are each a name plus the
-/// <see cref="NbHarness"/> subclass behind it — deliberately a closed, in-tree set
-/// rather than a plugin point. If you need something weird, write a class.
-///
-/// An unrecognised name is a hard error rather than a warning, because a run that
-/// silently falls back to nb's surface while the program says <c>codex</c> produces
-/// comparative numbers that mean nothing. That failure is worse than the missing run.
+/// The costumes that imitated other agents' harnesses (claude-code, codex, qwen-code)
+/// retired on <see cref="RetiredOn"/> (plans/atif-and-acp.md stage 1, executing
+/// plans/agent-neutral-runs.md item 5): the question "does this work in Claude Code?" has
+/// one answer now, which is to run Claude Code, as a proctor arm. Their names are refused
+/// with that redirect rather than as unknown, so a config written before the retirement
+/// says what happened instead of claiming the name never existed.
 /// </summary>
 public static class HarnessRegistry
 {
-    /// <summary>nb's own surface — what a program gets when it names no harness.</summary>
     public const string Default = "nb";
 
-    public static IReadOnlyList<string> KnownNames { get; } =
-        new[] { Default, QwenCodeHarness.HarnessName, CodexHarness.HarnessName, ClaudeCodeHarness.HarnessName };
+    public const string RetiredOn = "2026-10-28";
 
-    /// <summary>
-    /// Build the harness a name selects, over the tool instances the runtime wired.
-    /// A costume swaps what is advertised, never what is behind it — and it gets every
-    /// tool the runtime built, not the subset nb's own surface happens to advertise.
-    /// </summary>
-    public static NbHarness Create(string name, NbHarness baseHarness)
+    private static readonly Dictionary<string, string> Retired = new(StringComparer.OrdinalIgnoreCase)
     {
-        if (string.Equals(name, QwenCodeHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
-            return new QwenCodeHarness(baseHarness);
+        ["claude-code"] = "Claude Code",
+        ["codex"] = "Codex",
+        ["qwen-code"] = "Qwen Code",
+    };
 
-        if (string.Equals(name, CodexHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
-            return new CodexHarness(baseHarness);
+    public static bool IsKnown(string name) => string.Equals(name, Default, StringComparison.OrdinalIgnoreCase);
 
-        if (string.Equals(name, ClaudeCodeHarness.HarnessName, StringComparison.OrdinalIgnoreCase))
-            return new ClaudeCodeHarness(baseHarness);
-
-        return baseHarness;
-    }
-
-    public static bool IsKnown(string name) =>
-        KnownNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>The registry's own spelling of a known name, so transcripts record one casing.</summary>
-    public static string Canonicalize(string name) =>
-        KnownNames.FirstOrDefault(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)) ?? name;
-
-    public static string KnownNamesForError() => string.Join(", ", KnownNames);
+    /// <summary>Why <paramref name="name"/> can't be worn, or null when it can.</summary>
+    public static string? Refusal(string name) => IsKnown(name) ? null
+        : Retired.TryGetValue(name, out var product)
+            ? $"harness {name.ToLowerInvariant()} was retired on {RetiredOn}. To test in {product}, run {product}: "
+              + $"a proctor arm with \"agent\": \"{name.ToLowerInvariant()}\". To run this model on nb's own surface, "
+              + $"write harness {Default}, or name no harness."
+            : $"unknown harness '{name}'. The only harness is {Default}, which is the default.";
 
     /// <summary>
     /// The harness config names for a run whose program names none: the provider entry's
-    /// <c>Harness</c>, else top-level <c>Harness</c>. Null when config is silent, which
-    /// the evaluator refuses — every run wears one on purpose. This is the sanctioned
-    /// config-default from plans/harness-emulation.md: a declaration keyed by entry, never
-    /// an inference from a model slug.
+    /// <c>Harness</c>, else top-level <c>Harness</c>. Null when config is silent, which means nb.
     /// </summary>
     public static string? ConfiguredDefault(IConfiguration config, string? providerLabel)
     {
@@ -65,16 +48,4 @@ public static class HarnessRegistry
         var name = entry?.Config["Harness"];
         return string.IsNullOrWhiteSpace(name) ? config["Harness"] : name;
     }
-
-    /// <summary>
-    /// Why a run with no harness is refused, and what to do about it. The pairing line is
-    /// guidance, not enforcement: a costume with the wrong vendor's model is academically
-    /// interesting and never what "let's test with claude code" means.
-    /// </summary>
-    public const string RequiredMessage =
-        "no harness named. Every run wears one: add `harness <name>` to the program, or "
-        + "`\"Harness\"` to the provider entry in appsettings.json (known: nb, qwen-code, codex, "
-        + "claude-code). Write `harness nb` explicitly to run on nb's own bare surface. "
-        + "A costume expects its own vendor's model: claude-code with an Anthropic model, "
-        + "codex with an OpenAI model, qwen-code with a Qwen model.";
 }

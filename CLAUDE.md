@@ -59,6 +59,34 @@ a stale binary. Run `dotnet build` first whenever provider code changed.
 what nb says to a model can pass the unit suite and still break CI. Run both before
 calling a change done.
 
+## Reporting a bug: GitHub issues, not `bugs/`
+
+New bugs and feature requests go to **GitHub issues** (`breitreiter/nb`), not a new file
+or a PR into `bugs/`. `bugs/` is a **read-only archive** of the reports filed before the
+switch. Its files are cited from code comments, docs and this file, so leave them in place
+and don't add to them.
+
+From a shell, `gh issue create --label bug` (or `--label enhancement`). The CLI doesn't
+render the web forms in `.github/ISSUE_TEMPLATE/`, so write the body with the same
+sections yourself:
+
+- **nb version**: `nb --version`, or the commit you built from.
+- **Provider / model / harness**: the entry the run resolved, or `Mock`.
+- **Repro**: the exact invocation and the program, inlined in fenced blocks.
+- **Observed**: the literal string nb emitted, an excerpt of the JSONL, the exit code.
+- **Expected**, and why it matters.
+- **Cause** (optional): `file:line`, if you traced it.
+- **Artifacts**: anything too big to inline goes in a gist. `gh` can't upload
+  attachments, but `gh gist create run.jsonl program.nb probe.sh` takes any file type.
+  Link the gist from the issue.
+
+**Scrub before filing.** The repo is public, and so is everything posted or attached to
+it. Strip API keys, endpoints, gateway tokens and prompt content you wouldn't publish
+from transcripts and configs.
+
+When the fix lands, the repro is committed with it as a test or an `evals/` case, not left
+in the gist. The PR says `Fixes #N`.
+
 ## Fixing a bug: write the failing test first — when it's worth it
 
 For **bug fixes**, prefer writing the regression test before the fix, and *observe it
@@ -123,7 +151,7 @@ CLI Exe (repo root):
 - `ProgramEvaluator.cs` - Evaluates a conversation-program (the TranscriptEvent stream), including the oracle continuation loop
 - `AnswerSheet.cs` / `OracleResolver.cs` - The `oracle` directive's answer sheet and the side call that judges a finished turn against it (`plans/oracle-resolver.md`). The Mock provider's scripted verdict rides on `MOCK:oracle=`; the sentinel/marker literals are duplicated in `Providers/Mock` across the ALC boundary on purpose
 - `Transcript/` - The wire schema (events, serializer, mapper, loader, program parser)
-- `Harness/` - The advertised tool surface. `NbHarness` (nb's own surface + the tool-execution capabilities), `HarnessRegistry` (the closed set of costume names), and one subclass per costume (`QwenCodeHarness`, `CodexHarness`, `ClaudeCodeHarness`). A costume swaps names, schemas, result strings and prompt furniture; the tools behind it are the same instances. Preambles are deployed data files in `nb.Core/prompts/harness/*.md`, not embedded resources. Design: `plans/harness-emulation.md`
+- `Harness/` - The advertised tool surface. `NbHarness` (nb's own surface + the tool-execution capabilities) and `HarnessRegistry` (`nb`, the only harness and the default, plus the refusal for the costumes retired 2026-10-28 — `plans/atif-and-acp.md` stage 1). To test in another agent's harness, run that harness (a proctor arm)
 - `MCP/` - `McpManager` (client lifecycle, layered mcp.json), `FakeToolManager`
 - `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust path-scoping, bwrap)
 - `Utilities/` - `ConfigurationService` (layered config), `UIColors`, markdown rendering
@@ -348,7 +376,7 @@ The application uses an array-based provider configuration schema:
 ```
 - `ActiveProvider` - Selects which `ChatProviders` entry to use, by its `Name`
 - `ChatProviders` - Array of provider configurations
-- `Name` - Free-form label for the entry. This is what `ActiveProvider` and the `provider` directive select by, and what per-entry lookups (`MaxContextTokens`, `Temperature`, `EditToolStyle`, prompt files) key off
+- `Name` - Free-form label for the entry. This is what `ActiveProvider` and the `provider` directive select by, and what per-entry lookups (`MaxContextTokens`, `Temperature`, `EditToolStyle`) key off
 - `Provider` (optional) - Name of the provider implementation backing the entry. Defaults to `Name`. Set it when several entries share one implementation — e.g. two `LocalLlm` servers on different ports:
   ```jsonc
   { "Name": "LocalCoder", "Provider": "LocalLlm", "Endpoint": "…:8081/v1", "Model": "qwen3-coder-next" },
@@ -356,9 +384,8 @@ The application uses an array-based provider configuration schema:
   ```
 - `Headers` (optional) - Extra HTTP headers sent on every request, for a gateway that authenticates its caller with its own token: `"Headers": { "cf-aig-authorization": "Bearer ${CF_AIG_TOKEN}" }`. Values get the usual `${VAR}` expansion. A configured header *replaces* the SDK's own of that name. An entry carrying `Headers` needs no `ApiKey` (the stored-keys gateway mode). Implemented by `ProviderConfig` in `nb.Providers.Abstractions` — one `HttpClient` with a stamping `DelegatingHandler`, handed to each SDK's HTTP hook (`ClientOptions.HttpClient` for Anthropic, `ClientPipelineOptions.Transport` for the OpenAI/Azure family). Gemini's SDK has no such hook and does not support it
 - Provider-specific fields are read directly from the provider's config object (no nested paths)
-- Prompt files resolve by entry label first, then by implementation — `system.LocalCoder.md` if present, else `system.LocalLlm.md`. Same for the model-specific `system.{scope}.{modelslug}.md` form. Entry-label and implementation resolution live in `nb.Core/ProviderEntries.cs`
-- `Harness` (per-entry, with a top-level fallback) - The costume a run wears when its program names no `harness`. **Every run must resolve one**: program directive → entry `Harness` → top-level `Harness` → refused (`HarnessRegistry.RequiredMessage`, exit 1) before any model call. Pair entries with their vendor's costume (`claude-code` for Anthropic, `codex` for OpenAI/Azure, `qwen-code` for Qwen); the bare surface is `nb`, asked for by name. Every test config and eval fixture says `"Harness": "nb"` for that reason — a new fixture that omits it fails with the refusal, not a mysterious behaviour
-- `EditToolStyle` (**deprecated** 2026-08-15, optional, per-provider) - Selects the file-edit tool surface exposed to the model. `EditReplace` (default) advertises `edit_file` + `write_file`; `ApplyPatch` advertises `apply_patch` instead. Mutually exclusive — GPT-family models tend to confuse the two surfaces, so pick one. It affects *advertisement only*: every edit tool is always constructed, so a `harness` costume advertises its target's edit surface regardless of this setting. Still honored, but setting it emits a startup warning; `harness codex` replaces it and brings the whole Codex surface rather than a fragment of it. The plumbing lives in `NbRuntime.BuildAsync` → `NbHarness.ApplyPatchStyle` (see `plans/harness-emulation.md` step 7).
+- `Harness` (optional, per-entry or top-level) - Only `nb` is accepted, and it is the default when nothing names one. A retired costume name (`claude-code`, `codex`, `qwen-code`) in a program or config is refused before any model call with the redirect (`HarnessRegistry.Refusal`). Test configs and eval fixtures that still say `"Harness": "nb"` are fine
+- `EditToolStyle` (optional, per-provider) - Selects the file-edit tool surface exposed to the model. `EditReplace` (default) advertises `edit_file` + `write_file`; `ApplyPatch` advertises `apply_patch` instead. Mutually exclusive — GPT-family models tend to confuse the two surfaces, so pick one; set `ApplyPatch` for GPT-family models. It affects *advertisement only*: every edit tool is always constructed. Deprecated 2026-08-15 in favour of the codex costume and un-deprecated when the costumes retired. The plumbing lives in `NbRuntime.BuildAsync` → `NbHarness.ApplyPatchStyle`.
 
 ## Important Workflow Reminders
 - When changing the structure of appsettings.json make sure to update appsettings.example.json
@@ -384,7 +411,8 @@ Human-owned (repo root):
 
 - **`plans/`** — design intent, specs, things to build. Flat; no
   active/archive split. Most new design work starts here.
-- **`bugs/`** — bug reports.
+- **`bugs/`** — archive of bug reports filed before the move to GitHub issues.
+  Read-only; new reports go to issues (see *Reporting a bug* above).
 - **`TODO.md`** — running todo list.
 - **`rules/`** — hard project invariants. Substrate-shaped
   (frontmatter with `touches:`) so the gnome can flag drift, but

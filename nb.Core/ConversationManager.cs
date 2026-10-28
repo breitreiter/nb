@@ -23,7 +23,6 @@ public class ConversationManager
     private readonly McpManager _mcpManager;
     private readonly FakeToolManager _fakeToolManager;
     private readonly bool _verbose;
-    private readonly bool _debugStream;
     private int _maxToolCalls;
     private readonly double _compactionThreshold;
     private int _maxContextTokens;
@@ -79,7 +78,7 @@ public class ConversationManager
     private DoomLoopDetector _doomLoopDetector = new();
     private bool _doomLoopEnabled = true;
     private readonly ToolErrorTracker _errorTracker = new();
-    private NbHarness _harness;
+    private readonly NbHarness _harness;
     private HashSet<string>? _lastRemindedTodos = null;
     private string _currentProviderName = "";
     private Transcript.ToolSurface _toolSurface = Transcript.ToolSurface.All;
@@ -111,7 +110,6 @@ public class ConversationManager
         int maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
         int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS,
         double compactionThreshold = DEFAULT_COMPACTION_THRESHOLD,
-        bool debugStream = false,
         float? temperature = null,
         float? presencePenalty = null,
         int doomLoopThreshold = DoomLoopDetector.DefaultThreshold,
@@ -129,7 +127,6 @@ public class ConversationManager
         _maxToolCalls = trustMode ? Math.Max(maxToolCalls, 50) : maxToolCalls;
         _maxContextTokens = maxContextTokens;
         _compactionThreshold = compactionThreshold;
-        _debugStream = debugStream;
         _temperature = temperature;
         _presencePenalty = presencePenalty;
         _doomLoopEnabled = doomLoopEnabled;
@@ -225,17 +222,6 @@ public class ConversationManager
     /// the same reason usage is accumulated here.
     /// </summary>
     public ApprovalLedger Approvals { get; } = new();
-
-    /// <summary>
-    /// Swap the harness whose surface subsequent runs advertise (the <c>harness</c>
-    /// directive). The tool instances behind it do not change — a costume swaps what is
-    /// advertised, never what is implemented.
-    /// </summary>
-    public void SetHarness(NbHarness harness)
-    {
-        harness.Configure(_harness.ApprovalPolicy, _verbose, Approvals);
-        _harness = harness;
-    }
 
     public void SetToolSurface(Transcript.ToolSurface surface)
     {
@@ -347,7 +333,6 @@ public class ConversationManager
     /// </summary>
     public string LastOutcome { get; private set; } = Transcript.ExitReasons.Ok;
 
-    public Task SendMessageAsync(string userMessage) => RunAsync(userMessage);
 
     // Build the token a run executes under: the caller's token linked with a
     // wall-clock deadline (remaining budget) when one is set. Returns null when there
@@ -471,23 +456,19 @@ public class ConversationManager
 
             // Stream the response. Prose renders incrementally through MarkdownRenderer;
             // tool-call content accumulates silently and gets executed after the stream ends.
-            // Spinner is shown only until the first update arrives (TTFB indicator).
             var renderer = new MarkdownRenderer();
             var updates = new List<ChatResponseUpdate>();
-            var updateTrace = new List<Dictionary<string, object?>>();
             var stream = _client.GetStreamingResponseAsync(_conversationHistory, requestOptions, cancellationToken);
             var enumerator = stream.GetAsyncEnumerator();
             ChatResponse response;
             try
             {
-                var hasMore = await WithThinkingSpinnerAsync(
-                    async () => await enumerator.MoveNextAsync());
+                var hasMore = await enumerator.MoveNextAsync();
 
                 while (hasMore)
                 {
                     var update = enumerator.Current;
                     updates.Add(update);
-                    updateTrace.Add(SnapshotUpdate(update, updateTrace.Count));
                     var text = update.Text;
                     if (!string.IsNullOrEmpty(text))
                     {
@@ -533,9 +514,6 @@ public class ConversationManager
             // Handle tool calls if present - check if any message has tool calls
             var hasToolCalls = response.Messages.Any(m => m.Contents.Any(c => c is FunctionCallContent));
 
-            // Diagnostic dump: capture suspicious turns (or every turn under --debug-stream)
-            // for the GPT-5x early-end bug. See bugs/Streaming_GPT5_Early_Turn_End.md.
-            await MaybeWriteTurnDumpAsync(updates, updateTrace, response, hasToolCalls, injectedReminder);
             if (hasToolCalls)
             {
                 // Stop before doing more work if the session token budget is spent.
@@ -868,41 +846,6 @@ public class ConversationManager
         MarkdownRenderer.Render(markdown);
 
     /// <summary>
-    /// Owns the process's single live-display slot for the "Thinking…" spinner.
-    ///
-    /// <para>Spectre's <c>AnsiConsole</c> is process-global and permits one live display at
-    /// a time: a second concurrent <c>Status().StartAsync</c> throws. That throw used to
-    /// land in the turn's own catch and be handled as a failed turn, so the enumerator was
-    /// never advanced and the run returned having never called the model — a run that
-    /// quietly did nothing, which reads as a product bug rather than a collision.</para>
-    ///
-    /// <para>The slot is claimed with an interlocked flag rather than by catching the
-    /// throw, because catching it cannot distinguish "the display refused to open" from
-    /// "the work threw" — and retrying on the latter would issue a second model call. The
-    /// loser simply runs without a spinner. Chrome must never be able to fail a run.
-    /// bugs/Concurrent_Runs_Collide_On_The_Global_Console.md</para>
-    /// </summary>
-    private static int _liveDisplayHeld;
-
-    private static async Task<T> WithThinkingSpinnerAsync<T>(Func<Task<T>> work)
-    {
-        if (Interlocked.CompareExchange(ref _liveDisplayHeld, 1, 0) != 0)
-            return await work();
-
-        try
-        {
-            return await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .SpinnerStyle(Style.Parse(UIColors.SpectreMuted))
-                .StartAsync("Thinking...", async _ => await work());
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _liveDisplayHeld, 0);
-        }
-    }
-
-    /// <summary>
     /// Move image parts off the tool-role message and onto a user message that follows it.
     ///
     /// <para>The OpenAI chat-completions wire format has no representation for an image
@@ -953,169 +896,6 @@ public class ConversationManager
             "rather than inferring anything from the file name."));
 
         return images;
-    }
-
-    private static Dictionary<string, object?> SnapshotUpdate(ChatResponseUpdate update, int index)
-    {
-        var contentTypes = new List<string>();
-        var functionCalls = new List<Dictionary<string, object?>>();
-        int textChars = 0;
-        if (update.Contents != null)
-        {
-            foreach (var c in update.Contents)
-            {
-                contentTypes.Add(c.GetType().Name);
-                switch (c)
-                {
-                    case TextContent tc:
-                        textChars += tc.Text?.Length ?? 0;
-                        break;
-                    case FunctionCallContent fcc:
-                        functionCalls.Add(new Dictionary<string, object?>
-                        {
-                            ["name"] = fcc.Name,
-                            ["callId"] = fcc.CallId,
-                            ["argChars"] = fcc.Arguments == null ? 0 : JsonSerializer.Serialize(fcc.Arguments).Length,
-                        });
-                        break;
-                }
-            }
-        }
-        return new Dictionary<string, object?>
-        {
-            ["index"] = index,
-            ["finishReason"] = update.FinishReason?.ToString(),
-            ["role"] = update.Role?.ToString(),
-            ["responseId"] = update.ResponseId,
-            ["messageId"] = update.MessageId,
-            ["contentTypes"] = contentTypes,
-            ["textChars"] = textChars,
-            ["functionCalls"] = functionCalls,
-        };
-    }
-
-    private async Task MaybeWriteTurnDumpAsync(
-        List<ChatResponseUpdate> updates,
-        List<Dictionary<string, object?>> updateTrace,
-        ChatResponse response,
-        bool hasToolCalls,
-        string? injectedReminder)
-    {
-        // Counts from raw stream
-        int rawFcc = 0, rawText = 0, rawUsage = 0;
-        foreach (var u in updates)
-        {
-            if (u.Contents == null) continue;
-            foreach (var c in u.Contents)
-            {
-                switch (c)
-                {
-                    case FunctionCallContent: rawFcc++; break;
-                    case TextContent tc: rawText += tc.Text?.Length ?? 0; break;
-                    case UsageContent: rawUsage++; break;
-                }
-            }
-        }
-
-        // Counts from aggregated response
-        int aggFcc = 0, aggText = 0;
-        foreach (var m in response.Messages)
-        {
-            foreach (var c in m.Contents)
-            {
-                switch (c)
-                {
-                    case FunctionCallContent: aggFcc++; break;
-                    case TextContent tc: aggText += tc.Text?.Length ?? 0; break;
-                }
-            }
-        }
-
-        // "Suspicious" signatures of the GPT-5x early-end bug:
-        //  - empty turn: no tool calls AND zero text (a genuine "I give up")
-        //  - reminder no-op: a recursive call after we injected a system_reminder produced
-        //    no tool calls (matches "needs multiple `continue`s" report)
-        //  - aggregation drop: raw stream had FunctionCallContent that ToChatResponse() lost
-        bool emptyTurn = !hasToolCalls && aggText == 0;
-        bool reminderNoOp = injectedReminder != null && !hasToolCalls;
-        bool aggregationDrop = rawFcc > aggFcc;
-        if (!_debugStream && !emptyTurn && !reminderNoOp && !aggregationDrop) return;
-        string reason = aggregationDrop ? "aggregation_drop"
-                      : reminderNoOp ? $"reminder_noop_{injectedReminder}"
-                      : emptyTurn ? "empty_turn"
-                      : "debug_stream";
-
-        var dump = new Dictionary<string, object?>
-        {
-            ["timestamp"] = DateTime.UtcNow.ToString("o"),
-            ["provider"] = _currentProviderName,
-            ["injectedReminder"] = injectedReminder,
-            ["reason"] = reason,
-            ["rawCounts"] = new Dictionary<string, object?>
-            {
-                ["updates"] = updates.Count,
-                ["functionCallContent"] = rawFcc,
-                ["textChars"] = rawText,
-                ["usageContent"] = rawUsage,
-            },
-            ["aggregated"] = new Dictionary<string, object?>
-            {
-                ["messages"] = response.Messages.Count,
-                ["functionCallContent"] = aggFcc,
-                ["textChars"] = aggText,
-                ["finishReason"] = response.FinishReason?.ToString(),
-                ["responseId"] = response.ResponseId,
-                ["usage"] = response.Usage == null ? null : new Dictionary<string, object?>
-                {
-                    ["input"] = response.Usage.InputTokenCount,
-                    ["output"] = response.Usage.OutputTokenCount,
-                    ["total"] = response.Usage.TotalTokenCount,
-                },
-            },
-            ["updateTrace"] = updateTrace,
-            ["rawResponseRepresentation"] = TrySerializeRaw(response.RawRepresentation),
-        };
-
-        try
-        {
-            var dir = Path.Combine(Directory.GetCurrentDirectory(), ".nb_turn_dumps");
-            Directory.CreateDirectory(dir);
-            var filename = $"{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}_{(string)dump["reason"]!}.json";
-            var path = Path.Combine(dir, filename);
-            var json = JsonSerializer.Serialize(dump, new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            });
-            await File.WriteAllTextAsync(path, json);
-            var rel = Path.Combine(".nb_turn_dumps", filename);
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ turn dump ({(string)dump["reason"]!}): {Markup.Escape(rel)}[/]");
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]turn dump failed: {Markup.Escape(ex.Message)}[/]");
-        }
-    }
-
-    private static object? TrySerializeRaw(object? raw)
-    {
-        if (raw == null) return null;
-        try
-        {
-            // Round-trip through JsonSerializer with a depth cap; provider raw types
-            // (OpenAI/Azure SDK responses) usually serialize cleanly but may carry
-            // non-JSON-friendly fields, so fall back to ToString on failure.
-            return JsonSerializer.SerializeToElement(raw, new JsonSerializerOptions
-            {
-                MaxDepth = 12,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles,
-            });
-        }
-        catch
-        {
-            return raw.ToString();
-        }
     }
 
     private static string SerializeArgs(IDictionary<string, object?>? args)
@@ -1326,15 +1106,4 @@ public class ConversationManager
         AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]Compacted conversation ({beforeTokens:N0} → {afterTokensFinal:N0} est. tokens)[/]");
     }
 
-    public void ClearConversationHistory()
-    {
-        // Preserve all leading system messages (base prompt + skill)
-        var systemMessages = _conversationHistory.TakeWhile(m => m.Role == ChatRole.System).ToList();
-        _conversationHistory.Clear();
-        _conversationHistory.AddRange(systemMessages);
-        _harness.Todos.Reset();
-        _lastRemindedTodos = null;
-
-        AnsiConsole.MarkupLine($"[{UIColors.SpectreSuccess}]Conversation history cleared[/]");
-    }
 }

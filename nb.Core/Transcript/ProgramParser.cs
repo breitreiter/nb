@@ -173,17 +173,16 @@ public static class ProgramParser
     // (bash|mcp|search|default|sandbox), the rest is the value (a bash pattern may
     // contain spaces). Key validity is a semantic check (--validate / evaluator),
     // not syntactic.
-    // Unlike an approval key (a semantic check that degrades to a warning), an unknown
-    // harness name is rejected here, with a line number. Falling back to nb's surface
-    // while the program says it is wearing another agent's would silently invalidate
-    // every comparison drawn from the run — see plans/harness-emulation.md.
+    // Unlike an approval key (a semantic check that degrades to a warning), a harness name
+    // nb can't wear is rejected here, with a line number: a program that says it runs in
+    // another agent's harness and silently runs on nb's would invalidate every comparison
+    // drawn from it.
     private static HarnessEvent ParseHarness(string name, int lineNo)
     {
-        if (!HarnessRegistry.IsKnown(name))
-            throw new ProgramParseException(
-                $"line {lineNo}: unknown harness '{name}'. Known: {HarnessRegistry.KnownNamesForError()}.");
+        if (HarnessRegistry.Refusal(name) is { } refusal)
+            throw new ProgramParseException($"line {lineNo}: {refusal}");
 
-        return new HarnessEvent { Name = HarnessRegistry.Canonicalize(name) };
+        return new HarnessEvent { Name = HarnessRegistry.Default };
     }
 
     private static ApprovalEvent ParseApproval(string content, int lineNo)

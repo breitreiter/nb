@@ -2,9 +2,9 @@
 kind: plan
 title: Harness emulation — wearing another agent's tool surface
 created: 2026-08-14
-updated: 2026-08-14
-status: current
-state: active
+updated: 2026-10-28
+status: retired
+state: done
 supersedes: [plans/tool-dialects.md]
 touches:
   files:
@@ -21,6 +21,16 @@ provenance:
 ---
 
 # Harness emulation — wearing another agent's tool surface
+
+## Revisions
+
+- **2026-10-28. Retired.** All three costumes (`claude-code`, `codex`, `qwen-code`) were
+  removed once proctor ran real Claude Code, Codex and Qwen Code arms through Harbor
+  (`plans/agent-neutral-runs.md` item 5, executed as `plans/atif-and-acp.md` stage 1). The
+  controls this plan called for became the product: to test in a harness, run it. A
+  retired name is refused with that redirect. `harness nb` remains, as the default and the
+  only value. `EditToolStyle: ApplyPatch` was un-deprecated. The rest of this document
+  records the design as it was; it is not rewritten.
 
 ## Context
 

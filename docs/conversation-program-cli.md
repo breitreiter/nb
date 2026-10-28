@@ -52,12 +52,12 @@ make it a program: `echo 'run summarize this' | nb -`.
 
 | Flag | Effect |
 | --- | --- |
-| `--output <mode>` | `jsonl` (default for a program), `porcelain`, or `interactive`. jsonl/porcelain put the transcript on stdout, chrome on stderr. |
+| `--output <mode>` | `jsonl` (default) or `porcelain`. Either puts the transcript on stdout and chrome on stderr. |
 | `--seed <file>` | Prepend a transcript (jsonl) as premise history before the program (§6). |
 | `--config <file>` | Use exactly this config file (hermetic); otherwise config resolves in layers (§7). |
 | `--mcp <file>` | Use this MCP manifest only; otherwise `mcp.json` resolves in layers. |
 | `--validate` | Parse + semantically check the program, run nothing. Exit 1 on any error. |
-| `--resolve` | Print the effective envelope at each run point, run nothing. Under a `harness` costume it adds a second line — `wire=` (the tool names the model is actually offered) and `dropped=` (canonical tools the costume discards) — because `tools=` echoes the directives, which under a costume are *requested*, not effective. |
+| `--resolve` | Print the effective envelope at each run point, run nothing. |
 | `--compile` | Parse the program, resolve every `@file` include and fold in `--seed`, print the result as JSONL on stdout, run nothing. Exit 1 on a parse error or a directive nb cannot honour. Needs no provider, harness or config: it is the same code path as a run, stopped before evaluation. |
 | `--verbose` | Verbose engine diagnostics (to stderr). |
 | `--dump-tools` | Write the MCP tool manifest to `mcp-tools.json` and exit. |
@@ -74,7 +74,7 @@ clean, parseable stdout.
 - `porcelain` — plain text: `TOOL`/`RESULT` lines plus the answer verbatim (a final
   ```` ```json ```` fence survives byte-for-byte).
 
-**Theming** (`--output interactive` only): colours load from `theme.json` next to the
+**Theming** (the chrome on stderr): colours load from `theme.json` next to the
 binary at startup. Names come from [Spectre.Console](https://spectreconsole.net/appendix/colors).
 A high-contrast example (WCAG AAA on the standard Windows console background, #0C0C0C):
 
@@ -188,19 +188,16 @@ Three classes: **config** (set the envelope going forward, order matters), **tur
 | --- | --- | --- |
 | `provider` | `provider <name>` | Select the active provider (matched against `ChatProviders[].Name` in config) for subsequent runs. |
 | `model` | `model <name>` | Select the model for subsequent runs. Overrides the active provider's model field in memory (both `Model` and `ChatDeploymentName`). |
-| `harness` | `harness <name>` | Select the harness the run wears — its tool surface, result formatting and prompt preamble. Registered names: `nb`, `qwen-code`, `codex`, `claude-code`. An unknown one is a parse error, not a warning. **Every run wears one on purpose:** a program that names none inherits the active provider entry's `Harness` from config (else top-level `Harness`), and if config is silent too the run is refused before a model is called. `harness nb` asks for nb's own bare surface by name. A costume expects its own vendor's model — `claude-code` an Anthropic model, `codex` an OpenAI model, `qwen-code` a Qwen model; wedging another vendor's model into a costume is an experiment, not a test of that harness. |
+| `harness` | `harness <name>` | Name the harness the run wears. The only one is `nb`, nb's own surface, and it is the default: a program that names none runs on it. The costumes `claude-code`, `codex` and `qwen-code` retired on 2026-10-28; naming one is refused with the replacement (see *On `harness`*). Any other name is a parse error. |
 | `oracle` | `oracle @<sheet.md>` · `oracle provider <entry>` | Attach an answer sheet: a scripted user that services the halt when a model ends its turn asking for information. After every run that ends `ok`, one small side call judges the model's last message against the sheet; on a confident hit the selected entries are appended verbatim as a `user` turn and the run continues. Anything else ends the run. `oracle provider <entry>` sends that side call to a named config entry instead of the subject's client (a cheaper judge, or a judge measured on its own — `evals/oracle-bench/`); an entry that cannot be built aborts the run at the first judgement, as `provider` does. See *On `oracle`* below and `plans/oracle-resolver.md`. |
 
-**On `harness`.** It is a program directive rather than provider config because the
-experiment worth running is *one model across two harnesses*, and that has to be
-expressible as two files in a directory rather than as an edit to global config between
-runs. A named harness brings its whole costume — prompt preamble, the project instruction
-files its target reads (`AGENTS.md` under `codex`, `CLAUDE.md` under `claude-code`), and
-that harness's environment block — see §4.5.
-Runs that wear a non-default harness record it on the `result` trailer as `harness`
-(omitted for the default). A costume also reports what it knowingly does not reproduce,
-as run warnings, so a surprising result arrives with a suspect list attached. Further
-costumes are planned; see `plans/harness-emulation.md`.
+**On `harness`.** nb used to ship costumes that imitated other agents' harnesses — their
+tool names, schemas, result strings, prompts and context files. They retired on
+2026-10-28: there should be exactly one way to ask "does this work in Claude Code?", and
+it is to run Claude Code, as a proctor arm. A program or config that names a retired
+costume fails before any model call, with a message naming the real harness and
+`harness nb`. The directive stays so existing programs that write `harness nb` keep
+working; see `plans/atif-and-acp.md` stage 1.
 
 **On `oracle`.** nb has no user, so a model that ends its turn with *"which environment
 should I deploy to?"* has halted on a dependency nobody is there to satisfy. An answer
@@ -264,8 +261,8 @@ enrichment fields: `source: "oracle"`, `keys: [...]` (the ids selected), and `ve
 entry covers this" from "the judge could not read the ask" without replaying the call.
 Enrichment is ignored on seed-load, so a resolved run replays from its own transcript as
 a plain conversation. Nothing is injected into the system prompt and no ask tool is
-advertised: a steer toward one would perturb the prompt under test, no costume in this
-repo carries one, and a model holding one still asks in prose. The one prompt change is
+advertised: a steer toward one would perturb the prompt under test, and a model
+holding one still asks in prose. The one prompt change is
 the doom-loop nudge, which stops telling a model that nobody is home once a sheet is
 attached.
 
@@ -295,12 +292,9 @@ apply to the cleared set.
   +read_file` allows just that one. `todo` is a steering aid (a task-tracking tool
   plus a pending-todos nudge for models prone to abandoning work); `tools -todo`
   removes it, which also silences the nudge (no todos can be created without it).
-  These names are **canonical under every `harness`** — a costume changes the names the
-  *model* sees, not the names a program writes. Under `harness claude-code` the model is
-  offered `Edit`, but the program still writes `tools -edit_file`, and the transcript
-  records the wire name `Edit`. Writing a costume's wire name is an error, not a no-op,
-  so the mismatch surfaces at `--validate` time rather than as a tool you thought you had
-  removed.
+  These are nb's canonical names. Another harness's name for the same tool (`Edit`,
+  `shell_command`) is an error, not a no-op, so the mistake surfaces at `--validate`
+  time rather than as a tool you thought you had removed.
 - **`mcp`** — MCP servers. Baseline **strict-empty**: a program exposes no MCP tools
   unless it names servers. `mcp +figma` exposes that server's tools (as `figma_*`).
   MCP tools are exposed under the composite name `{server}_{tool}`. Naming a server
@@ -309,18 +303,7 @@ apply to the cleared set.
   that fails but is *not* named is a non-fatal warning instead, and the run continues.
 
 A tool call outside the advertised surface is **refused** ("Error: Tool … not
-found"), not executed. `--resolve` prints the resolved surface at each run point —
-and under a costume also the **wire** surface, since a costume advertises a subset of
-what a program names, under different names:
-
-```console
-$ nb --resolve rails-codex.nb
-run 1: … harness=codex … tools=bash,edit_file,fetch_url,find_files,grep,list_dir,read_file,search_web,write_file …
-       wire=shell_command,view_image dropped=edit_file,fetch_url,find_files,grep,list_dir,search_web,write_file
-```
-
-`dropped=` is the half worth reading before spending a run: nine tools named, two
-offered, and no way to edit a file.
+found"), not executed. `--resolve` prints the resolved surface at each run point.
 
 ### 4.3 Approval directives — `approval`
 
@@ -385,28 +368,10 @@ additive — a program that names none behaves exactly as before.
 
 `system <text>`, `user <text>`, `assistant <text>` append one message of that role.
 `system` is a plain message — **nb injects no persona a program did not ask for**. By
-default a program gets exactly the `system` directives it writes; the only other way
-persona arrives is a `harness` directive naming a costume, which brings that harness's
-prompt preamble with it. `@file` and `\` continuation apply. Turns buffer and flush into
-history at the next `run`.
-
-Opting into a named harness opts into the whole costume — the preamble is not a separate
-opt-in, because a program that asks to imitate another agent and is then told it should
-*also* have requested the prompt has been failed by the tool. The bare default is
-unchanged: name no harness and nothing is injected.
-
-A costume also brings the **project instruction files its target reads** — `AGENTS.md`
-for `codex`, `CLAUDE.md` for `claude-code` — collected from the repo root down to the working directory and wrapped as
-that harness wraps them. This is the one thing a program does not fully determine: the
-same program run in two directories sends different text, because that is exactly what
-the harness being imitated does. Named-harness runs are therefore reproducible from the
-transcript, not from the program alone.
-
-It also brings that harness's **environment block** — working directory, shell or
-platform, and the date, in the target's own wrapper. Same caveat, more strongly: the text
-depends on where and *when* the program runs, so two runs of one program are never
-byte-identical under a costume that sends one. `qwen-code` sends none; its omission list
-says so.
+default a program gets exactly the `system` directives it writes. `@file` and `\` continuation apply. Turns buffer and flush into
+history at the next `run`. A `system` message whose text is empty or whitespace-only
+(e.g. `system @empty.md`) is dropped rather than sent, on every provider — so an empty
+file is a portable "no system prompt" baseline.
 
 #### Steering tool choice on the bare surface
 
@@ -430,16 +395,10 @@ improved was work per token — the same spend produced roughly six times as muc
 work. And it is n=1 on one fixture; the effect is large and the mechanism is plain, but
 it has not been replicated at scale. See
 `bugs/Tool_Names_Diverge_From_Model_Native_Surface.md` for the full measurement history,
-including a costume-based intervention that did *not* replicate.
+including an intervention that did *not* replicate.
 
-A `harness` costume ships this steer in its preamble already (`qwen-code`'s says *"Prefer
-`edit` over `write_file`"*), so this section is about the bare surface specifically.
-
-Everything injected — preamble first, then the costume's furniture in the order that
-harness uses, then the program's own `system` directives — is materialised into the
-transcript as ordinary `system` messages,
-so everything the model was sent is on the wire record and a `--seed` replay reproduces
-it exactly, even if the costume or the project's instruction file has changed since.
+Everything the program writes is materialised into the transcript as ordinary `system`
+messages, so a `--seed` replay reproduces exactly what the model was sent.
 
 ### 4.6 `run` — the sole invocation
 
@@ -466,9 +425,7 @@ the tool surface, and invokes the model; at end of program, trailing buffered tu
 still join the conversation.
 
 Invariants:
-- **No implicit persona.** Persona arrives only when the program asks for it — by
-  `system`, or by `harness` naming a costume that carries a preamble. Name no harness
-  and a program gets exactly the `system` directives it writes.
+- **No implicit persona.** A program gets exactly the `system` directives it writes.
 - **Completed rounds only.** Fabricated tool rounds must be well-formed (each call
   paired with a result, turns monotonic); malformed → exit 1.
 - **Usage sums** across every run and tool-loop round-trip, and is estimated (and
@@ -506,12 +463,9 @@ Provider connection (endpoint + key) lives in config, never in a program. Only t
 non-secret **model name** travels in a program. Provider and MCP-server *names* are
 installation-local; `--validate` catches an unknown name before a run.
 
-The harness resolves the same way, one level up from the program: a `harness` directive
-wins, else the active provider entry's `"Harness"` in config, else top-level `"Harness"`.
-Pair each entry with its vendor's costume (`"Harness": "claude-code"` on an Anthropic
-entry, `codex` on an OpenAI one, `qwen-code` on a Qwen one) so a program that names only
-a model still wears the right thing. A run that resolves no harness at all is refused —
-see §10.
+A `"Harness"` in config, on the entry or top-level, is read the same way a `harness`
+directive is: `nb` or absent runs on nb's surface, and a retired costume is refused before
+any model call (§10).
 
 ---
 
@@ -532,7 +486,7 @@ and `"turn"` (a monotonic per-round counter; `null` on run-level events).
 | `tool_result` | `id`, `output` (exact model-facing string), `result`? | The result for the matching `id`. `output` round-trips byte-for-byte. |
 | `run` | `prompt`? | Invocation directive. On output, a past run appears as the `assistant_text` it produced. |
 | `provider` / `model` | `name` | Config directive. |
-| `harness` | `name` | Harness-selection directive (§4.1). Registered: `nb`, `qwen-code`, `codex`, `claude-code`. |
+| `harness` | `name` | Harness directive (§4.1). The only accepted name is `nb`. |
 | `mcp` / `tools` | `reset`?, `add`[], `remove`[] | Tool-surface delta. |
 | `approval` | `key`, `value` | Approval-policy directive. |
 | `loop` | `enabled`, `threshold`? | Doom-loop directive. `threshold` present only when `enabled`. |
@@ -562,8 +516,8 @@ what the model actually saw, and stripping it would change replay.
 Fields: `exit_reason` (§2), `usage{input,output,total,estimated?}`, `turns`,
 `tool_calls`, `duration_ms`, `provider_ms`, `provider`, `model`, `cost`?, `harness`?,
 `oracle_turns`? (how many halts an answer sheet serviced; omitted when zero),
-`program_sha256`, `nb_version`. `harness` names the costume the run
-wore and is **omitted for nb's own** — so a default run's trailer is unchanged.
+`program_sha256`, `nb_version`. `harness` is **omitted for nb's own surface**, which is
+now every run; a transcript from before the costumes retired may still carry it.
 `provider` names the entry that actually answered and is **always emitted**, unlike
 `harness`: it is the field a corpus is attributed by, and omitting it when it matches the
 configured default would leave a reader unable to resolve it, since the default is
@@ -575,7 +529,7 @@ reason as `provider` and more urgently. The effective model is frequently in nei
 program nor the config: a program need not say `model`, the entry need not set `Model`,
 and the plugin's own hard-coded default then decides. nb reads it off the live client, so
 it is downstream of all three. Without it a sweep across model names produces per-model
-results whose attribution comes from the harness's intent rather than from the run, and
+results whose attribution comes from the program's intent rather than from the run, and
 nothing in the output contradicts a mislabel.
 
 `program_sha256` is the SHA-256 of the **resolved** program — the serialized event list
@@ -712,10 +666,10 @@ nb --compile flow.nb    # the program with its includes resolved, as JSONL; exit
 - **Unknown verb / missing value / bad delta token** → parse error, exit 1. (Note
   `output` is no longer a verb — an `output` line is an unknown directive.)
 - **Unknown provider name** → caught by `--validate` (exit 1).
-- **No harness named** — not in the program, not on the provider entry, not top-level in
-  config → the first `run` is refused, exit 1, before any request goes out: *"no harness
-  named. Every run wears one …"*. The bare surface is not a fallback; write `harness nb`
-  if that is what you mean. `--resolve` prints `harness=(none …)` for the same case.
+- **A retired costume named** (`harness claude-code`, `codex`, `qwen-code`, in the program
+  or as config `"Harness"`) → refused, exit 1, before any request goes out: *"harness
+  codex was retired on 2026-10-28. To test in Codex, run Codex: a proctor arm with
+  "agent": "codex". …"*. Name no harness, or write `harness nb`.
 - **A `provider`/`model` directive whose client cannot be built** → the run **aborts**,
   exit 1. This covers an unknown entry, an entry naming an implementation that did not
   load, missing required keys (an expired `ApiKey`, an env var absent from a CI job), and

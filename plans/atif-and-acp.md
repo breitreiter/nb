@@ -148,6 +148,12 @@ and it would have caught item 2's wrong assumption.
 
 ### 1. Retire the costumes, make `harness` optional (1 day; proctor: one cosmetic edit)
 
+**Done 2026-10-28.** Beyond the list below, two more dead paths went: the whole
+`prompts/` directory (per-provider `system*.md` files loaded at startup and never sent),
+and the `.nb_turn_dumps/` writer, which also fired on any "suspicious" turn and wrote
+into the model's working directory. `NbHarness` is sealed; its costume hooks are gone.
+The JSONL bytecode path now refuses a retired harness too, as the parser does.
+
 Executes `plans/agent-neutral-runs.md` item 5 as written: delete the three
 costume classes, their prompts, tests and eval rows; the refusal message naming
 the replacement is the migration, eval line written first. Un-deprecate

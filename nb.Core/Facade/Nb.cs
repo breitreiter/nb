@@ -69,7 +69,7 @@ public static class Nb
 
             // A configured server that failed to connect is a non-fatal warning here;
             // it only hard-fails (below, during evaluation) if the program selects it.
-            var warnings = new List<string>(runtime.StartupWarnings);
+            var warnings = new List<string>();
             foreach (var (name, error) in runtime.Mcp.FailedServers)
                 warnings.Add($"MCP server '{name}' failed to start: {error}");
 

@@ -22,8 +22,6 @@ namespace nb.Tests;
 /// Captured through a real <c>RunAsync</c> call, so what is asserted is what reached
 /// the wire.
 ///
-/// The same snapshot is reused afterwards to assert what each harness costume advertises.
-///
 /// To re-baseline after an intentional change: <c>UPDATE_GOLDEN=1 dotnet test</c>, then
 /// read the diff before committing it.
 /// </summary>
@@ -67,43 +65,11 @@ public class ToolSurfaceGoldenTests : IDisposable
     [Fact]
     public Task Surface_NoBash() => AssertGolden("nobash", ToolSurface.All, noBash: true);
 
-    /// <summary>The qwen-code costume: qwen's names and parameter spellings, nb's tools behind them.</summary>
-    [Fact]
-    public Task Surface_QwenCodeHarness() => AssertGolden("qwen-code", ToolSurface.All, harness: QwenCodeHarness.HarnessName);
-
-    /// <summary>A tools directive still filters a costume — in nb's canonical vocabulary.</summary>
-    [Fact]
-    public Task Surface_QwenCodeFiltered() =>
-        AssertGolden("qwen-code-filtered", new ToolSurface
-        {
-            NativeAllow = new HashSet<string>(new[] { "read_file", "edit_file", "bash" }, StringComparer.OrdinalIgnoreCase),
-        }, harness: QwenCodeHarness.HarnessName);
-
-    /// <summary>
-    /// The codex costume: four tools, and — more to the point — none of the seven file
-    /// and search tools nb holds. Withholding is most of what this costume does.
-    /// </summary>
-    [Fact]
-    public Task Surface_CodexHarness() => AssertGolden("codex", ToolSurface.All, harness: CodexHarness.HarnessName);
-
-    /// <summary>
-    /// EditToolStyle no longer reaches a costume: codex advertises apply_patch either
-    /// way, because the runtime now builds every edit tool and the harness chooses.
-    /// </summary>
-    [Fact]
-    public Task Surface_CodexHarnessIgnoresEditToolStyle() =>
-        AssertGolden("codex", ToolSurface.All, applyPatchStyle: true, harness: CodexHarness.HarnessName);
-
-    /// <summary>The claude-code costume: PascalCase names and file_path throughout.</summary>
-    [Fact]
-    public Task Surface_ClaudeCodeHarness() =>
-        AssertGolden("claude-code", ToolSurface.All, harness: ClaudeCodeHarness.HarnessName);
-
     // ---- harness ----
 
-    private async Task AssertGolden(string name, ToolSurface surface, bool applyPatchStyle = false, bool noBash = false, string? harness = null)
+    private async Task AssertGolden(string name, ToolSurface surface, bool applyPatchStyle = false, bool noBash = false)
     {
-        var rendered = await CaptureSurface(surface, applyPatchStyle, noBash, harness);
+        var rendered = await CaptureSurface(surface, applyPatchStyle, noBash);
         var path = GoldenPath(name);
 
         if (Environment.GetEnvironmentVariable("UPDATE_GOLDEN") == "1")
@@ -120,7 +86,7 @@ public class ToolSurfaceGoldenTests : IDisposable
         Assert.Equal(Normalize(expected), Normalize(rendered));
     }
 
-    private async Task<string> CaptureSurface(ToolSurface surface, bool applyPatchStyle, bool noBash, string? harness = null)
+    private async Task<string> CaptureSurface(ToolSurface surface, bool applyPatchStyle, bool noBash)
     {
         var client = new RecordingChatClient();
         var approval = new ApprovalPolicy(trust: false, new ApprovalPatterns(), _ => false);
@@ -152,11 +118,9 @@ public class ToolSurfaceGoldenTests : IDisposable
             applyPatch = new ApplyPatchTool(_env);
         }
 
-        NbHarness harnessInstance = new NbHarness(
+        var harnessInstance = new NbHarness(
             bash, readFile, writeFile, editFile, findFiles, grep, listDir, fetchUrl,
             searchWeb: null, applyPatch, applyPatchStyle);
-        if (harness is not null)
-            harnessInstance = HarnessRegistry.Create(harness, harnessInstance);
 
         var conversation = new ConversationManager(
             client, new McpManager(), new FakeToolManager(), harnessInstance, approval);

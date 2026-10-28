@@ -7,19 +7,16 @@ namespace nb.Utilities;
 public class ConfigurationService
 {
     private readonly IConfiguration _configuration;
-    private readonly string _systemPrompt;
 
     // configPath (from --config) selects a hermetic single-file config; null
     // uses the layered install/user/project resolution.
     public ConfigurationService(string? configPath = null)
     {
         _configuration = LoadConfiguration(configPath);
-        _systemPrompt = LoadSystemPrompt();
         SetupConsoleEncoding();
     }
 
     public IConfiguration GetConfiguration() => _configuration;
-    public string GetSystemPrompt() => _systemPrompt;
 
     public void SetupConsoleEncoding()
     {
@@ -160,29 +157,6 @@ public class ConfigurationService
     // meant to reference. Keys are colon-delimited paths, so test the last segment.
     private static bool IsCommentKey(string key) =>
         key.AsSpan(key.LastIndexOf(':') + 1).StartsWith("//");
-
-    private static string LoadSystemPrompt()
-    {
-        try
-        {
-            var systemPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", "system.md");
-            
-            if (File.Exists(systemPromptPath))
-            {
-                return File.ReadAllText(systemPromptPath);
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]Warning: system.md file not found. Using default system prompt.[/]");
-                return "You are a helpful AI assistant.";
-            }
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error loading system prompt: {Markup.Escape(ex.Message)}[/]");
-            return "You are a helpful AI assistant.";
-        }
-    }
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     private static extern bool SetConsoleCP(uint wCodePageID);

@@ -4,10 +4,9 @@ using nb.Transcript;
 namespace nb.Tests;
 
 /// <summary>
-/// The <c>harness</c> directive: which harness a run wears. Only nb's own surface is
-/// registered today — costumes land later (plans/harness-emulation.md) — so these pin
-/// the directive's shape, its round-trip, and the refusal to accept a name nobody
-/// implements.
+/// The <c>harness</c> directive. nb's own surface is the only harness since the costumes
+/// retired (plans/atif-and-acp.md stage 1); these pin the directive's shape, its
+/// round-trip, and the refusals of a retired or unknown name.
 /// </summary>
 public class HarnessDirectiveTests
 {
@@ -45,6 +44,15 @@ public class HarnessDirectiveTests
     }
 
     [Fact]
+    public void Harness_RetiredName_IsRejectedWithLineAndTheRedirect()
+    {
+        var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("# comment\nharness claude-code\n"));
+
+        Assert.StartsWith("line 2: harness claude-code was retired on 2026-10-28.", ex.Message);
+        Assert.Contains("\"agent\": \"claude-code\"", ex.Message);
+    }
+
+    [Fact]
     public void Harness_RequiresAValue()
     {
         var ex = Assert.Throws<ProgramParseException>(() => ProgramParser.Parse("harness\n"));
@@ -77,15 +85,14 @@ public class HarnessDirectiveTests
         Assert.Equal("nb", HarnessRegistry.Default);
         Assert.True(HarnessRegistry.IsKnown("nb"));
 
-        // A bogus name rather than a not-yet-built costume: the last two placeholders
-        // here both became real, and each broke this test on the day it shipped.
         Assert.False(HarnessRegistry.IsKnown("not-a-harness"));
+        Assert.False(HarnessRegistry.IsKnown("codex"));
     }
 
     /// <summary>
     /// The trailer carries the harness only when it is not the default, so every
-    /// existing transcript stays byte-identical — the same convention the estimated-usage
-    /// flag follows.
+    /// existing transcript stays byte-identical. A transcript from before the costumes
+    /// retired can still carry one, so the serializer keeps reading and writing it.
     /// </summary>
     [Fact]
     public void Trailer_OmitsTheDefaultHarness()

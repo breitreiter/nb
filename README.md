@@ -27,8 +27,7 @@ bug
 A run is what its document says: the history it fabricates, the persona it writes,
 the tools it declares. Nothing is injected and nothing carries over from the last
 invocation, so a scripted unit of LLM work is cheap to run a thousand times and easy to
-inspect afterwards. A program can also put the run in another agent's costume with
-`harness`, to measure a model through the surface it was trained against.
+inspect afterwards.
 
 ## Documentation
 
@@ -53,9 +52,6 @@ inspect afterwards. A program can also put the run in another agent's costume wi
 - **Tool-use and alignment testing.** Declare a tool surface (`tools`, `mcp`),
   fabricate a prior tool round the model believes it already made, or define
   `fake-tools.yaml` entries so destructive tools return canned results.
-- **Harness comparison.** Run one model through `harness codex` and `harness
-  claude-code` and diff the transcripts. `harness` is a program directive, so the
-  experiment is two files in a directory rather than a config edit between runs.
 - **A subroutine inside a bigger agent.** Call `Nb.RunAsync` in-process and get a typed
   result, or spawn `nb` as a subprocess and parse stdout.
 
@@ -109,7 +105,7 @@ a particular run, which model, which tools, what is allowed, belongs in the prog
    set `MaxContextTokens` on its entry. Details in [`docs/providers.md`](docs/providers.md).
 2. **MCP servers** (optional). Copy `mcp.example.json` to `mcp.json`. Details in
    [`docs/mcp.md`](docs/mcp.md).
-3. **Theme** (optional). Colors for interactive output in `theme.json`; see the
+3. **Theme** (optional). Colors for the stderr chrome in `theme.json`; see the
    reference, §2.
 
 ### Config resolution
@@ -180,7 +176,7 @@ tokens on it.
 
 Each line is `<verb> <content>`:
 
-- **Config directives** (`provider`, `model`, `harness`, `oracle`, `mcp`, `tools`,
+- **Config directives** (`provider`, `model`, `oracle`, `mcp`, `tools`,
   `approval`, `loop`, `budget`) set the envelope going forward.
 - **Turn directives** (`system`, `user`, `assistant`) append messages.
 - **`run`** invokes the model on the accumulated state. `run <text>` is shorthand for a
@@ -199,8 +195,7 @@ run now analyze the root cause
 ```
 
 A program is never given a default persona. It gets the `system` directives it writes
-and nothing else, which is what an eval wants. The one exception is explicit: a
-`harness` directive brings its costume's prompt with it.
+and nothing else, which is what an eval wants.
 
 The directives in brief, each covered in full in the
 [reference](docs/conversation-program-cli.md):
@@ -208,10 +203,6 @@ The directives in brief, each covered in full in the
 - **`tools` and `mcp`** reshape the tool surface with delta tokens (`tools -bash`,
   `tools none`, `mcp +figma`). Native tools are all on by default; MCP servers are
   exposed only when named.
-- **`harness`** puts the run in another agent's costume: its tool names and schemas,
-  its prompt preamble, its project instruction files, its environment block. The
-  registered names are `nb`, `qwen-code`, `codex`, and `claude-code`, and every run must
-  resolve one, from the program or from the provider entry's `Harness` field.
 - **`loop` and `budget`** are run-level ceilings: a doom-loop nudge, and hard limits on
   tokens, tool calls, wall-clock, and oracle turns.
 - **`oracle @sheet.md`** attaches an answer sheet, a scripted user that answers when

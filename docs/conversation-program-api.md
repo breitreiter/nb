@@ -224,7 +224,7 @@ new NbOptions
     Cwd                = Directory.GetCurrentDirectory(), // shell/native-tool working dir
     Trust              = false,   // auto-approve non-dangerous tools within the cwd sandbox
     NoBash             = false,   // expose no native tools (MCP-only)
-    Harness            = null,    // harness when the program names none; null = config's entry/top-level Harness; nothing anywhere = NbStartupException
+    Harness            = null,    // only "nb" is accepted; null = config's entry/top-level Harness, else nb. A retired costume = NbStartupException
     Verbose            = false,
     McpManifestPath    = null,    // explicit MCP manifest; null = layered mcp.json
     ApprovePatterns    = new[] { "git status" }, // bash auto-approve patterns
@@ -264,7 +264,7 @@ public sealed record RunResult
     public string  ExitReason { get; init; }    // "ok" | "provider_error" | "max_tool_calls" | ...
     public int     ExitCode   { get; init; }    // 0 | 2 | 3 | 4
     public string? Provider   { get; init; }    // the entry that actually answered
-    public string? Harness    { get; init; }    // the costume worn, null for nb's own
+    public string? Harness    { get; init; }    // null: nb's own surface is the only one
     public int     Denied     { get; init; }    // tool calls the approval policy refused
     public int     OracleTurns { get; init; }   // halts an answer sheet serviced (0 without one)
     public IReadOnlyList<string> Warnings { get; init; } // non-fatal evaluator warnings
