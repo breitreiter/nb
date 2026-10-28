@@ -1,18 +1,16 @@
+using nb.Transcript;
+
 namespace nb.Shell;
 
 /// <summary>
-/// The live record of what the approval policy decided, keyed by tool-call id.
+/// What the approval policy decided, keyed by tool-call id. Decisions are made deep in the
+/// harness at execution time; each one is stamped on its <c>tool_call</c> in the run's
+/// <see cref="RunJournal"/> as it is made, and kept here for the trailer's denial count and
+/// the error tracker's "was that a denial?".
 ///
-/// It exists because the transcript's tool_call events are mapped post-hoc from chat
-/// history, and history carries no approval disposition — see
-/// <c>TranscriptMapper.FromHistory</c>. Decisions are made deep in the harness at
-/// execution time and would otherwise be discarded; this collects them so the emit
-/// step can stamp them on. Same route usage takes to the trailer.
-///
-/// Not a policy component: it decides nothing and is not consulted. Write-only during a
-/// run, read once at emit.
+/// Not a policy component: it decides nothing.
 /// </summary>
-public sealed class ApprovalLedger
+public sealed class ApprovalLedger(RunJournal? journal = null)
 {
     private readonly Dictionary<string, (string Verdict, string? Reason)> _entries = new();
 
@@ -26,9 +24,9 @@ public sealed class ApprovalLedger
     public const string DefaultDeny = "default-deny";
     public const string NoMatch = "no-match";
 
-    public void RecordAllow(string callId, string reason) => _entries[callId] = (Allow, reason);
+    public void RecordAllow(string callId, string reason) => Record(callId, Allow, reason);
 
-    public void RecordDeny(string callId, string reason) => _entries[callId] = (Deny, reason);
+    public void RecordDeny(string callId, string reason) => Record(callId, Deny, reason);
 
     public int DeniedCount => _entries.Values.Count(e => e.Verdict == Deny);
 
@@ -42,5 +40,11 @@ public sealed class ApprovalLedger
 
         (verdict, reason) = (Allow, null);
         return false;
+    }
+
+    private void Record(string callId, string verdict, string reason)
+    {
+        _entries[callId] = (verdict, reason);
+        journal?.RecordApproval(callId, verdict, reason);
     }
 }

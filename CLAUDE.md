@@ -150,7 +150,7 @@ CLI Exe (repo root):
 - `ProviderManager.cs` - AI provider discovery/loading (plugin architecture; injectable providers dir)
 - `ProgramEvaluator.cs` - Evaluates a conversation-program (the TranscriptEvent stream), including the oracle continuation loop
 - `AnswerSheet.cs` / `OracleResolver.cs` - The `oracle` directive's answer sheet and the side call that judges a finished turn against it (`plans/oracle-resolver.md`). The Mock provider's scripted verdict rides on `MOCK:oracle=`; the sentinel/marker literals are duplicated in `Providers/Mock` across the ALC boundary on purpose
-- `Transcript/` - The wire schema (events, serializer, mapper, loader, program parser)
+- `Transcript/` - The wire schema (events, serializer, mapper, loader, program parser) and `RunJournal`, the run record written as it happens: `ConversationManager` journals each message as it enters history, approvals are stamped at decision time, and the transcript is the journal's events (history is only what the model sees; compaction rewrites it, not the record)
 - `Harness/` - The advertised tool surface. `NbHarness` (nb's own surface + the tool-execution capabilities) and `HarnessRegistry` (`nb`, the only harness and the default, plus the refusal for the costumes retired 2026-10-28 — `plans/atif-and-acp.md` stage 1). To test in another agent's harness, run that harness (a proctor arm)
 - `MCP/` - `McpManager` (client lifecycle, layered mcp.json), `FakeToolManager`
 - `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust path-scoping, bwrap)

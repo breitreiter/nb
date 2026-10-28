@@ -28,7 +28,7 @@ public class TranscriptLoaderTests
     [Fact]
     public void WorkedExample_RebuildsRepresentationA()
     {
-        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromHistory(WorkedExampleHistory()));
+        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromMessages(WorkedExampleHistory()));
         var messages = TranscriptLoader.Load(jsonl);
 
         Assert.Equal(4, messages.Count);
@@ -55,9 +55,9 @@ public class TranscriptLoaderTests
     {
         // The schema's central promise: emit and load are inverse over core events.
         // history -> events -> jsonl -> history' -> events' -> jsonl' , assert jsonl == jsonl'.
-        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromHistory(WorkedExampleHistory()));
+        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromMessages(WorkedExampleHistory()));
         var reloaded = TranscriptLoader.Load(jsonl);
-        var jsonl2 = TranscriptSerializer.Serialize(TranscriptMapper.FromHistory(reloaded));
+        var jsonl2 = TranscriptSerializer.Serialize(TranscriptMapper.FromMessages(reloaded));
 
         Assert.Equal(jsonl, jsonl2);
     }
@@ -91,9 +91,9 @@ public class TranscriptLoaderTests
     [Fact]
     public void PreservesArgumentTypes_ThroughLoad()
     {
-        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromHistory(WorkedExampleHistory()));
+        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromMessages(WorkedExampleHistory()));
         var reloaded = TranscriptLoader.Load(jsonl);
-        var reevents = TranscriptMapper.FromHistory(reloaded);
+        var reevents = TranscriptMapper.FromMessages(reloaded);
 
         var call = Assert.IsType<ToolCallEvent>(reevents[1]);
         // numeric arg survives history reconstruction as a JSON number, not a string.
@@ -109,7 +109,7 @@ public class TranscriptLoaderTests
             new(ChatRole.System, "You are terse."),
             new(ChatRole.User, "hi"),
         };
-        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromHistory(history));
+        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromMessages(history));
 
         var reloaded = TranscriptLoader.Load(jsonl);
 
@@ -201,7 +201,7 @@ public class TranscriptLoaderTests
             new(ChatRole.User, "two"),
             new(ChatRole.Assistant, "second"),
         };
-        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromHistory(history));
+        var jsonl = TranscriptSerializer.Serialize(TranscriptMapper.FromMessages(history));
 
         var reloaded = TranscriptLoader.Load(jsonl);
 

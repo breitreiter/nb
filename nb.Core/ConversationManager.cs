@@ -46,6 +46,7 @@ public class ConversationManager
     }
     private readonly List<AIChatMessage> _conversationHistory = new();
     private int _toolCallCount = 0;
+    private int _rounds;
     // Token usage accumulated across the whole invocation — every run and every
     // tool-loop round-trip within it. Never reset per run, so a multi-run program's
     // trailer reports the aggregate, not just the last run.
@@ -121,6 +122,7 @@ public class ConversationManager
         _mcpManager = mcpManager;
         _fakeToolManager = fakeToolManager;
         _harness = harness;
+        Approvals = new ApprovalLedger(Journal);
         _harness.Configure(approvalPolicy, verbose, Approvals);
         _currentProviderName = providerName;
         _verbose = verbose;
@@ -215,13 +217,11 @@ public class ConversationManager
     /// <summary>The harness whose surface runs currently advertise.</summary>
     public NbHarness Harness => _harness;
 
-    /// <summary>
-    /// Approval verdicts recorded during the run, for the transcript's <c>approved</c> field
-    /// and the trailer's denial count. Lives here rather than on the harness because a
-    /// <c>harness</c> directive swaps the costume mid-run and the record must outlive it —
-    /// the same reason usage is accumulated here.
-    /// </summary>
-    public ApprovalLedger Approvals { get; } = new();
+    /// <summary>The run's record, written as it happens. The transcript is its events.</summary>
+    public RunJournal Journal { get; } = new();
+
+    /// <summary>Approval verdicts recorded during the run; each is also stamped on its journaled call.</summary>
+    public ApprovalLedger Approvals { get; }
 
     public void SetToolSurface(Transcript.ToolSurface surface)
     {
@@ -231,7 +231,7 @@ public class ConversationManager
         _toolSurface = surface;
     }
 
-    /// <summary>The live conversation history — the emit source for transcript output.</summary>
+    /// <summary>What the model sees. Compaction rewrites it; <see cref="Journal"/> keeps the record.</summary>
     public IReadOnlyList<AIChatMessage> History => _conversationHistory;
 
     /// <summary>
@@ -240,31 +240,24 @@ public class ConversationManager
     /// the tool executors, so guards like FileReadTracker stay untouched — the
     /// agent re-reads before editing, exactly as intended (transcript-schema.md).
     /// </summary>
-    public void AppendHistory(IEnumerable<AIChatMessage> messages) => _conversationHistory.AddRange(messages);
+    public void AppendHistory(IEnumerable<AIChatMessage> messages)
+    {
+        foreach (var message in messages) Append(message);
+    }
+
+    // Every message enters the model's view and the record together.
+    private void Append(AIChatMessage message, RoundMetrics? round = null, string? source = null, OracleAnswer? oracle = null)
+    {
+        _conversationHistory.Add(message);
+        Journal.Append(message, round, source, oracle);
+    }
 
     // ---- Oracle seams (plans/oracle-resolver.md). The loop itself lives in
     // ProgramEvaluator; these are the three things it needs from the conversation:
     // a side call on the current client, a way to append the scripted user's turn
     // so the transcript can tell it apart, and a way to end the run with a reason.
 
-    // The user messages the oracle authored from the answer sheet, by message identity,
-    // each with the ids it selected. Live instrumentation, like the approval ledger:
-    // history carries no enrichment, so the mapper is handed this alongside it.
-    private readonly Dictionary<AIChatMessage, OracleAnswer> _oracleAnswers = new(ReferenceEqualityComparer.Instance);
     private bool _oracleAvailable;
-
-    public IReadOnlyDictionary<AIChatMessage, OracleAnswer> OracleAnswers => _oracleAnswers;
-
-    // The other two things nb says in the user's voice that the program did not write:
-    // the doom-loop nudge and the pending-todo reminder. On the wire they were
-    // indistinguishable from a user turn the program authored, so a consumer counting
-    // them had to regex the reminder prose — which is tunable (the loop text already
-    // varies on _oracleAvailable) and would give a silently wrong count on the next
-    // wording change. Tagged the same way the oracle's answers are.
-    // bugs/Feature_Injected_Reminders_Carry_A_Source_Tag.md
-    private readonly Dictionary<AIChatMessage, string> _injectedSources = new(ReferenceEqualityComparer.Instance);
-
-    public IReadOnlyDictionary<AIChatMessage, string> InjectedSources => _injectedSources;
 
     /// <summary>The last assistant prose in history, or empty — what the oracle is shown.</summary>
     public string LastAssistantText =>
@@ -289,7 +282,7 @@ public class ConversationManager
         client ??= _client;
         if (client == null) return new ChatResponse();
         var response = await client.GetResponseAsync(messages, options, cancellationToken);
-        var (input, output, total) = MeasureOrEstimateUsage(response, options.Tools);
+        var (input, output, total, _) = MeasureOrEstimateUsage(response, options.Tools);
         ChargeCost(input, output);
         _sessionInputTokens += input;
         _sessionOutputTokens += output;
@@ -306,9 +299,7 @@ public class ConversationManager
     /// </summary>
     public void AppendOracleAnswer(string text, IReadOnlyList<string> keys, string verdict)
     {
-        var message = new AIChatMessage(ChatRole.User, text);
-        _conversationHistory.Add(message);
-        _oracleAnswers[message] = new OracleAnswer(keys, verdict);
+        Append(new AIChatMessage(ChatRole.User, text), oracle: new OracleAnswer(keys, verdict));
         RenderMarkdown($"*(oracle: {string.Join(", ", keys)})* {text}");
     }
 
@@ -368,7 +359,7 @@ public class ConversationManager
         _lastRemindedTodos = null;
 
         if (inlinePrompt is not null)
-            _conversationHistory.Add(new AIChatMessage(ChatRole.User, inlinePrompt));
+            Append(new AIChatMessage(ChatRole.User, inlinePrompt));
 
         // Already over a session budget from earlier runs — don't spend another model call.
         if (_tokenBudget is { } budget && _sessionTotalTokens >= budget)
@@ -394,7 +385,7 @@ public class ConversationManager
             // the wall-clock deadline instead ends the run cleanly as time_budget.
             if (cancellationToken.IsCancellationRequested) throw;
             var note = $"Stopped: the wall-clock budget ({_wallBudgetMs} ms) was reached.";
-            _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, note));
+            Append(new AIChatMessage(ChatRole.Assistant, note));
             RenderMarkdown(note);
             LastOutcome = Transcript.ExitReasons.TimeBudget;
         }
@@ -504,7 +495,8 @@ public class ConversationManager
             // the program asked for, and hard-failing forces every caller behind a gateway
             // to write a carve-out. The guess is flagged all the way out to the trailer so
             // it is never passed off as a measurement.
-            var (roundInput, roundOutput, roundTotal) = MeasureOrEstimateUsage(response, requestOptions.Tools);
+            var (roundInput, roundOutput, roundTotal, estimated) = MeasureOrEstimateUsage(response, requestOptions.Tools);
+            var round = new RoundMetrics(_rounds++, roundInput, roundOutput, roundTotal, estimated, GetCurrentModel());
             ChargeCost(roundInput, roundOutput);
             _sessionInputTokens += roundInput;
             _sessionOutputTokens += roundOutput;
@@ -523,7 +515,7 @@ public class ConversationManager
                 {
                     var counted = _usageEstimated ? "estimated tokens used" : "tokens used";
                     var budgetMessage = $"Stopped: the token budget ({budget}) was reached ({_sessionTotalTokens} {counted}).";
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, budgetMessage));
+                    Append(new AIChatMessage(ChatRole.Assistant, budgetMessage));
                     RenderMarkdown(budgetMessage);
                     return Transcript.ExitReasons.TokenBudget;
                 }
@@ -532,13 +524,13 @@ public class ConversationManager
                 if (_toolCallCount >= _maxToolCalls)
                 {
                     var limitMessage = "I've reached the maximum number of tool calls for this message. Let me provide a response with the information I have.";
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, limitMessage));
+                    Append(new AIChatMessage(ChatRole.Assistant, limitMessage));
                     RenderMarkdown(limitMessage);
                     return Transcript.ExitReasons.MaxToolCalls;
                 }
 
                 // Add assistant message with tool calls to history (think blocks stripped)
-                _conversationHistory.AddRange(response.Messages.Select(StripThinkBlocksFromMessage));
+                foreach (var message in response.Messages) Append(StripThinkBlocksFromMessage(message), round);
 
                 // Collect all tool results in a single list
                 var allToolResults = new List<ToolOutcome>();
@@ -733,9 +725,9 @@ public class ConversationManager
                 {
                     var toolContents = allToolResults.Select(o => (AIContent)o.Content).ToList();
                     var hoisted = HoistImagesOutOfToolResults(allToolResults);
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.Tool, toolContents));
+                    Append(new AIChatMessage(ChatRole.Tool, toolContents));
                     if (hoisted.Count > 0)
-                        _conversationHistory.Add(new AIChatMessage(ChatRole.User, hoisted));
+                        Append(new AIChatMessage(ChatRole.User, hoisted));
                 }
 
                 // Hard-abort the turn if any tool has hit its failure budget
@@ -748,7 +740,7 @@ public class ConversationManager
                     var abortMsg = deniedOut
                         ? $"Tool '{offendingTool}' was denied {_errorTracker.Limit} times in a row and nothing in this run will authorize it. Aborting this turn. Grant it with an `approval` directive, or proceed without it."
                         : $"Tool '{offendingTool}' failed {_errorTracker.Limit} times in a row. Aborting this turn to prevent a runaway loop. Review the errors above and try a different approach, or end the turn stating plainly what is blocked.";
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, abortMsg));
+                    Append(new AIChatMessage(ChatRole.Assistant, abortMsg));
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]⛔ {Markup.Escape(abortMsg)}[/]");
                     return deniedOut
                         ? Transcript.ExitReasons.ApprovalDenied
@@ -762,9 +754,9 @@ public class ConversationManager
                     var reminder = $"<system_reminder>You appear to be stuck in a repetitive loop ({reps} similar tool-call sequences at the tail of this turn). You are not making progress. Options: (1) reconsider your approach, (2) try a different tool or different arguments, (3) stop and end the turn, stating plainly what is blocked and what you would need to proceed. " + (_oracleAvailable
                         ? "If you need information from the user, end the turn and ask for it plainly; an answer may follow."
                         : "No one is available to answer a question mid-run.") + "</system_reminder>";
-                    var loopMessage = new AIChatMessage(ChatRole.User, reminder);
-                    _conversationHistory.Add(loopMessage);
-                    _injectedSources[loopMessage] = "loop";
+                    // Tagged so a consumer counting nudges needn't regex the prose.
+                    // bugs/Feature_Injected_Reminders_Carry_A_Source_Tag.md
+                    Append(new AIChatMessage(ChatRole.User, reminder), source: "loop");
                     AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Loop detected ({reps} reps); reminding model[/]");
                     _doomLoopDetector.Reset();
                     nextInjectedReminder = "loop";
@@ -780,7 +772,7 @@ public class ConversationManager
                 if (!string.IsNullOrEmpty(assistantMessage))
                 {
                     // Text was already streamed through MarkdownRenderer above.
-                    _conversationHistory.Add(new AIChatMessage(ChatRole.Assistant, StripThinkBlocks(assistantMessage)));
+                    Append(new AIChatMessage(ChatRole.Assistant, StripThinkBlocks(assistantMessage)), round);
                 }
 
                 // Pending-todos reminder: if the model tries to end the turn with
@@ -797,11 +789,8 @@ public class ConversationManager
                         var reminder = "<system_reminder>You have pending todo items that must be completed or cancelled before finishing this turn:\n"
                                      + list
                                      + "\n\nContinue working through the list, or mark items as cancelled via todo_write if they are no longer relevant.</system_reminder>";
-                        var todoMessage = new AIChatMessage(ChatRole.User, reminder);
-                        _conversationHistory.Add(todoMessage);
-                        // "todo" singular on the wire, matching the tool name and `tools
-                        // -todo`; the turn-dump label says "todos" and is left alone.
-                        _injectedSources[todoMessage] = "todo";
+                        // "todo" singular on the wire, matching the tool name and `tools -todo`.
+                        Append(new AIChatMessage(ChatRole.User, reminder), source: "todo");
                         _lastRemindedTodos = currentSet;
                         AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]⚠ Pending todos; reminding model[/]");
                         return await SendMessageInternalAsync("todos", cancellationToken);
@@ -918,7 +907,7 @@ public class ConversationManager
     /// nothing did. Sets <see cref="UsageIsEstimated"/> (once, with a warning) on the
     /// estimate path.
     /// </summary>
-    private (long Input, long Output, long Total) MeasureOrEstimateUsage(ChatResponse response, IList<AITool>? tools)
+    private (long Input, long Output, long Total, bool Estimated) MeasureOrEstimateUsage(ChatResponse response, IList<AITool>? tools)
     {
         if (response.Usage is { } usage &&
             (usage.InputTokenCount ?? usage.OutputTokenCount ?? usage.TotalTokenCount) is not null)
@@ -926,7 +915,7 @@ public class ConversationManager
             long input = usage.InputTokenCount ?? 0;
             long output = usage.OutputTokenCount ?? 0;
             // Anthropic has no total_tokens field at all; a normalizing gateway may drop it.
-            return (input, output, usage.TotalTokenCount ?? input + output);
+            return (input, output, usage.TotalTokenCount ?? input + output, false);
         }
 
         // Called before the response is appended to history, so _conversationHistory is
@@ -936,7 +925,7 @@ public class ConversationManager
         long estInput = EstimateTokens(_conversationHistory) + EstimateToolSchemaTokens(tools);
         long estOutput = EstimateTokens(response.Messages);
         NoteUsageEstimated();
-        return (estInput, estOutput, estInput + estOutput);
+        return (estInput, estOutput, estInput + estOutput, true);
     }
 
     private void NoteUsageEstimated()

@@ -92,7 +92,7 @@ public static class Nb
             await evaluator.EvaluateAsync(program, cancellationToken);
             var duration = System.Diagnostics.Stopwatch.GetElapsedTime(runClock);
 
-            var events = TranscriptMapper.FromHistory(runtime.Conversation.History, runtime.Conversation.Approvals, runtime.Conversation.OracleAnswers, runtime.Conversation.InjectedSources);
+            var events = runtime.Conversation.Journal.Events;
             var estimated = runtime.Conversation.UsageIsEstimated;
             UsageInfo? usage = runtime.Conversation.TotalUsage is { } u
                 ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total, Estimated = estimated }

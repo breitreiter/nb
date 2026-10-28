@@ -30,7 +30,7 @@ public class TranscriptMapperTests
     [Fact]
     public void WorkedExample_MapsToCoreEvents_WithCorrectTurns()
     {
-        var events = TranscriptMapper.FromHistory(WorkedExampleHistory());
+        var events = TranscriptMapper.FromMessages(WorkedExampleHistory());
 
         Assert.Equal(8, events.Count); // user + 3 calls + 3 results + assistant_text (no assistant_text for the calls message)
 
@@ -61,7 +61,7 @@ public class TranscriptMapperTests
     [Fact]
     public void WorkedExample_JoinKeysAndOutputsPreserved()
     {
-        var events = TranscriptMapper.FromHistory(WorkedExampleHistory());
+        var events = TranscriptMapper.FromMessages(WorkedExampleHistory());
 
         var firstCall = Assert.IsType<ToolCallEvent>(events[1]);
         Assert.Equal("ncqT01", firstCall.Id);
@@ -75,7 +75,7 @@ public class TranscriptMapperTests
     [Fact]
     public void MappedArguments_PreserveJsonTypes()
     {
-        var events = TranscriptMapper.FromHistory(WorkedExampleHistory());
+        var events = TranscriptMapper.FromMessages(WorkedExampleHistory());
         var call = Assert.IsType<ToolCallEvent>(events[1]);
 
         // timeout_seconds was a boxed int 10 — must stay a JSON number, not a string.
@@ -87,7 +87,7 @@ public class TranscriptMapperTests
     [Fact]
     public void MappedEvents_SerializeAndRoundTrip()
     {
-        var events = TranscriptMapper.FromHistory(WorkedExampleHistory());
+        var events = TranscriptMapper.FromMessages(WorkedExampleHistory());
         var jsonl = TranscriptSerializer.Serialize(events);
         var reparsed = TranscriptSerializer.Parse(jsonl);
 
@@ -105,7 +105,7 @@ public class TranscriptMapperTests
             new(ChatRole.Assistant, "second"),
         };
 
-        var events = TranscriptMapper.FromHistory(history);
+        var events = TranscriptMapper.FromMessages(history);
 
         Assert.Equal(new int?[] { 0, 1, 2, 3 }, events.Select(e => e.Turn));
     }
@@ -123,7 +123,7 @@ public class TranscriptMapperTests
             }),
         };
 
-        var events = TranscriptMapper.FromHistory(history);
+        var events = TranscriptMapper.FromMessages(history);
 
         var text = Assert.IsType<AssistantTextEvent>(events[1]);
         var call = Assert.IsType<ToolCallEvent>(events[2]);
@@ -140,7 +140,7 @@ public class TranscriptMapperTests
             new(ChatRole.User, "hi"),
         };
 
-        var events = TranscriptMapper.FromHistory(history);
+        var events = TranscriptMapper.FromMessages(history);
 
         var sys = Assert.IsType<SystemEvent>(events[0]);
         Assert.Equal("You are terse.", sys.Text);
@@ -167,7 +167,7 @@ public class TranscriptMapperTests
             }),
         };
 
-        var events = TranscriptMapper.FromHistory(history);
+        var events = TranscriptMapper.FromMessages(history);
         var result = Assert.IsType<ToolResultEvent>(events[events.Count - 1]);
         Assert.Equal("[Image loaded: x.png]", result.Output);
     }
@@ -175,7 +175,7 @@ public class TranscriptMapperTests
     [Fact]
     public void ResultTrailer_DerivesCountsFromEvents()
     {
-        var events = TranscriptMapper.FromHistory(WorkedExampleHistory());
+        var events = TranscriptMapper.FromMessages(WorkedExampleHistory());
         var trailer = TranscriptMapper.ResultTrailer(events, usage: new UsageInfo { Input = 812, Output = 143, Total = 955 });
 
         Assert.Equal(2, trailer.Turns);       // max turn reached
@@ -195,16 +195,12 @@ public class TranscriptMapperTests
         var wrote = new ChatMessage(ChatRole.User, "do the thing");
         var loop = new ChatMessage(ChatRole.User, "<system_reminder>You appear to be stuck…</system_reminder>");
         var todo = new ChatMessage(ChatRole.User, "<system_reminder>You have pending todo items…</system_reminder>");
-        var history = new List<ChatMessage> { wrote, loop, todo };
+        var journal = new RunJournal();
+        journal.Append(wrote);
+        journal.Append(loop, source: "loop");
+        journal.Append(todo, source: "todo");
 
-        var sources = new Dictionary<ChatMessage, string>(ReferenceEqualityComparer.Instance)
-        {
-            [loop] = "loop",
-            [todo] = "todo",
-        };
-
-        var events = TranscriptMapper.FromHistory(history, injectedSources: sources)
-            .OfType<UserEvent>().ToList();
+        var events = journal.Events.OfType<UserEvent>().ToList();
 
         Assert.Null(events[0].Source);
         Assert.Equal("loop", events[1].Source);
@@ -228,7 +224,7 @@ public class TranscriptMapperTests
             new(ChatRole.Assistant, text),
         };
 
-        var events = TranscriptMapper.FromHistory(history);
+        var events = TranscriptMapper.FromMessages(history);
 
         Assert.Equal(expected, events.OfType<AssistantJsonEvent>().Any());
     }
