@@ -770,6 +770,57 @@ run_prog_jsonl "assistant_json: no event when there is no fence" \
     "run MOCK:response=hi" --output jsonl
 
 echo ""
+echo "--- ATIF trajectory (--trajectory) ---"
+echo ""
+
+# One program per shape a step can take: a tool round with its result, a denial, a
+# loop nudge, the parsed answer JSON, inline thinking. Each is written beside the
+# JSONL, which must still end with the same trailer.
+TRAJ_DIR=$(mktemp -d)
+TRAJ_PROGS=(
+    "$(printf 'approval bash echo *\nrun MOCK:tool=bash echo hi')"
+    "run MOCK:tool=bash echo changed > note.txt"
+    "$(printf 'budget tool_calls 8\nrun MOCK:loop=bash echo hi')"
+    "$(printf 'run MOCK:response=\x60\x60\x60json \\\n{"a":1} \\\n\x60\x60\x60')"
+    "run MOCK:response=<think>weigh it</think>hi"
+)
+for i in "${!TRAJ_PROGS[@]}"; do
+    name="trajectory: program $i writes ATIF-v1.7 carrying the JSONL's trailer"
+    jsonl=$(cd "$NB_DIR" && printf '%s\n' "${TRAJ_PROGS[$i]}" | "$NB" --config "$MOCK_CONFIG" --trajectory "$TRAJ_DIR/$i.json" - 2>/dev/null)
+    want=$(printf '%s\n' "$jsonl" | jq -c 'select(.type=="result")|.exit_reason')
+    got=$(jq -c 'if .schema_version=="ATIF-v1.7" then .extra.result.exit_reason else "wrong schema_version" end' "$TRAJ_DIR/$i.json" 2>&1)
+    if [[ -n "$want" && "$got" == "$want" ]]; then
+        echo -e "${GREEN}PASS${NC}: $name"; PASSED=$((PASSED + 1))
+    else
+        echo -e "${RED}FAIL${NC}: $name"; echo -e "${DIM}  want $want, got $got${NC}"; FAILED=$((FAILED + 1))
+    fi
+done
+
+# NB_TRAJECTORY seeds the flag, for a harness that starts nb through a script (proctor's runner).
+name="trajectory: NB_TRAJECTORY writes it with no flag"
+(cd "$NB_DIR" && echo "run hi" | NB_TRAJECTORY="$TRAJ_DIR/env.json" "$NB" --config "$MOCK_CONFIG" - >/dev/null 2>&1)
+if [[ "$(jq -r .schema_version "$TRAJ_DIR/env.json" 2>/dev/null)" == "ATIF-v1.7" ]]; then
+    echo -e "${GREEN}PASS${NC}: $name"; PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}FAIL${NC}: $name"; FAILED=$((FAILED + 1))
+fi
+
+# Harbor's own validator at proctor's pin. Opt-in by presence: nb's CI has no Python.
+if ! command -v uv >/dev/null 2>&1; then
+    echo -e "${YELLOW}SKIP${NC}: Harbor's ATIF validator (uv not on PATH)"
+else
+    for i in "${!TRAJ_PROGS[@]}"; do
+        name="trajectory: program $i passes harbor==0.24.0's trajectory_validator"
+        if out=$(uv tool run --from harbor==0.24.0 python -m harbor.utils.trajectory_validator "$TRAJ_DIR/$i.json" 2>&1); then
+            echo -e "${GREEN}PASS${NC}: $name"; PASSED=$((PASSED + 1))
+        else
+            echo -e "${RED}FAIL${NC}: $name"; echo -e "${DIM}  ${out:0:400}${NC}"; FAILED=$((FAILED + 1))
+        fi
+    done
+fi
+rm -rf "$TRAJ_DIR"
+
+echo ""
 
 # ----------------------------------------
 # LLM Eval (real provider, LLM-as-judge)

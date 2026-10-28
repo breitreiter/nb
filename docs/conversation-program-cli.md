@@ -54,6 +54,7 @@ make it a program: `echo 'run summarize this' | nb -`.
 | --- | --- |
 | `--output <mode>` | `jsonl` (default) or `porcelain`. Either puts the transcript on stdout and chrome on stderr. |
 | `--seed <file>` | Prepend a transcript (jsonl) as premise history before the program (§6). |
+| `--trajectory <file>` | Also write the run as an ATIF trajectory to this file (§8.1), beside whatever `--output` puts on stdout. Written when the run ends, before stdout's trailer. `NB_TRAJECTORY` sets it too. |
 | `--config <file>` | Use exactly this config file (hermetic); otherwise config resolves in layers (§7). |
 | `--mcp <file>` | Use this MCP manifest only; otherwise `mcp.json` resolves in layers. |
 | `--validate` | Parse + semantically check the program, run nothing. Exit 1 on any error. |
@@ -453,7 +454,7 @@ echo 'run now finish it' | nb - --seed turn1.jsonl
 Config resolves in layers, later winning: install defaults (`appsettings.json` next
 to the binary) → user (`~/.config/nb/config.json`, honoring `XDG_CONFIG_HOME`) →
 nearest project `.nb/config.json` (walking up from cwd) → `NB_`-prefixed environment
-variables. Friendly env aliases: `NB_PROVIDER`, `NB_MODEL`, `NB_OUTPUT` (plus raw
+variables. Friendly env aliases: `NB_PROVIDER`, `NB_MODEL`, `NB_OUTPUT`, `NB_TRAJECTORY` (plus raw
 `NB_ChatProviders__0__ApiKey`-style paths). `--config <file>` collapses the file
 layers to one file (hermetic); env still applies. `mcp.json` resolves in the same
 install → user → project layers, merged by server name; `--mcp <file>` selects one
@@ -591,6 +592,32 @@ blind to provider-side overheads. `"estimated"` is omitted entirely when the cou
 are measured, so a normal trailer is unchanged. Multipart `content` (multimodal) is an array of parts
 (`{"kind":"text",…}` / `{"kind":"image",…,"note":…}`); images don't fully round-trip
 in v1 — the durable stand-in is `note`.
+
+### 8.1 The ATIF trajectory (`--trajectory`)
+
+`--trajectory <file>` writes the same run as one JSON document in **ATIF v1.7**, the Agent
+Trajectory Interchange Format that Harbor reads and writes for every agent. JSONL stays
+nb's native format, because it is also nb's program format (`--seed` reads what
+`--output jsonl` writes); the trajectory is a side file so that stdout can stay JSONL or
+porcelain. The version is pinned to what Harbor 0.24's own adapters write. Harbor's
+validator (`python -m harbor.utils.trajectory_validator`) accepts every file nb writes, and
+`evals/run.sh` runs it when `uv` is on the PATH.
+
+| ATIF | From |
+| --- | --- |
+| `agent` | `{name: "nb", version, model_name}`: the version without its `+commit` suffix (the full one is in `extra.result.nb_version`), and the trailer's `model`. |
+| a `system` / `user` step | each `system` / `user` event. A multipart message flattens to its text parts and each image's `note`, newline-joined. A user turn nb injected carries `extra.source` (and `extra.keys` for the oracle), as on the JSONL. |
+| an `agent` step | one per turn: the turn's `assistant_text` (newline-joined) as `message`, `thinking` as `reasoning_content`, each `tool_call` in `tool_calls` (`extra.approved`, `extra.approval_reason`) and each `tool_result` in `observation.results` (`content` is `output`; `extra.result` is the structured result). The parsed answer is `extra.assistant_json`. |
+| a step's `timestamp` | when its first event entered the run, UTC. |
+| an agent step's `model_name`, `metrics`, `llm_call_count` | the model call that produced it: the model that answered, `prompt_tokens`, `completion_tokens`, `cost_usd` when the entry declares a price, and `llm_call_count: 1`. A step no model call produced (nb's own "Stopped:" notes, an `assistant` turn the program wrote) carries none of the three. |
+| `final_metrics` | the trailer's usage as `total_prompt_tokens` / `total_completion_tokens`, `total_cost_usd` when priced, and `total_steps`. |
+| `extra.result` | the `result` trailer, exactly as the JSONL ends with it. |
+
+Estimated usage is never passed off as measured: a step whose counts nb estimated, and
+`final_metrics` when any were, carry `extra.estimated: true`. Directives (`provider`,
+`approval`, …) configure the run and do not appear; the resolved program's hash is in
+`extra.result.program_sha256`. A run nb kills mid-way (a harness timeout) writes no
+trajectory, just as it writes no trailer.
 
 ---
 

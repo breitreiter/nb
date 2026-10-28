@@ -231,6 +231,32 @@ identity gate passes, each with its own test:
 
 ### 3. nb writes ATIF (1–1½ days; proctor reads it and deletes `NbAtif`)
 
+**Done 2026-10-28.** `nb.Core/Transcript/AtifWriter.cs`; `RunResult.Journal`,
+`Trailer()` and `Trajectory()` for library hosts. Every Mock shape (plain, answer JSON,
+estimated usage, allowed, denied and failing tools, loop nudge, provider error, thinking,
+oracle) was captured as a JSONL-and-trajectory pair from one run, and each trajectory
+equalled `NbAtif`'s conversion of its JSONL once the new fields were stripped; a mutation
+check showed the comparison was not vacuous. Harbor's validator passes them all, and the
+deterministic gate passed through real Harbor on podman. Where this differs from the text
+below:
+
+- **`NB_TRAJECTORY`** seeds the flag, as `NB_OUTPUT` seeds `--output`. Proctor's runner
+  scripts start nb with their own argv, so the bare path sets it by environment, and a
+  script passes it on with no change to the runner contract.
+- **Proctor does not check `schema_version`**; the claim below that it rejects a newer
+  one was wrong. A bump is checked against its reader by hand.
+- **The event-type tripwire moved into nb.** Proctor's strict twin was `NbAtif`; its JSONL
+  `Parse` ignores unknown types. `AtifWriter` throws on a type it does not map, and
+  `AtifWriterTests` fails for any conversation event type without a mapping. The
+  tool-name tripwire stays as it was.
+- **No `docs/transcript-schema.md`.** The JSONL was already specified in
+  `docs/conversation-program-cli.md` §8; the ATIF mapping is §8.1 beside it.
+- **A step no model call produced** (nb's "Stopped:" notes, fabricated history) omits
+  `llm_call_count`, `metrics` and `model_name`. `llm_call_count: 0` would claim a
+  deterministic dispatch, which a fabricated turn is not.
+- **Bare cells carry the trajectory but grading still reads their JSONL.** Moving bare
+  grading onto ATIF (scope.md's "one reader") is proctor's next step, not this stage's.
+
 `--trajectory <path>` writes an ATIF trajectory of the run to a file, beside
 whatever `--output` sends to stdout. The writer is a pure function of the
 journal.

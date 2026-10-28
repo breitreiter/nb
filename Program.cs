@@ -26,6 +26,7 @@ public class Program
     private static bool _showHelp = false;
     private static string _outputMode = "jsonl"; // jsonl | porcelain
     private static string? _seedFile = null;
+    private static string? _trajectoryFile = null;
     private static string? _configPath = null;
     private static string? _programFile = null;        // program path, "-" for stdin, or null
     private static string? _mcpManifest = null;
@@ -50,6 +51,11 @@ public class Program
             }
         }
 
+        // NB_TRAJECTORY likewise seeds --trajectory: a harness that starts nb through a script
+        // it doesn't own (proctor's runner) reaches it by environment, not argv.
+        if (Environment.GetEnvironmentVariable("NB_TRAJECTORY") is { Length: > 0 } envTrajectory)
+            _trajectoryFile = envTrajectory;
+
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--verbose")
@@ -72,6 +78,10 @@ public class Program
             else if (args[i] == "--seed" && i + 1 < args.Length)
             {
                 _seedFile = args[++i];
+            }
+            else if (args[i] == "--trajectory" && i + 1 < args.Length)
+            {
+                _trajectoryFile = args[++i];
             }
             else if (args[i] == "--config" && i + 1 < args.Length)
             {
@@ -213,6 +223,7 @@ public class Program
         Console.WriteLine("  --version               Print nb's version and exit");
         Console.WriteLine("  --output <mode>         jsonl (default) or porcelain. The transcript goes on stdout, chrome on stderr");
         Console.WriteLine("  --seed <file>           Prepend a transcript (jsonl) as premise history before the program runs");
+        Console.WriteLine("  --trajectory <file>     Also write the run as an ATIF trajectory (Harbor's format) to this file (env: NB_TRAJECTORY)");
         Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
         Console.WriteLine("  --mcp <file>            Use this MCP manifest only (hermetic); default layers mcp.json across install/user/project");
         Console.WriteLine("  --validate              Parse and check the program, run nothing (exit 1 on error)");
@@ -246,9 +257,10 @@ public class Program
     // Emit a facade RunResult in the resolved mode.
     private static void EmitResult(RunResult result, string mode)
     {
-        var trailer = TranscriptMapper.ResultTrailer(result.Events, result.ExitReason, result.Usage, result.Harness, result.Denied, result.Provider, result.OracleTurns, result.OracleVerdict,
-            (long)result.Duration.TotalMilliseconds, (long)result.ProviderTime.TotalMilliseconds,
-            result.Model, result.ProgramSha256, result.NbVersion, result.Cost);
+        var trailer = result.Trailer();
+        // Written before stdout's trailer, so a reader that sees the run end finds the file.
+        if (_trajectoryFile is not null)
+            File.WriteAllText(_trajectoryFile, AtifWriter.Serialize(AtifWriter.Write(result.Journal, trailer)));
         if (mode == "porcelain") EmitPorcelain(result.Events, trailer);
         else EmitJsonl(result.Events, trailer);
     }

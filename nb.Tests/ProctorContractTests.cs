@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using nb.Harness;
@@ -15,21 +14,12 @@ namespace nb.Tests;
 /// forgetting this exists to stop.
 ///
 /// Only what proctor is <i>strict</i> about is pinned. Its JSONL reader ignores unknown
-/// fields, so new fields are free; a new event type or tool name is not.
+/// fields and event types, and since stage 3 it reads nb's own ATIF, whose event mapping nb
+/// owns (<c>AtifWriterTests.EveryConversationEventType_HasAnAtifMapping</c>). A new tool
+/// name is still a proctor change.
 /// </summary>
 public class ProctorContractTests
 {
-    /// <summary>
-    /// Every event type <c>Run/NbAtif.cs</c> maps: the conversation types it converts and
-    /// the directive echoes it keeps under <c>extra.directives</c> (its <c>Directives</c> set).
-    /// Any other type fails a Harbor nb cell as <c>adapter_unmapped</c> (<c>NbAtif.cs:104</c>).
-    /// </summary>
-    private static readonly HashSet<string> ProctorEventTypes =
-    [
-        "system", "user", "assistant_text", "thinking", "assistant_json", "tool_call", "tool_result", "result",
-        "run", "provider", "model", "harness", "mcp", "tools", "approval", "loop", "budget", "oracle",
-    ];
-
     /// <summary>
     /// <c>Run/Ingest.cs</c> <c>Kinds[Arm.Nb]</c>: every tool name proctor can give a kind.
     /// Any other name is <c>adapter_unmapped</c>. MCP, fake and <c>nb_*_resources</c> tools are
@@ -40,20 +30,6 @@ public class ProctorContractTests
         "bash", "read_file", "list_dir", "write_file", "edit_file", "apply_patch",
         "find_files", "grep", "fetch_url", "search_web", "todo_write", "todo_read",
     ];
-
-    [Fact]
-    public void EveryEventType_IsOneProctorMaps()
-    {
-        var types = typeof(TranscriptEvent).Assembly.GetTypes()
-            .Where(t => t.IsSubclassOf(typeof(TranscriptEvent)) && !t.IsAbstract)
-            .Select(t => ((TranscriptEvent)RuntimeHelpers.GetUninitializedObject(t)).Type)
-            .ToHashSet();
-
-        var unmapped = types.Except(ProctorEventTypes).Order().ToList();
-        Assert.True(unmapped.Count == 0,
-            $"nb emits event type(s) proctor's NbAtif cannot map: {string.Join(", ", unmapped)}. " +
-            "Teach ../proctor/Run/NbAtif.cs first, then add them here.");
-    }
 
     [Theory]
     [InlineData(false)]
@@ -111,7 +87,7 @@ public class ProctorContractTests
 
     /// <summary>
     /// The trailer fields proctor reads on every run (<c>Grade/Transcript.cs</c> <c>Parse</c>,
-    /// <c>Run/Ingest.cs</c>, <c>NbAtif</c>'s <c>final_metrics</c> and <c>agent.model_name</c>).
+    /// <c>Run/Ingest.cs</c>, and nb's own ATIF carries the trailer as <c>extra.result</c>).
     /// <c>denied</c>, <c>harness</c>, <c>oracle_turns</c> and <c>cost</c> are read too but written only when set;
     /// proctor defaults the counts to 0.
     /// </summary>

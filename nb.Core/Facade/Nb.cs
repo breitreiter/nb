@@ -92,7 +92,8 @@ public static class Nb
             await evaluator.EvaluateAsync(program, cancellationToken);
             var duration = System.Diagnostics.Stopwatch.GetElapsedTime(runClock);
 
-            var events = runtime.Conversation.Journal.Events;
+            var journal = runtime.Conversation.Journal;
+            var events = journal.Events;
             var estimated = runtime.Conversation.UsageIsEstimated;
             UsageInfo? usage = runtime.Conversation.TotalUsage is { } u
                 ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total, Estimated = estimated }
@@ -105,6 +106,7 @@ public static class Nb
             return new RunResult
             {
                 Events = events,
+                Journal = journal.Entries.ToList(),
                 Answer = TranscriptMapper.LastAnswer(events),
                 Usage = usage,
                 ExitReason = reason,

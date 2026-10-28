@@ -104,4 +104,17 @@ public sealed record RunResult
     public TimeSpan ProviderTime { get; init; }
 
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// The run's record as it happened: <see cref="Events"/> with each entry's timestamp and
+    /// the model round that produced it. What <see cref="Trajectory"/> is written from.
+    /// </summary>
+    public IReadOnlyList<JournalEntry> Journal { get; init; } = Array.Empty<JournalEntry>();
+
+    /// <summary>The run-level <c>result</c> event, as the JSONL output ends with it.</summary>
+    public ResultEvent Trailer() => TranscriptMapper.ResultTrailer(Events, ExitReason, Usage, Harness, Denied, Provider, OracleTurns, OracleVerdict,
+        (long)Duration.TotalMilliseconds, (long)ProviderTime.TotalMilliseconds, Model, ProgramSha256, NbVersion, Cost);
+
+    /// <summary>The run as an ATIF trajectory (<see cref="AtifWriter"/>), what <c>--trajectory</c> writes.</summary>
+    public System.Text.Json.Nodes.JsonObject Trajectory() => AtifWriter.Write(Journal, Trailer());
 }

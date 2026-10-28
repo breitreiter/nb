@@ -268,8 +268,16 @@ public sealed record RunResult
     public int     Denied     { get; init; }    // tool calls the approval policy refused
     public int     OracleTurns { get; init; }   // halts an answer sheet serviced (0 without one)
     public IReadOnlyList<string> Warnings { get; init; } // non-fatal evaluator warnings
+    public IReadOnlyList<JournalEntry> Journal { get; init; } // Events, each with its timestamp and model round
+    public ResultEvent Trailer();                // the JSONL's closing `result` event
+    public JsonObject  Trajectory();             // the run as ATIF v1.7, what --trajectory writes
 }
 ```
+
+`Journal` is the run's record as it happened: each event with when it was written and,
+for an assistant event, the model round that produced it (`RoundMetrics`: index, token
+counts, whether they were estimated, model, cost). `Trajectory()` is a pure function of it
+and the trailer (`AtifWriter.Write`); the mapping is in the CLI reference, §8.1.
 
 **Run outcomes are on the result, never thrown.** A provider failure, an aborted
 turn, or an approval denial come back as `ExitReason`/`ExitCode`:

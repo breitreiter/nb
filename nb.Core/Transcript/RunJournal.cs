@@ -74,6 +74,7 @@ public sealed record JournalEntry(TranscriptEvent Event, DateTimeOffset At, Roun
 
 /// <summary>
 /// One model round-trip: its index in the run (from 0), its token counts, whether nb
-/// estimated them because the provider reported none, and the model that answered.
+/// estimated them because the provider reported none, the model that answered, and its
+/// cost in USD when the entry declares a price.
 /// </summary>
-public sealed record RoundMetrics(int Index, long Input, long Output, long Total, bool Estimated, string? Model);
+public sealed record RoundMetrics(int Index, long Input, long Output, long Total, bool Estimated, string? Model, double? CostUsd = null);

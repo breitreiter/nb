@@ -192,14 +192,17 @@ public class ConversationManager
 
     // Charged at the price in effect for this round-trip. A side that the entry left
     // undeclared prices as zero: the entry still said something by declaring the other.
-    private void ChargeCost(long input, long output)
+    // Returns this round-trip's cost, or null when nothing prices it.
+    private double? ChargeCost(long input, long output)
     {
-        if (_priceLookup is null) return;
+        if (_priceLookup is null) return null;
         var (inPrice, outPrice) = _priceLookup(_currentProviderName);
-        if (inPrice is null && outPrice is null) return;
+        if (inPrice is null && outPrice is null) return null;
 
-        _sessionCost += input * (inPrice ?? 0) / 1_000_000 + output * (outPrice ?? 0) / 1_000_000;
+        var cost = input * (inPrice ?? 0) / 1_000_000 + output * (outPrice ?? 0) / 1_000_000;
+        _sessionCost += cost;
         _sessionHadPrice = true;
+        return cost;
     }
 
     /// <summary>
@@ -511,8 +514,8 @@ public class ConversationManager
             // to write a carve-out. The guess is flagged all the way out to the trailer so
             // it is never passed off as a measurement.
             var (roundInput, roundOutput, roundTotal, estimated) = MeasureOrEstimateUsage(response, requestOptions.Tools);
-            var round = new RoundMetrics(_rounds++, roundInput, roundOutput, roundTotal, estimated, GetCurrentModel());
-            ChargeCost(roundInput, roundOutput);
+            var roundCost = ChargeCost(roundInput, roundOutput);
+            var round = new RoundMetrics(_rounds++, roundInput, roundOutput, roundTotal, estimated, GetCurrentModel(), roundCost);
             _sessionInputTokens += roundInput;
             _sessionOutputTokens += roundOutput;
             _sessionTotalTokens += roundTotal;
