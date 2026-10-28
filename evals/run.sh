@@ -633,6 +633,10 @@ run_prog_jsonl "compile: emits one event per directive, no trailer" 'map(.type)|
     "$COMPILE_PROG" --compile
 run_prog "compile: needs no harness and no provider" 0 "$COMPILE_PROG" --compile --config "$FIX/no-harness-appsettings.json"
 run_prog_contains "compile: a parse error exits 1" 1 "unknown directive" "$(cat "$FIX/prog-bad.nb")" --compile
+# Proctor reads the first `Error` line of a failed --compile verbatim into the cell's
+# status_reason, and pins this one (../proctor/Proctor.Tests/RunnerTests.cs).
+run_prog_contains "compile: a missing include names it (proctor reads this)" 1 "Error: @include not found: missing.md" \
+    $'system @missing.md\nrun hi' --compile
 run_prog_contains "compile: a directive nb cannot honour exits 1" 1 "invalid approval key" \
     "$(cat "$FIX/prog-approval-badkey.nb")" --compile
 # --seed folds in: the compiled program carries its premise too, so the container needs
