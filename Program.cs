@@ -35,6 +35,9 @@ public class Program
     private static bool _compile = false;
     private static bool _showVersion = false;
     private static bool _acp = false;
+    private static bool _judge = false;
+    private static string? _sheetFile = null;
+    private static string? _judgeProvider = null;
 
     private static string[] ParseFlags(string[] args)
     {
@@ -108,6 +111,18 @@ public class Program
             {
                 _acp = true;
             }
+            else if (args[i] == "--judge")
+            {
+                _judge = true;
+            }
+            else if (args[i] == "--sheet" && i + 1 < args.Length)
+            {
+                _sheetFile = args[++i];
+            }
+            else if (args[i] == "--provider" && i + 1 < args.Length)
+            {
+                _judgeProvider = args[++i];
+            }
             else if (args[i] == "--version")
             {
                 _showVersion = true;
@@ -169,6 +184,12 @@ public class Program
         if (_showHelp)
         {
             PrintHelp();
+            return;
+        }
+
+        if (_judge || _sheetFile != null || _judgeProvider != null)
+        {
+            await JudgeAsync(remainingArgs);
             return;
         }
 
@@ -236,6 +257,7 @@ public class Program
         Console.WriteLine("  --seed <file>           Prepend a transcript (jsonl) as premise history before the program runs");
         Console.WriteLine("  --trajectory <file>     Also write the run as an ATIF trajectory (Harbor's format) to this file (env: NB_TRAJECTORY)");
         Console.WriteLine("  --acp                   Serve the program as an ACP agent on stdin/stdout; prompts arrive as session/prompt (the program has no `run`)");
+        Console.WriteLine("  --judge --sheet <file>  Judge the message on stdin against an answer sheet, as the oracle does; print the verdict as JSON. --provider <entry> picks the judge");
         Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
         Console.WriteLine("  --mcp <file>            Use this MCP manifest only (hermetic); default layers mcp.json across install/user/project");
         Console.WriteLine("  --validate              Parse and check the program, run nothing (exit 1 on error)");
@@ -377,6 +399,50 @@ public class Program
 
         var server = new Acp.AcpServer(config, program, BuildNbOptions(), protocol, Console.Error, _trajectoryFile);
         await server.ServeAsync(new StreamReader(Console.OpenStandardInput(), utf8), shutdown.Token);
+    }
+
+    // --judge: one oracle judgement outside a run, for a host that stands in for the user
+    // itself. stdin is the message judged; stdout is one line of JSON, whatever the
+    // verdict, its warnings in it. A failed call exits 2, as a run's provider_error does.
+    private static async Task JudgeAsync(string[] remainingArgs)
+    {
+        string? usage = !_judge ? "--sheet and --provider belong to --judge; a program names its provider with the `provider` directive."
+            : _sheetFile is null ? "--judge needs --sheet <file>, the answer sheet to judge against."
+            : remainingArgs.Length > 0 ? "--judge takes no program; the message to judge is read from stdin."
+            : _acp || _validate || _resolve || _compile || _seedFile != null || _trajectoryFile != null ? "--judge runs no program, so it takes none of --acp, --validate, --resolve, --compile, --seed or --trajectory."
+            : !File.Exists(_sheetFile) ? $"answer sheet not found: {_sheetFile}"
+            : null;
+        if (usage is not null)
+        {
+            Console.Error.WriteLine($"Error: {usage}");
+            Environment.Exit(1);
+        }
+
+        try { _configurationService = new ConfigurationService(_configPath); }
+        catch (FileNotFoundException)
+        {
+            Console.Error.WriteLine($"Error: config file not found: {_configPath}");
+            Environment.Exit(1);
+        }
+
+        var sheet = await File.ReadAllTextAsync(_sheetFile!);
+        var message = Console.IsInputRedirected ? await Console.In.ReadToEndAsync() : "";
+        JudgeResult result;
+        try { result = await Nb.JudgeAsync(_configurationService.GetConfiguration(), sheet, message, _judgeProvider, BuildNbOptions()); }
+        catch (NbStartupException ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            Environment.Exit(1);
+            return;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"Error: the judge's provider failed: {ex.Message}");
+            Environment.Exit(ExitReasons.ToExitCode(ExitReasons.ProviderError));
+            return;
+        }
+
+        Console.Out.WriteLine(result.ToJson());
     }
 
     // The per-invocation facade options carried from the CLI flags. Engine chrome goes

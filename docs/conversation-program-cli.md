@@ -56,6 +56,7 @@ make it a program: `echo 'run summarize this' | nb -`.
 | `--seed <file>` | Prepend a transcript (jsonl) as premise history before the program (§6). |
 | `--trajectory <file>` | Also write the run as an ATIF trajectory to this file (§8.1), beside whatever `--output` puts on stdout. Written when the run ends, before stdout's trailer. `NB_TRAJECTORY` sets it too. |
 | `--acp` | Serve the program as an ACP agent on stdin/stdout instead of running it (§8.2). The program configures the session and holds no `run`. |
+| `--judge --sheet <file>` | Run no program: judge the message on stdin against an answer sheet, as `oracle` does, and print the verdict as one JSON line (§8.3). `--provider <entry>` picks the judging entry. |
 | `--config <file>` | Use exactly this config file (hermetic); otherwise config resolves in layers (§7). |
 | `--mcp <file>` | Use this MCP manifest only; otherwise `mcp.json` resolves in layers. |
 | `--validate` | Parse + semantically check the program, run nothing. Exit 1 on any error. |
@@ -653,6 +654,31 @@ The record stays nb's: `--trajectory <file>` is rewritten whole at the end of ev
 out. A closed stdin or a SIGTERM ends the session the same way: a prompt in flight is
 cancelled and answered, and its trajectory written. Under `--acp`, nb's chrome and any
 stray write go to stderr; stdout carries nothing but protocol messages.
+
+### 8.3 The oracle judge on its own (`--judge`)
+
+`nb --judge --sheet <sheet.md> [--provider <entry>] [--config <file>] < message.txt` makes
+one oracle judgement outside a run. It is for a host that holds the conversation itself
+and stands in for its user: proctor's simulated user over Harbor's bridge, whose target
+may be any agent. So the input is the agent's last message as plain text, not an nb
+transcript. The prompt, the verdict rules and the temperature are the `oracle` loop's
+(§4.1), so `evals/oracle-bench` measures this judge too, and the Mock's `MOCK:oracle=`
+rider scripts it. The sheet is read on the host and never needs to be anywhere else.
+
+`--provider` names the judging config entry, as `oracle provider` does; without it, the
+active entry judges. stdout is one line, whatever the verdict:
+
+```json
+{"verdict":"hit","keys":["deploy-target"],"answer":"Staging only.","raw":"deploy-target","usage":{"input":812,"output":4,"total":816},"warnings":[]}
+```
+
+`verdict` is `hit`, `done` or `miss`. `answer`, present only on a hit, is the selected
+bodies joined in sheet order: the text to send as the user's next turn. `raw` is the
+judge's reply, as `oracle_verdict` is on a trailer. `usage` is omitted when the provider
+reports none. An unreadable reply or an unknown id is `done` with a warning, as in the
+loop, and an empty message is `done` without a call. What the host does with a verdict is
+its own loop: send the answer, end the run, or record a miss. Every verdict exits 0; a
+judge entry that can't be built, or a bad flag, exits 1; a failed call exits 2.
 
 ---
 

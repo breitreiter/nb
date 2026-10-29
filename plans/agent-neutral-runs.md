@@ -55,7 +55,7 @@ purpose: the design moves machinery *out* of nb, not into it.
   - **The container is Harbor's.** nb is one installed agent among Harbor's
     others. Tool-less nb arms keep running bare on the host (item 6).
   - **The oracle loop under proctor is a simulated user** calling
-    `nb --judge` on the host. `--judge` is still owed (item 4).
+    `nb --judge` on the host (item 4, done 2026-10-29).
 
 ## The design in one paragraph
 
@@ -184,6 +184,12 @@ use case fakes the product's tools, and they may keep a tool's bare name
 there because no harness surface is being imitated.
 
 ### 4. The oracle judge as a command
+
+**Done 2026-10-29** (`docs/conversation-program-cli.md` §8.3, `Nb.JudgeAsync`). As
+specified, with three settlements: the input is the last message as text (the open
+question below; the bridge's target may be any agent, so there is no nb transcript to
+read), the judging entry is `--provider <entry>`, and the JSON also carries `usage` and
+`warnings`. Every verdict exits 0; a failed call exits 2.
 
 Proctor drives the oracle loop (its plan, decision 9) as a simulated user:
 an agent running in the Harbor process on the host that answers each of the
@@ -351,9 +357,9 @@ event, the refusal of an override).
 
 ## Open questions
 
-- `--judge` input: the last assistant message as text, or the transcript so
-  far on stdin with nb finding the last message itself. The transcript is
-  more robust (nb owns the rule for "last message") and costs nothing.
+- ~~`--judge` input: the last assistant message as text, or the transcript so
+  far on stdin with nb finding the last message itself.~~ Text (item 4): on
+  the bridge the target is any agent, so there is no nb transcript to read.
 - **nb writing ATIF directly** (`--output atif`). Proctor converts at ingest,
   which is enough to start. nb writing it would make the bare path and the
   Harbor path identical by construction, and would make nb's runs readable

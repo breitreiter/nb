@@ -87,6 +87,21 @@ per prompt), loop detection and oracle. The wall-clock budget counts only time s
 `PromptAsync`/`EvaluateAsync`, not the host's time between them. `Result()` can be read
 between calls; `Duration` is likewise the time spent evaluating.
 
+### One oracle judgement — `Nb.JudgeAsync`
+
+A host that runs the conversation itself, and stands in for its user, can ask nb's oracle
+about one message (what `nb --judge` does, CLI reference §8.3):
+
+```csharp
+var j = await Nb.JudgeAsync(config, sheetMarkdown, lastAgentMessage, provider: "Judge", options);
+// j.Verdict: Hit | Done | Miss; j.Keys; j.Answer (the reply, on a hit); j.Raw; j.Usage; j.Warnings
+```
+
+The prompt, verdict rules and temperature are the `oracle` loop's. `provider` is a config
+entry label, null for the active one. An entry that can't be built throws
+`NbStartupException`; a provider failure on the call is thrown as it came, since there is
+no run to carry it as an outcome.
+
 ---
 
 ## 3. Building a program — `NbProgramBuilder`

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using nb.Providers;
 using nb.Transcript;
 
 namespace nb;
@@ -35,5 +36,58 @@ public static class Nb
         using var session = await NbSession.StartAsync(config, options);
         await session.EvaluateAsync(program, cancellationToken);
         return session.Result();
+    }
+
+    /// <summary>
+    /// The oracle's judgement on one message, outside any run: the same prompt, verdict
+    /// rules and temperature as the in-process loop, so <c>evals/oracle-bench</c> measures
+    /// this judge too. For a host that runs the conversation itself and stands in for its
+    /// user (proctor's simulated user over Harbor's bridge).
+    /// <paramref name="provider"/> names the config entry that judges, as
+    /// <c>oracle provider</c> does; null is the active entry. Throws
+    /// <see cref="NbStartupException"/> if that entry can't be built. A provider failure
+    /// on the call itself is thrown as it came, since there is no run to carry it.
+    /// </summary>
+    public static async Task<JudgeResult> JudgeAsync(
+        IConfiguration config,
+        string sheet,
+        string message,
+        string? provider = null,
+        NbOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= new NbOptions();
+        var answers = AnswerSheet.Parse(sheet);
+        var warnings = new List<string>();
+        if (answers.Entries.Count == 0)
+            warnings.Add("oracle: the answer sheet has no headed entries — nothing can be selected, so every ask will be a miss");
+
+        // The in-process loop does not judge a turn that ended with no text, and the run ends ok.
+        if (string.IsNullOrWhiteSpace(message))
+            return new JudgeResult { Verdict = OracleVerdictKind.Done, Warnings = [.. warnings, "oracle: the message is empty, so there is nothing to judge — done"] };
+
+        NbSession.RedirectConsole(options.DiagnosticsWriter);
+        try
+        {
+            var label = provider ?? config["ActiveProvider"];
+            var client = new ProviderManager(options.ProvidersDirectory ?? config["ProvidersPath"]).TryCreateChatClient(config, label)
+                ?? throw new NbStartupException($"could not build a client for the judge's provider '{label}'. Check the configuration.");
+            var temperature = ProviderConfigResolver.ResolveProviderFloat(config, label ?? "", "Temperature");
+
+            var response = await client.GetResponseAsync(OracleResolver.BuildPrompt(answers, message), OracleResolver.Options(temperature), cancellationToken);
+            var verdict = OracleResolver.ParseVerdict(response, answers, warnings);
+            return new JudgeResult
+            {
+                Verdict = verdict.Kind,
+                Keys = verdict.Keys,
+                Answer = verdict.Kind == OracleVerdictKind.Hit ? answers.Compose(verdict.Keys) : null,
+                Raw = verdict.Raw,
+                Usage = response.Usage is { } u
+                    ? new UsageInfo { Input = u.InputTokenCount, Output = u.OutputTokenCount, Total = u.TotalTokenCount }
+                    : null,
+                Warnings = warnings,
+            };
+        }
+        finally { NbSession.RestoreConsole(); }
     }
 }

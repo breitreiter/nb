@@ -159,7 +159,7 @@ public sealed class NbSession : IDisposable
     // diagnostics to its own writer needs the reporter seam that would stop engine
     // classes writing to a global at all (TODO.md, "engine chrome still lives in
     // nb.Core"). bugs/Concurrent_Runs_Collide_On_The_Global_Console.md
-    private static void RedirectConsole(TextWriter? sink)
+    internal static void RedirectConsole(TextWriter? sink)
     {
         lock (ConsoleRedirectLock)
         {
@@ -174,7 +174,7 @@ public sealed class NbSession : IDisposable
         }
     }
 
-    private static void RestoreConsole()
+    internal static void RestoreConsole()
     {
         lock (ConsoleRedirectLock)
         {

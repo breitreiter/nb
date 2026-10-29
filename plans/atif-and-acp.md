@@ -371,7 +371,7 @@ over; `RunJournal.Written` is the subscriber. What the build learned, against th
 - **Proctor:** `NbAgent` gains the mixin, `bridges={ACP}` and an `acp_command` with
   `--trajectory` under the agent's logs dir. Ingest needed nothing (the trajectory is at the
   same path in bridge mode), and there was no oracle refusal in proctor's code to lift: its
-  oracle (step 7) is still unbuilt, waiting on `--judge`.
+  oracle (step 7) is still unbuilt. `nb --judge` landed 2026-10-29 for it.
 
 nb as an ACP agent on stdio. **Precondition, $0 and about half a day in
 proctor:** run the bridge against a stub. That means `NbAgent` gains
@@ -461,8 +461,8 @@ change an error or nudge string, or change the publish layout.
   `kind` on `tool_call` stays unbuilt: proctor holds the nb name→kind map at
   ingest, and the tripwire guards the names. `cost_budget` is unaffected.
 - Item 5 and its `harness` open question: executed in stage 1.
-- Items 3 (`--serve-fake-tools`), 4 (`--judge`) and 6: unchanged, still owed
-  there.
+- Items 3 (`--serve-fake-tools`) and 6: unchanged, still owed there. Item 4
+  (`--judge`) landed 2026-10-29.
 
 ## Not in this plan
 

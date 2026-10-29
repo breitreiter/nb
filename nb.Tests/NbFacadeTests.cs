@@ -21,7 +21,7 @@ public class NbFacadeTests
 
     // nb's providers live next to nb's Exe (bin/<Config>/net10.0/providers), not next
     // to the test assembly — derive that path from the test's own output location.
-    private static NbOptions Options()
+    internal static NbOptions Options()
     {
         var baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var tfm = Path.GetFileName(baseDir);                            // net10.0

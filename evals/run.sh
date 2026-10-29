@@ -875,6 +875,25 @@ run_prog_contains "acp: a program with a run is refused" 1 "--acp takes a progra
 rm -f "$ACP_PROG"
 
 echo ""
+echo "--- Oracle judge (--judge) ---"
+echo ""
+
+# One judgement outside a run, as proctor's simulated user asks for it: the message on
+# stdin, the verdict as one JSON line on stdout. The Mock's verdict rides on the message.
+judge() { (cd "$NB_DIR" && printf '%s\n' "$1" | "$NB" --judge --sheet "$SHEET" --config "$MOCK_CONFIG" "${@:2}" 2>/dev/null); }
+acp_check "judge: a hit names the keys and the answer from the sheet" \
+    "$(judge 'Which environment should I deploy to? MOCK:oracle=deploy-target' | jq -c '[.verdict, .keys, .answer]')" \
+    '["hit",["deploy-target"],"Staging only. Never touch prod during this exercise."]'
+acp_check "judge: done carries no answer" "$(judge 'All finished. MOCK:oracle=DONE' | jq -c '[.verdict, has("answer")]')" '["done",false]'
+acp_check "judge: miss carries no answer" "$(judge 'What colour? MOCK:oracle=MISS' | jq -c '[.verdict, has("answer")]')" '["miss",false]'
+acp_check "judge: an id off the sheet is done, with the warning in the JSON" \
+    "$(judge 'x MOCK:oracle=bogus' | jq -r '"\(.verdict) \(.warnings[0] | contains("not on the sheet"))"')" "done true"
+acp_check "judge: the verdict exits 0" "$(judge 'x MOCK:oracle=MISS' >/dev/null; echo $?)" "0"
+run_prog_contains "judge: --sheet is required" 1 "--judge needs --sheet <file>" "" --judge
+run_prog_contains "judge: an unknown judge provider is a startup error" 1 "judge's provider 'Nope'" "hi" --judge --sheet "$SHEET" --provider Nope
+run_prog_contains "judge: --provider without --judge is refused" 1 "--sheet and --provider belong to --judge" "run hi" --provider Mock
+
+echo ""
 
 # ----------------------------------------
 # LLM Eval (real provider, LLM-as-judge)
