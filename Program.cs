@@ -34,6 +34,7 @@ public class Program
     private static bool _resolve = false;
     private static bool _compile = false;
     private static bool _showVersion = false;
+    private static bool _acp = false;
 
     private static string[] ParseFlags(string[] args)
     {
@@ -103,6 +104,10 @@ public class Program
             {
                 _compile = true;
             }
+            else if (args[i] == "--acp")
+            {
+                _acp = true;
+            }
             else if (args[i] == "--version")
             {
                 _showVersion = true;
@@ -140,8 +145,14 @@ public class Program
             Console.Error.WriteLine("Error: expected at most one program (a file path or '-'). nb runs conversation-programs, not prompts.");
             Environment.Exit(1);
         }
+        // Under --acp stdin is the protocol, never the program.
         _programFile = remainingArgs.Length == 1 ? remainingArgs[0]
-            : (Console.IsInputRedirected ? "-" : null);
+            : (Console.IsInputRedirected && !_acp ? "-" : null);
+        if (_acp && _programFile == "-")
+        {
+            Console.Error.WriteLine("Error: --acp reads the protocol on stdin, so its program must be a file.");
+            Environment.Exit(1);
+        }
 
         // All chrome (streamed render, tool noise, warnings) goes to stderr so stdout
         // carries only the transcript. One seam: every AnsiConsole.* call relocates with this.
@@ -186,7 +197,7 @@ public class Program
         // succeeding silently: a bare `nb` used to start a REPL, and a returning user
         // needs to be told the mode is gone rather than left staring at a prompt-less
         // success.
-        if (_programFile == null && !_validate && !_resolve && !_compile)
+        if (_programFile == null && !_validate && !_resolve && !_compile && !_acp)
         {
             PrintHelp();
             Environment.Exit(2);
@@ -224,6 +235,7 @@ public class Program
         Console.WriteLine("  --output <mode>         jsonl (default) or porcelain. The transcript goes on stdout, chrome on stderr");
         Console.WriteLine("  --seed <file>           Prepend a transcript (jsonl) as premise history before the program runs");
         Console.WriteLine("  --trajectory <file>     Also write the run as an ATIF trajectory (Harbor's format) to this file (env: NB_TRAJECTORY)");
+        Console.WriteLine("  --acp                   Serve the program as an ACP agent on stdin/stdout; prompts arrive as session/prompt (the program has no `run`)");
         Console.WriteLine("  --config <file>         Use this config file only (hermetic); default resolves install/user (~/.config/nb)/project (.nb/config.json) + NB_ env vars");
         Console.WriteLine("  --mcp <file>            Use this MCP manifest only (hermetic); default layers mcp.json across install/user/project");
         Console.WriteLine("  --validate              Parse and check the program, run nothing (exit 1 on error)");
@@ -312,6 +324,12 @@ public class Program
             return;
         }
 
+        if (_acp)
+        {
+            await ServeAcpAsync(config, program, warnings);
+            return;
+        }
+
         RunResult result;
         try
         {
@@ -331,6 +349,34 @@ public class Program
 
         EmitResult(result, _outputMode);
         Environment.ExitCode = result.ExitCode;
+    }
+
+    // --acp: the program configures one ACP session, served on stdin/stdout. stdout is
+    // taken for the protocol first and Console.Out pointed at stderr, so a stray write
+    // anywhere in the engine lands in the log instead of corrupting a message.
+    private static async Task ServeAcpAsync(IConfiguration config, IReadOnlyList<TranscriptEvent> program, IList<string> warnings)
+    {
+        if (Acp.AcpServer.RunRefusal(program) is { } refusal)
+        {
+            Console.Error.WriteLine($"Error: {refusal}");
+            Environment.ExitCode = 1;
+            return;
+        }
+        foreach (var w in warnings) Console.Error.WriteLine($"program: {w}");
+
+        var utf8 = new System.Text.UTF8Encoding(false);
+        var protocol = new StreamWriter(Console.OpenStandardOutput(), utf8);
+        Console.SetOut(Console.Error);
+
+        // A termination signal ends the session the way a closed stdin does: the prompt in
+        // flight is cancelled and answered, and its trajectory written, before nb exits.
+        using var shutdown = new CancellationTokenSource();
+        void Stop(System.Runtime.InteropServices.PosixSignalContext ctx) { ctx.Cancel = true; shutdown.Cancel(); }
+        using var term = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, Stop);
+        using var interrupt = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGINT, Stop);
+
+        var server = new Acp.AcpServer(config, program, BuildNbOptions(), protocol, Console.Error, _trajectoryFile);
+        await server.ServeAsync(new StreamReader(Console.OpenStandardInput(), utf8), shutdown.Token);
     }
 
     // The per-invocation facade options carried from the CLI flags. Engine chrome goes

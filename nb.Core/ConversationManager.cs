@@ -343,6 +343,12 @@ public class ConversationManager
     public string LastOutcome { get; private set; } = Transcript.ExitReasons.Ok;
 
 
+    /// <summary>
+    /// Stop the wall-clock budget's clock until the next run. An ACP session waits on its
+    /// client between prompts, and that wait is not the run's time.
+    /// </summary>
+    public void PauseWallClock() => _sessionStopwatch.Stop();
+
     // Build the token a run executes under: the caller's token linked with a
     // wall-clock deadline (remaining budget) when one is set. Returns null when there
     // is no wall budget (the caller token is used directly). Caller disposes.
@@ -362,7 +368,11 @@ public class ConversationManager
     /// already built by preceding turn directives). Resets per-turn trackers and
     /// records <see cref="LastOutcome"/>.
     /// </summary>
-    public async Task RunAsync(string? inlinePrompt, CancellationToken cancellationToken = default)
+    public Task RunAsync(string? inlinePrompt, CancellationToken cancellationToken = default) =>
+        RunAsync(inlinePrompt is null ? null : new AIChatMessage(ChatRole.User, inlinePrompt), cancellationToken);
+
+    /// <summary>As <see cref="RunAsync(string?, CancellationToken)"/>, with a prompt that may carry images (an ACP prompt).</summary>
+    public async Task RunAsync(AIChatMessage? prompt, CancellationToken cancellationToken = default)
     {
         if (_client == null) return;
 
@@ -376,8 +386,8 @@ public class ConversationManager
         _errorTracker.Reset();
         _lastRemindedTodos = null;
 
-        if (inlinePrompt is not null)
-            Append(new AIChatMessage(ChatRole.User, inlinePrompt));
+        if (prompt is not null)
+            Append(prompt);
 
         // Already over a session budget from earlier runs — don't spend another model call.
         if (_tokenBudget is { } budget && _sessionTotalTokens >= budget)

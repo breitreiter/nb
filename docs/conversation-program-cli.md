@@ -55,6 +55,7 @@ make it a program: `echo 'run summarize this' | nb -`.
 | `--output <mode>` | `jsonl` (default) or `porcelain`. Either puts the transcript on stdout and chrome on stderr. |
 | `--seed <file>` | Prepend a transcript (jsonl) as premise history before the program (§6). |
 | `--trajectory <file>` | Also write the run as an ATIF trajectory to this file (§8.1), beside whatever `--output` puts on stdout. Written when the run ends, before stdout's trailer. `NB_TRAJECTORY` sets it too. |
+| `--acp` | Serve the program as an ACP agent on stdin/stdout instead of running it (§8.2). The program configures the session and holds no `run`. |
 | `--config <file>` | Use exactly this config file (hermetic); otherwise config resolves in layers (§7). |
 | `--mcp <file>` | Use this MCP manifest only; otherwise `mcp.json` resolves in layers. |
 | `--validate` | Parse + semantically check the program, run nothing. Exit 1 on any error. |
@@ -619,6 +620,39 @@ Estimated usage is never passed off as measured: a step whose counts nb estimate
 `approval`, …) configure the run and do not appear; the resolved program's hash is in
 `extra.result.program_sha256`. A run nb kills mid-way (a harness timeout) writes no
 trajectory, just as it writes no trailer.
+
+### 8.2 nb as an ACP agent (`--acp`)
+
+`nb --acp <program>` serves one session of the **Agent Client Protocol** (v1: JSON-RPC 2.0,
+one message per line) on stdin/stdout, so a client such as `acpx`, which Harbor's bridge
+drives, can talk to nb the way it talks to any coding agent. The program is the session's
+setup: provider, model, approval, budgets, `system`, `oracle`, fabricated history. It may
+not hold a `run` (nb refuses it, exit 1), because the prompts arrive over the protocol. The
+program must be a file, since stdin is the protocol; with no program, config alone sets the
+session up.
+
+| ACP | nb |
+| --- | --- |
+| `initialize` | `protocolVersion: 1`, `agentInfo {name: "nb", version}`, no auth methods, `loadSession: false`, image and embedded-resource prompts. |
+| `authenticate` | succeeds; keys come from config, as always. |
+| `session/new` | builds the engine in the given `cwd` and evaluates the program. One session per process: a second is an error. The client's `mcpServers` are ignored (noted on stderr); nb's own `mcp.json` applies. |
+| `session/prompt` | one `run` with that prompt: text, images, an embedded text resource, a resource link as a line naming it. Budgets behave as across several `run`s: tokens and `oracle_turns` are the session's, `tool_calls` and the loop detector are the prompt's. The wall-clock budget counts only time spent on prompts. |
+| `session/cancel` | stops the prompt (a running command is killed) and answers `cancelled`. |
+| `session/update` | sent as the run journals each event: an assistant message as one `agent_message_chunk`, `thinking` as `agent_thought_chunk`, a user turn nb injected (oracle, loop reminder) as `user_message_chunk`; a tool call as `tool_call` (`pending`), `in_progress` once approved, then `completed` or `failed` with its output. A denied call goes straight to `failed`. The client's own prompt is not echoed. |
+
+A prompt's answer carries `stopReason`, the prompt's token `usage` (`inputTokens`,
+`outputTokens`, `totalTokens`), and nb's own reason in `_meta.nb.exit_reason`. The reasons
+map as: `ok`, `oracle_miss`, `time_budget`, `approval_denied` → `end_turn`;
+`max_tool_calls`, `tool_error_limit`, `oracle_budget` → `max_turn_requests`; `token_budget`
+→ `max_tokens`; `cancelled` → `cancelled`. `provider_error` and `rate_limited` are a run
+that failed rather than stopped, and are a JSON-RPC error whose `data.exit_reason` names
+which.
+
+The record stays nb's: `--trajectory <file>` is rewritten whole at the end of every prompt
+(through a rename, so a reader never sees half a file), before the prompt's answer goes
+out. A closed stdin or a SIGTERM ends the session the same way: a prompt in flight is
+cancelled and answered, and its trajectory written. Under `--acp`, nb's chrome and any
+stray write go to stderr; stdout carries nothing but protocol messages.
 
 ---
 

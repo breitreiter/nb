@@ -169,14 +169,23 @@ public sealed class ProgramEvaluator
                 _turnBuffer.Add(ev);
                 break;
             case RunEvent r:
-                EnsureHarnessNamed();
-                FlushTurns();
-                _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
-                await _conversation.RunAsync(r.Prompt, cancellationToken);
-                await ResolveWithOracleAsync(cancellationToken);
+                await PromptAsync(r.Prompt is null ? null : new ChatMessage(ChatRole.User, r.Prompt), cancellationToken);
                 break;
             // ThinkingEvent / AssistantJsonEvent / ResultEvent: output-only, ignored on input.
         }
+    }
+
+    /// <summary>
+    /// What a <c>run</c> does, with its prompt as a message: an ACP prompt arrives as one, and
+    /// may carry images. Buffered turns flush first, and an oracle judges the result.
+    /// </summary>
+    public async Task PromptAsync(ChatMessage? prompt, CancellationToken cancellationToken = default)
+    {
+        EnsureHarnessNamed();
+        FlushTurns();
+        _conversation.SetToolSurface(ToolSurface.Fold(_surfaceDirectives, ConversationManager.NativeToolNames));
+        await _conversation.RunAsync(prompt, cancellationToken);
+        await ResolveWithOracleAsync(cancellationToken);
     }
 
     // The oracle loop (plans/oracle-resolver.md, "Continuation rule"). After a run ends ok:
@@ -228,7 +237,7 @@ public sealed class ProgramEvaluator
 
             OracleTurnsUsed++;
             _conversation.AppendOracleAnswer(_sheet.Compose(verdict.Keys), verdict.Keys, verdict.Raw);
-            await _conversation.RunAsync(null, cancellationToken);
+            await _conversation.RunAsync((ChatMessage?)null, cancellationToken);
         }
     }
 

@@ -1,6 +1,4 @@
 using Microsoft.Extensions.Configuration;
-using Spectre.Console;
-using nb.Harness;
 using nb.Transcript;
 
 namespace nb;
@@ -34,111 +32,8 @@ public static class Nb
         NbOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        options ??= new NbOptions();
-
-        // Engine classes still write via AnsiConsole (a 6b cleanup); redirect it to the
-        // diagnostics sink so stdout stays clean for the caller.
-        //
-        // AnsiConsole.Console is process-global, so a naive save/restore pair races when a
-        // host runs several programs at once: two runs each save what the other set, and
-        // the last one out restores a writer that belongs to a finished run — leaving the
-        // process console permanently pointed at a dead sink, long after both calls
-        // returned. Refcount instead: the first run in redirects, the last one out
-        // restores, and nobody restores a stale value.
-        //
-        // Residual, and not fixable here: concurrent hosts share the first one's
-        // DiagnosticsWriter, because one global cannot serve two sinks. Routing each run's
-        // diagnostics to its own writer needs the reporter seam that would stop engine
-        // classes writing to a global at all (TODO.md, "engine chrome still lives in
-        // nb.Core"). bugs/Concurrent_Runs_Collide_On_The_Global_Console.md
-        lock (ConsoleRedirectLock)
-        {
-            if (_consoleRedirectDepth++ == 0)
-            {
-                _savedConsole = AnsiConsole.Console;
-                AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
-                {
-                    Out = new AnsiConsoleOutput(options.DiagnosticsWriter ?? TextWriter.Null),
-                });
-            }
-        }
-        try
-        {
-            using var runtime = await NbRuntime.BuildAsync(config, options);
-            await runtime.Mcp.ConnectAllAsync();
-
-            // A configured server that failed to connect is a non-fatal warning here;
-            // it only hard-fails (below, during evaluation) if the program selects it.
-            var warnings = new List<string>();
-            foreach (var (name, error) in runtime.Mcp.FailedServers)
-                warnings.Add($"MCP server '{name}' failed to start: {error}");
-
-            // Total wall time for the run, started here rather than at BuildAsync: the
-            // question duration_ms answers is "how long did this program take", not "how
-            // long did nb take to start" (config load, plugin discovery, MCP connects —
-            // order 2s locally, and none of it attributable to the program).
-            var runClock = System.Diagnostics.Stopwatch.GetTimestamp();
-
-            // Hash the *resolved* program, not source text: the facade never sees source.
-            // @file includes are expanded at parse time and a --seed prefix is spliced
-            // into this same list, so the serialized event list is what actually ran and
-            // the source is only a recipe for it. Two runs of one program therefore hash
-            // equal, and a program hashes the same as its expanded form.
-            var programSha256 = Convert.ToHexStringLower(
-                System.Security.Cryptography.SHA256.HashData(
-                    System.Text.Encoding.UTF8.GetBytes(TranscriptSerializer.Serialize(program))));
-
-            var evaluator = new ProgramEvaluator(runtime.Conversation, runtime.ClientFactory, warnings, runtime.DefaultHarnessFor, runtime.TemperatureFor);
-            await evaluator.EvaluateAsync(program, cancellationToken);
-            var duration = System.Diagnostics.Stopwatch.GetElapsedTime(runClock);
-
-            var journal = runtime.Conversation.Journal;
-            var events = journal.Events;
-            var estimated = runtime.Conversation.UsageIsEstimated;
-            UsageInfo? usage = runtime.Conversation.TotalUsage is { } u
-                ? new UsageInfo { Input = u.input, Output = u.output, Total = u.total, Estimated = estimated }
-                : null;
-            if (estimated)
-                warnings.Add("provider reported no token usage; the counts in Usage are estimated from " +
-                             "message size (roughly ±30%), and any token budget was enforced against that estimate");
-            var reason = runtime.Conversation.LastOutcome;
-
-            return new RunResult
-            {
-                Events = events,
-                Journal = journal.Entries.ToList(),
-                Answer = TranscriptMapper.LastAnswer(events),
-                Usage = usage,
-                ExitReason = reason,
-                ExitCode = ExitReasons.ToExitCode(reason),
-                Provider = runtime.Conversation.GetCurrentProvider(),
-                Harness = evaluator.Harness == HarnessRegistry.Default ? null : evaluator.Harness,
-                Denied = runtime.Conversation.Approvals.DeniedCount,
-                OracleTurns = evaluator.OracleTurnsUsed,
-                OracleVerdict = evaluator.OracleVerdict,
-                Model = runtime.Conversation.GetCurrentModel(),
-                Cost = runtime.Conversation.TotalCost,
-                Duration = duration,
-                ProviderTime = runtime.ProviderTime.Total,
-                ProgramSha256 = programSha256,
-                NbVersion = global::nb.NbVersion.Current,
-                Warnings = warnings,
-            };
-        }
-        finally
-        {
-            lock (ConsoleRedirectLock)
-            {
-                if (--_consoleRedirectDepth == 0 && _savedConsole is not null)
-                {
-                    AnsiConsole.Console = _savedConsole;
-                    _savedConsole = null;
-                }
-            }
-        }
+        using var session = await NbSession.StartAsync(config, options);
+        await session.EvaluateAsync(program, cancellationToken);
+        return session.Result();
     }
-
-    private static readonly object ConsoleRedirectLock = new();
-    private static int _consoleRedirectDepth;
-    private static IAnsiConsole? _savedConsole;
 }

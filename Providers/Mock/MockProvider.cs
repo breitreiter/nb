@@ -139,11 +139,12 @@ public class MockChatClient : IChatClient
         }
 
         // MOCK:tool=<name> <arg> scripts a single tool call so approval/tool-loop
-        // paths are testable. It fires once: as soon as a tool result is in
-        // history, we fall through to a plain answer, so the turn terminates
-        // after one round instead of re-emitting the call forever.
+        // paths are testable. It fires once per turn: as soon as a tool result
+        // follows the last user message, we fall through to a plain answer, so the
+        // turn terminates after one round instead of re-emitting the call forever.
+        // Per turn, not per history: a second run (or ACP prompt) scripts its own.
         const string toolPrefix = "MOCK:tool=";
-        bool toolAlreadyRan = chatMessages.Any(m => m.Role == ChatRole.Tool);
+        bool toolAlreadyRan = chatMessages.Reverse().TakeWhile(m => m.Role != ChatRole.User).Any(m => m.Role == ChatRole.Tool);
         if (!toolAlreadyRan && lastUserMessage.StartsWith(toolPrefix, StringComparison.OrdinalIgnoreCase))
         {
             var spec = lastUserMessage[toolPrefix.Length..];

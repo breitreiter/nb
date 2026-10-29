@@ -821,6 +821,60 @@ fi
 rm -rf "$TRAJ_DIR"
 
 echo ""
+echo "--- ACP agent (--acp) ---"
+echo ""
+
+# A client session over a coprocess, as acpx holds one: initialize, session/new, then
+# prompts that exercise a tool round and a denial. stdout must carry nothing but
+# JSON-RPC: Console.Out points at stderr under --acp, so a stray write lands there.
+ACP_DIR=$(mktemp -d)
+printf 'approval bash echo hi\n' > "$ACP_DIR/session.nb"
+coproc ACP { cd "$NB_DIR" && exec "$NB" --acp --config "$MOCK_CONFIG" --trajectory "$ACP_DIR/t.json" "$ACP_DIR/session.nb" 2>"$ACP_DIR/err" | tee "$ACP_DIR/out"; }
+acp_send() { printf '%s\n' "$1" >&"${ACP[1]}"; }
+acp_until_id() {
+    local line
+    while IFS= read -r -t 30 line <&"${ACP[0]}"; do
+        [[ "$(jq -r '.id // empty' <<<"$line" 2>/dev/null)" == "$1" ]] && { printf '%s' "$line"; return 0; }
+    done
+    return 1
+}
+acp_send '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}'
+init=$(acp_until_id 1)
+acp_send '{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"'"$ACP_DIR"'","mcpServers":[]}}'
+# Not piped: bash closes a coprocess's descriptors in a pipeline's children.
+created=$(acp_until_id 2)
+sid=$(jq -r .result.sessionId <<<"$created")
+acp_send '{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"'"$sid"'","prompt":[{"type":"text","text":"MOCK:tool=bash echo hi"}]}}'
+first=$(acp_until_id 3)
+acp_send '{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"'"$sid"'","prompt":[{"type":"text","text":"MOCK:tool=bash echo changed > note.txt"}]}}'
+second=$(acp_until_id 4)
+exec {ACP[1]}>&-
+wait "$ACP_PID" 2>/dev/null
+
+acp_check() {
+    if [[ "$2" == "$3" ]]; then echo -e "${GREEN}PASS${NC}: $1"; PASSED=$((PASSED + 1))
+    else echo -e "${RED}FAIL${NC}: $1"; echo -e "${DIM}  want $3, got $2${NC}"; FAILED=$((FAILED + 1)); fi
+}
+acp_check "acp: initialize answers protocol 1 as nb" "$(jq -c '[.result.protocolVersion, .result.agentInfo.name]' <<<"$init")" '[1,"nb"]'
+acp_check "acp: a prompt with a tool round ends end_turn" "$(jq -r .result.stopReason <<<"$first")" "end_turn"
+acp_check "acp: the tool call streams pending, in_progress, completed" \
+    "$(jq -sc '[.[] | select(.method=="session/update") | .params.update | select(.toolCallId) | .status] | .[0:3]' "$ACP_DIR/out")" \
+    '["pending","in_progress","completed"]'
+acp_check "acp: a denied call is a failed update" \
+    "$(jq -sc '[.[] | select(.method=="session/update") | .params.update | select(.toolCallId) | .status] | .[3:]' "$ACP_DIR/out")" \
+    '["pending","failed"]'
+acp_check "acp: every stdout line is JSON-RPC 2.0" \
+    "$(jq -sc 'map(.jsonrpc == "2.0") | all' "$ACP_DIR/out" 2>&1)" "true"
+acp_check "acp: the trajectory holds both prompts" "$(jq -c '[.steps[] | select(.source=="user") | .message]' "$ACP_DIR/t.json" 2>&1)" \
+    '["MOCK:tool=bash echo hi","MOCK:tool=bash echo changed > note.txt"]'
+rm -rf "$ACP_DIR"
+
+ACP_PROG=$(mktemp)
+echo "run hi" > "$ACP_PROG"
+run_prog_contains "acp: a program with a run is refused" 1 "--acp takes a program with no \`run\`" "" --acp "$ACP_PROG"
+rm -f "$ACP_PROG"
+
+echo ""
 
 # ----------------------------------------
 # LLM Eval (real provider, LLM-as-judge)

@@ -69,6 +69,24 @@ public static class Nb
 **Throws** on failure to assemble or a malformed program (§7); run *outcomes* come
 back on the result, not as exceptions.
 
+### Driving a session a prompt at a time — `NbSession`
+
+`RunAsync` is a session that evaluates one program and reports. A host that wants the
+prompts to arrive one at a time (what `nb --acp` does) holds the session itself:
+
+```csharp
+using var session = await NbSession.StartAsync(config, options);   // engine + MCP connect
+await session.EvaluateAsync(setup);                                 // directives, history; no run needed
+session.Journal.Written += entry => …;                              // each event as it happens
+await session.PromptAsync(new ChatMessage(ChatRole.User, "do it"), ct);  // one run
+var result = session.Result();                                      // the session so far, as a RunResult
+```
+
+A prompt is a `run`: the same budgets (tokens and `oracle_turns` cumulative, `tool_calls`
+per prompt), loop detection and oracle. The wall-clock budget counts only time spent in
+`PromptAsync`/`EvaluateAsync`, not the host's time between them. `Result()` can be read
+between calls; `Duration` is likewise the time spent evaluating.
+
 ---
 
 ## 3. Building a program — `NbProgramBuilder`

@@ -25,6 +25,13 @@ public sealed class RunJournal
 
     public IReadOnlyList<JournalEntry> Entries => _entries;
 
+    /// <summary>
+    /// Raised for each entry as it is journaled, and again when an approval is stamped on a
+    /// call already journaled (with the stamped entry). Synchronous, on the run's thread: a
+    /// live subscriber (<c>nb --acp</c>) sees the run in the order it happened.
+    /// </summary>
+    public event Action<JournalEntry>? Written;
+
     public List<TranscriptEvent> Events => _entries.Select(e => e.Event).ToList();
 
     /// <summary>
@@ -42,7 +49,7 @@ public sealed class RunJournal
 
         var at = DateTimeOffset.UtcNow;
         if (thinking is not null)
-            _entries.Add(new JournalEntry(new ThinkingEvent { Turn = _turn, Text = thinking }, at, round));
+            Add(new JournalEntry(new ThinkingEvent { Turn = _turn, Text = thinking }, at, round));
         foreach (var e in TranscriptMapper.FromMessage(message, _turn))
         {
             var tagged = e switch
@@ -51,8 +58,14 @@ public sealed class RunJournal
                 UserEvent u when source is not null => u with { Source = source },
                 _ => e,
             };
-            _entries.Add(new JournalEntry(tagged, at, round));
+            Add(new JournalEntry(tagged, at, round));
         }
+    }
+
+    private void Add(JournalEntry entry)
+    {
+        _entries.Add(entry);
+        Written?.Invoke(entry);
     }
 
     /// <summary>Stamp the approval decision on the call it decided, at the moment it is made.</summary>
@@ -63,6 +76,7 @@ public sealed class RunJournal
             if (_entries[i].Event is ToolCallEvent call && call.Id == callId)
             {
                 _entries[i] = _entries[i] with { Event = call with { Approved = verdict, ApprovalReason = reason } };
+                Written?.Invoke(_entries[i]);
                 return;
             }
         }

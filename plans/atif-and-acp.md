@@ -3,13 +3,16 @@ kind: plan
 title: ATIF out, ACP in — nb on the agent-interchange standards, on one event stream
 state: draft
 created: 2026-10-27
-updated: 2026-10-27
+updated: 2026-10-28
 touches:
   files:
     - Program.cs
     - nb.Core/ConversationManager.cs
     - nb.Core/Facade/Nb.cs
     - nb.Core/Facade/NbRuntime.cs
+    - nb.Core/Facade/NbSession.cs
+    - nb.Core/Acp/AcpServer.cs
+    - nb.Core/Transcript/RunJournal.cs
     - nb.Core/ProgramEvaluator.cs
     - nb.Core/Transcript/TranscriptMapper.cs
     - nb.Core/Transcript/TranscriptEvent.cs
@@ -337,6 +340,39 @@ stage 5.
 
 ### 5. `nb --acp <program>` (3 days; plus proctor's bridge side)
 
+**Done 2026-10-28.** `nb.Core/Acp/AcpServer.cs`, on a new `NbSession` (one engine and one
+conversation, driven a program or a prompt at a time) that `Nb.RunAsync` is now three lines
+over; `RunJournal.Written` is the subscriber. What the build learned, against the plan below:
+
+- **The precondition ran against nb itself, not a stub.** acpx 0.11.2 (Harbor's pin) drives
+  `nb --acp` on Mock locally, and Harbor 0.24 ran `oracle_user.py` over the bridge to
+  proctor's `NbAgent` on podman: two turns, one nb process, one session, reward 1, nb's
+  trajectory valid. acpx is built on the official `@agentclientprotocol/sdk` 0.28, whose
+  schema the shapes follow.
+- **Usage rides `PromptResponse.usage`, not `_meta` or `usage_update`.** The SDK's
+  (unstable) `usage` field uses `inputTokens`/`outputTokens`/`totalTokens`, exactly the keys
+  Harbor's `extract_target_usage` scrapes, so `acp_target_usage` fills. It is per prompt,
+  as ACP defines it, and Harbor keeps the last mapping it finds, so it holds the last
+  prompt's tokens; the trajectory's `final_metrics` is the session's. `usage_update` is not
+  sent: it needs the context window's size, which nb does not always know.
+- **`ttl: 0` keeps nb alive across prompts.** `acpx sessions ensure` leaves no process; the
+  first `acpx prompt` spawns nb with the prompt's environment (so the arm's key reaches it)
+  and keeps it. If it died, acpx would respawn it and, with `loadSession: false`, open a
+  fresh session.
+- **No `--transcript`.** A live JSONL can't carry approvals, which are stamped on a call
+  after it is journaled, and proctor ingests the trajectory, not JSONL, on the Harbor path.
+  `--trajectory` is rewritten whole (through a rename) at the end of every prompt, before
+  its answer; a closed stdin or SIGTERM cancels a prompt in flight, answers it and writes
+  the file. A kill mid-prompt loses that prompt only.
+- **The wall-clock budget pauses between calls.** Otherwise a client's think time spends
+  the session's `wall_ms`. `duration_ms` counts the same busy time.
+- **The Mock's `MOCK:tool` fired once per history, not per turn,** so a second prompt (or a
+  second `run`) never called its tool. Fixed in the Mock: once per turn.
+- **Proctor:** `NbAgent` gains the mixin, `bridges={ACP}` and an `acp_command` with
+  `--trajectory` under the agent's logs dir. Ingest needed nothing (the trajectory is at the
+  same path in bridge mode), and there was no oracle refusal in proctor's code to lift: its
+  oracle (step 7) is still unbuilt, waiting on `--judge`.
+
 nb as an ACP agent on stdio. **Precondition, $0 and about half a day in
 proctor:** run the bridge against a stub. That means `NbAgent` gains
 `ACPAgentMixin` and its `acp_command` points at a 30-line Python ACP stub, with
@@ -411,7 +447,7 @@ client process is needed.
 | 2b | compaction keeps transcript; `thinking` emitted | none (known types) |
 | 3 | `--trajectory` | pass it; ingest reads it; delete `NbAtif`; fixtures → trajectories |
 | 4 | `cancelled` exit reason (library/ACP only) | ending map learns it |
-| 5 | `--acp`, `--transcript` | spike first; then mixin, validation, ingest, gate |
+| 5 | `--acp` (no `--transcript`; see the stage) | `NbAgent` is an ACP target; ingest unchanged; the oracle gate waits on proctor's step 7 |
 
 **What nothing in this plan does:** add a JSONL event type, rename a tool,
 change an error or nudge string, or change the publish layout.

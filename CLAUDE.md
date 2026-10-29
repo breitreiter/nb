@@ -131,6 +131,9 @@ nb runs a **conversation-program** one way: **file / stdin** — `nb <program-fi
 prompt. There is no interactive mode: bare `nb` prints help and exits 2 (the REPL was
 retired 2026-09-09, `plans/retire-the-repl.md`).
 
+`nb --acp <program>` is the same evaluator serving one ACP session: the program holds no
+`run`, and each `session/prompt` is one (`docs/conversation-program-cli.md` §8.2).
+
 Full grammar/semantics: `docs/conversation-program-cli.md`; library API:
 `docs/conversation-program-api.md`.
 
@@ -145,13 +148,14 @@ CLI Exe (repo root):
 - `Program.cs` - The CLI shell: parse flags, resolve program input (file/stdin), emit/exit. A thin shell over `nb.Core` (`Nb.RunAsync`)
 
 `nb.Core/` library:
-- `Facade/` - In-process library surface: `Nb.RunAsync(config, program, options) → RunResult` (the "one contract, three surfaces" entry point), `NbProgramBuilder` (fluent program authoring), `NbRuntime` (the shared engine assembler — throws `NbStartupException` rather than exiting, suppresses chrome), `NbOptions` (incl. `ProvidersDirectory` for library hosts).
+- `Facade/` - In-process library surface: `Nb.RunAsync(config, program, options) → RunResult` (the "one contract, three surfaces" entry point, a one-program `NbSession`), `NbSession` (one engine and conversation driven a program or a prompt at a time; what `--acp` serves), `NbProgramBuilder` (fluent program authoring), `NbRuntime` (the shared engine assembler — throws `NbStartupException` rather than exiting, suppresses chrome), `NbOptions` (incl. `ProvidersDirectory` for library hosts).
 - `ConversationManager.cs` - LLM interactions via Microsoft.Extensions.AI, MCP tool integration
 - `ProviderManager.cs` - AI provider discovery/loading (plugin architecture; injectable providers dir)
 - `ProgramEvaluator.cs` - Evaluates a conversation-program (the TranscriptEvent stream), including the oracle continuation loop
 - `AnswerSheet.cs` / `OracleResolver.cs` - The `oracle` directive's answer sheet and the side call that judges a finished turn against it (`plans/oracle-resolver.md`). The Mock provider's scripted verdict rides on `MOCK:oracle=`; the sentinel/marker literals are duplicated in `Providers/Mock` across the ALC boundary on purpose
 - `Transcript/` - The wire schema (events, serializer, mapper, loader, program parser), `AtifWriter` (the journal as an ATIF v1.7 trajectory, `--trajectory`; the mapping is proctor's old `NbAtif`, plus per-step metrics) and `RunJournal`, the run record written as it happens: `ConversationManager` journals each message as it enters history, approvals are stamped at decision time, and the transcript is the journal's events (history is only what the model sees; compaction rewrites it, not the record)
 - `Harness/` - The advertised tool surface. `NbHarness` (nb's own surface + the tool-execution capabilities) and `HarnessRegistry` (`nb`, the only harness and the default, plus the refusal for the costumes retired 2026-10-28 — `plans/atif-and-acp.md` stage 1). To test in another agent's harness, run that harness (a proctor arm)
+- `Acp/` - `AcpServer`: `nb --acp <program>`, nb as an ACP v1 agent on stdio for Harbor's bridge (`plans/atif-and-acp.md` stage 5). Hand-rolled JSON-RPC; one session per process; the journal's `Written` event streams as `session/update`
 - `MCP/` - `McpManager` (client lifecycle, layered mcp.json), `FakeToolManager`
 - `Shell/` - Native tool implementations (bash, file I/O, find_files, grep, trust path-scoping, bwrap)
 - `Utilities/` - `ConfigurationService` (layered config), `UIColors`, markdown rendering
