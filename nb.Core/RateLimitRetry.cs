@@ -261,7 +261,9 @@ internal sealed class RetryingChatClient : DelegatingChatClient
 
     private readonly SemaphoreSlim _paceGate = new(1, 1);
     private TimeSpan _pace = TimeSpan.Zero;
-    private DateTimeOffset _lastRequest = DateTimeOffset.MinValue;
+    // On the monotonic clock: the wall clock steps (NTP on a fresh VM), and a step
+    // forward would skip the pace, a step back stretch it. CI saw both as gaps under the floor.
+    private TimeSpan? _lastRequest;
 
     private readonly ProviderTime? _clock;
 
@@ -452,6 +454,8 @@ internal sealed class RetryingChatClient : DelegatingChatClient
     /// </summary>
     /// <returns>How long this call actually waited, so the caller can keep pacing out
     /// of the retry budget and charge it to provider time instead.</returns>
+    private static TimeSpan Now => Stopwatch.GetElapsedTime(0);
+
     private async Task<TimeSpan> PaceAsync(CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
@@ -459,13 +463,13 @@ internal sealed class RetryingChatClient : DelegatingChatClient
         TimeSpan wait;
         try
         {
-            wait = _pace <= TimeSpan.Zero
+            wait = _pace <= TimeSpan.Zero || _lastRequest is not { } last
                 ? TimeSpan.Zero
-                : _lastRequest + _pace - DateTimeOffset.UtcNow;
+                : last + _pace - Now;
             // Claim the slot before releasing, so concurrent callers (a library host
             // running several conversations through one client) queue instead of all
             // measuring against the same stale timestamp.
-            _lastRequest = DateTimeOffset.UtcNow + (wait > TimeSpan.Zero ? wait : TimeSpan.Zero);
+            _lastRequest = Now + (wait > TimeSpan.Zero ? wait : TimeSpan.Zero);
         }
         finally
         {
@@ -481,7 +485,7 @@ internal sealed class RetryingChatClient : DelegatingChatClient
         await _paceGate.WaitAsync(cancellationToken);
         try
         {
-            var now = DateTimeOffset.UtcNow;
+            var now = Now;
             if (now > _lastRequest) _lastRequest = now;
         }
         finally

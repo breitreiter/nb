@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using nb;
@@ -9,6 +10,9 @@ namespace nb.Tests;
 // knobs tiny (1s cap, ~2s budget) so the real waits stay in the test's patience.
 public class RetryingChatClientTests
 {
+    // Monotonic, as the pacer measures: the wall clock can step mid-test.
+    private static TimeSpan Now => Stopwatch.GetElapsedTime(0);
+
     private static IConfiguration Config(params (string Key, string Value)[] settings) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(settings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value)))
@@ -24,13 +28,13 @@ public class RetryingChatClientTests
     private sealed class ThrottlingChatClient(int failures) : IChatClient
     {
         public int Calls { get; private set; }
-        public List<DateTimeOffset> CallTimes { get; } = new();
+        public List<TimeSpan> CallTimes { get; } = new();
 
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages,
             ChatOptions? options = null, CancellationToken cancellationToken = default)
         {
             Calls++;
-            CallTimes.Add(DateTimeOffset.UtcNow);
+            CallTimes.Add(Now);
             if (Calls <= failures)
                 throw new InvalidOperationException("Wholesale rate limit exceeded for this gateway.");
             return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "ok")));
@@ -118,7 +122,7 @@ public class RetryingChatClientTests
         var client = Wrap(inner, ("RetryMaxDelaySeconds", "1"), ("RetryBudgetSeconds", "30"));
 
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]);
-        var afterFirstTurn = DateTimeOffset.UtcNow;
+        var afterFirstTurn = Now;
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "again")]);
 
         var gap = inner.CallTimes[^1] - afterFirstTurn;
