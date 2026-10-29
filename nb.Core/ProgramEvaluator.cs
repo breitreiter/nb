@@ -95,7 +95,15 @@ public sealed class ProgramEvaluator
     public async Task EvaluateAsync(IReadOnlyList<TranscriptEvent> program, CancellationToken cancellationToken = default)
     {
         foreach (var ev in program)
+        {
+            // A cancelled program stops where it is: no later run starts, or adds its prompt.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _conversation.SetOutcome(ExitReasons.Cancelled);
+                break;
+            }
             await EvaluateEventAsync(ev, cancellationToken);
+        }
 
         // Trailing turns with no run after them still join the built conversation.
         FlushTurns();
@@ -189,7 +197,13 @@ public sealed class ProgramEvaluator
             if (last.Length == 0) return;
 
             var options = OracleResolver.Options(_temperatureFor?.Invoke(OracleProvider ?? Provider));
-            var reply = await _conversation.SideCallAsync(OracleResolver.BuildPrompt(_sheet, last), options, cancellationToken, OracleClient());
+            ChatResponse reply;
+            try { reply = await _conversation.SideCallAsync(OracleResolver.BuildPrompt(_sheet, last), options, cancellationToken, OracleClient()); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _conversation.SetOutcome(ExitReasons.Cancelled);
+                return;
+            }
             var verdict = OracleResolver.ParseVerdict(reply, _sheet, _warnings);
             OracleVerdict = verdict.Raw;
 

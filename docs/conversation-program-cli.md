@@ -95,6 +95,7 @@ A high-contrast example (WCAG AAA on the standard Windows console background, #0
 | `2` | `provider_error` — the provider/model failed mid-turn. |
 | `3` | Aborted on a budget/limit — tool-call cap exhausted (`max_tool_calls`), a tool failed repeatedly (`tool_error_limit`), a token/wall-clock budget was spent (`token_budget` / `time_budget`), the provider throttled us past the retry budget (`rate_limited`), or the oracle's resolution budget ran out (`oracle_budget`). |
 | `4` | `approval_denied` — a tool needed approval and policy denied it. |
+| `130` | `cancelled` — the caller stopped the run. The bare CLI never produces it (a signal kills the process, with no trailer); a library host's token and, later, an ACP `session/cancel` do. |
 
 The fine-grained reason also rides on the transcript's `result` trailer
 (`exit_reason`). An unmatched tool call is **denied**, never prompted — grant what a run

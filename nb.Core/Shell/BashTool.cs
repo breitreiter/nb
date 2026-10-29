@@ -84,7 +84,8 @@ public class BashTool
     public async Task<ShellResult> ExecuteAsync(
         string command,
         string? cwd = null,
-        int? timeoutSeconds = null)
+        int? timeoutSeconds = null,
+        CancellationToken cancellationToken = default)
     {
         var workingDir = cwd ?? _env.ShellCwd;
         // The configured value is a *default*, not a ceiling. Math.Min made it both, so a
@@ -109,7 +110,9 @@ public class BashTool
         };
         ConfigureCommand(psi, command, workingDir);
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
+        // The caller's cancel stops the command as the timeout does; only the timeout is reported as one.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(timeout));
         using var process = new Process { StartInfo = psi };
 
         // One budget for the whole call, shared by both streams: a runaway producer is a
@@ -156,6 +159,8 @@ public class BashTool
                 try { await Task.WhenAll(stdoutTask, stderrTask); } catch { }
             }
         }
+        // The process tree is gone either way; a cancel is not a command result.
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Totals accumulated during the read, so they stay exact even though the lines
         // behind them were dropped as they arrived.

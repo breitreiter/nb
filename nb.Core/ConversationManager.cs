@@ -399,9 +399,13 @@ public class ConversationManager
         }
         catch (OperationCanceledException)
         {
-            // A caller-initiated cancel propagates (the CancellationToken contract);
-            // the wall-clock deadline instead ends the run cleanly as time_budget.
-            if (cancellationToken.IsCancellationRequested) throw;
+            // Both end the run cleanly: the caller's cancel as cancelled, with nothing said in
+            // the model's voice; the wall-clock deadline as time_budget, with a note saying so.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                LastOutcome = Transcript.ExitReasons.Cancelled;
+                return;
+            }
             var note = $"Stopped: the wall-clock budget ({_wallBudgetMs} ms) was reached.";
             Append(new AIChatMessage(ChatRole.Assistant, note));
             RenderMarkdown(note);
@@ -559,6 +563,13 @@ public class ConversationManager
                 {
                     foreach (var wireCall in message.Contents.OfType<FunctionCallContent>())
                     {
+                        // Once the run is stopping, every remaining call still gets a result, so
+                        // the transcript keeps its call/result pairing and replays as a seed.
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, StoppedBeforeToolFinished));
+                            continue;
+                        }
                         try
                         {
                             // A tool the surface didn't advertise (filtered by an mcp/tools
@@ -702,6 +713,10 @@ public class ConversationManager
                             // Increment tool call counter
                             _toolCallCount++;
                         }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            allToolResults.Add(ToolOutcome.Fail(wireCall.CallId, StoppedBeforeToolFinished));
+                        }
                         catch (Exception ex)
                         {
                             // Reported under the wire name: it is what the model called, and
@@ -748,6 +763,9 @@ public class ConversationManager
                     if (hoisted.Count > 0)
                         Append(new AIChatMessage(ChatRole.User, hoisted));
                 }
+
+                // A stop lands here as itself, before the failures it caused count as tool errors.
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Hard-abort the turn if any tool has hit its failure budget
                 if (_errorTracker.LimitReached(out var offendingTool))
@@ -849,6 +867,10 @@ public class ConversationManager
     }
 
 
+
+    // The result a tool call gets when the run stops under it (a cancel or the wall-clock
+    // budget). No model reads it: the run ends before another round.
+    private const string StoppedBeforeToolFinished = "Error: the run stopped before this tool finished.";
 
     private static void RenderMarkdown(string markdown) =>
         MarkdownRenderer.Render(markdown);

@@ -115,17 +115,6 @@ public class NbFacadeTests
     }
 
     [Fact]
-    public async Task CallerCancellation_PropagatesAsException()
-    {
-        // The CancellationToken passed to RunAsync is honored (it used to be dropped):
-        // an already-cancelled token surfaces as an OperationCanceledException.
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            Nb.Program().Run("hello").RunAsync(MockConfig(), Options(), cts.Token));
-    }
-
-    [Fact]
     public async Task WallClockBudget_AbortsWithTimeBudget()
     {
         // A 1ms wall-clock ceiling can't outlast the mock's per-call delay, so the run

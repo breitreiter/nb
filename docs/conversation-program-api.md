@@ -289,6 +289,7 @@ turn, or an approval denial come back as `ExitReason`/`ExitCode`:
 | `provider_error` | 2 | The provider/model failed mid-turn. |
 | `max_tool_calls` / `tool_error_limit` / `token_budget` / `time_budget` / `oracle_budget` | 3 | Aborted on a budget/limit (tool-call cap / repeated tool failure / token or wall-clock budget spent / answer-sheet resolutions exhausted). |
 | `approval_denied` | 4 | A tool needed approval and policy denied it. |
+| `cancelled` | 130 | The `CancellationToken` you passed to `RunAsync` was cancelled (below). |
 
 **Exceptions are for things that stop a run from happening at all:**
 - `NbStartupException` — the engine couldn't be assembled: no usable chat client
@@ -301,11 +302,15 @@ turn, or an approval denial come back as `ExitReason`/`ExitCode`:
   the previously selected client.
 - `TranscriptFormatException` — the program is malformed (an unpaired/ill-ordered
   fabricated tool round).
-- `OperationCanceledException` — the `CancellationToken` you passed to `RunAsync` was
-  cancelled. It is honored (it threads into the model call), so a `CancellationTokenSource(timeout)`
-  is a caller-side deadline. Note the distinction: **your** cancellation surfaces as this
-  exception, whereas the in-program `budget wall_ms` deadline is a clean `time_budget`
-  outcome on the result.
+
+**Cancellation is an outcome too.** The `CancellationToken` you pass to `RunAsync` reaches
+the model call and the bash tool, which kills the command's process tree. The run ends with
+`ExitReason` `cancelled` (exit code 130) and a transcript that still reads: every tool call
+the model made has a result, the ones the stop interrupted saying
+`Error: the run stopped before this tool finished.`, and no later `run` in the program
+starts. So a `CancellationTokenSource(timeout)` is a caller-side deadline, told apart from
+the in-program `budget wall_ms` by its reason (`cancelled`, not `time_budget`). Before
+2026-10-28 a cancel surfaced as `OperationCanceledException` instead.
 
 ```csharp
 try

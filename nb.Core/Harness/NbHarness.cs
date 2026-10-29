@@ -181,7 +181,7 @@ public sealed class NbHarness
         {
             case "bash" when Bash != null:
                 return await HandleBashToolCall(callId, Str(arguments, "command"), Str(arguments, "description"),
-                    Int(arguments, "timeout_seconds"));
+                    Int(arguments, "timeout_seconds"), cancellationToken);
 
             case "read_file" when ReadFile != null:
                 return HandleReadFileToolCall(callId, Str(arguments, "path"),
@@ -491,7 +491,7 @@ public sealed class NbHarness
     /// requested timeout in *seconds* (bugs/Bash_Advertises_A_Timeout_It_Ignores.md).
     /// </summary>
     public async Task<ToolOutcome> HandleBashToolCall(string callId, string command, string description,
-        int? timeoutSeconds = null)
+        int? timeoutSeconds = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -513,7 +513,7 @@ public sealed class NbHarness
                     _ => $"• bash: {display}",
                 };
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreMuted}]{line}[/]");
-                return await ExecuteBashCommand(callId, command, timeoutSeconds);
+                return await ExecuteBashCommand(callId, command, timeoutSeconds, cancellationToken);
             }
 
             // Nothing on the ladder allowed it, so it is refused. The classification and
@@ -533,14 +533,14 @@ public sealed class NbHarness
             return Deny(callId, $"bash ({classified.Category}): {classified.DisplayText}",
                 DenyRung, BashRemedy(command), miss);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Approval error: {Markup.Escape(ex.Message)}[/]");
             return ToolOutcome.Fail(callId, $"Error during command approval: {ex.Message}");
         }
     }
 
-    private async Task<ToolOutcome> ExecuteBashCommand(string callId, string command, int? timeoutSeconds = null)
+    private async Task<ToolOutcome> ExecuteBashCommand(string callId, string command, int? timeoutSeconds, CancellationToken cancellationToken)
     {
         if (Bash == null)
         {
@@ -549,7 +549,7 @@ public sealed class NbHarness
 
         try
         {
-            var result = await Bash.ExecuteAsync(command, cwd: null, timeoutSeconds);
+            var result = await Bash.ExecuteAsync(command, cwd: null, timeoutSeconds, cancellationToken);
 
             var outputStr = FormatShellResult(result);
 
@@ -562,7 +562,7 @@ public sealed class NbHarness
             // outcome the model should read, matching the prior "Error:"-prefix rule.
             return ToolOutcome.Ok(callId, outputStr);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             AnsiConsole.MarkupLine($"[{UIColors.SpectreError}]Error: {Markup.Escape(ex.Message)}[/]");
             return ToolOutcome.Fail(callId, $"Error executing command: {ex.Message}");

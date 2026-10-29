@@ -312,6 +312,17 @@ as bare cells under `runs/` hold JSONL. This is scope.md's "one reader".
 
 ### 4. Cancellation that ends cleanly (½–1 day, no interop change)
 
+**Done 2026-10-28.** `cancelled` exits **130**, the shell's "interrupted", since the run
+neither finished nor failed. Beyond the two bullets below: every tool call still gets a
+result when the run stops under it (`Error: the run stopped before this tool finished.`),
+so a cancelled transcript keeps its call/result pairing and replays as a seed; a stop is
+classified before the tool-error tracker can count the failures it caused; no later `run`
+starts; and a cancel during the oracle's side call ends `cancelled` too. The wall-clock
+budget rides the same token, so `time_budget` now also kills a running command instead of
+waiting out its timeout. **Proctor needed nothing:** it has no ending map, and reads
+`exit_reason` as an opaque string (checks compare it, the report groups by it), so the
+proctor side named below did not exist.
+
 ACP's `session/cancel` needs it, and library hosts are owed it already.
 
 - A caller's cancel ends the run with a new exit reason, `cancelled`, instead

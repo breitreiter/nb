@@ -36,12 +36,20 @@ public static class ExitReasons
     /// </summary>
     public const string OracleMiss = "oracle_miss";           // 0: asked something the sheet does not answer
 
+    /// <summary>
+    /// The caller cancelled the run (a library host's token, ACP's <c>session/cancel</c>).
+    /// Exit code <b>130</b>, the shell's "interrupted": the run neither finished nor failed,
+    /// and a caller branching on the code must not read it as either.
+    /// </summary>
+    public const string Cancelled = "cancelled";              // 130: the caller stopped the run
+
     public static int ToExitCode(string reason) => reason switch
     {
         Ok or OracleMiss => 0,
         ProviderError => 2,
         MaxToolCalls or ToolErrorLimit or TokenBudget or TimeBudget or RateLimited or OracleBudget => 3,
         ApprovalDenied => 4,
+        Cancelled => 130,
         _ => 0,
     };
 }
