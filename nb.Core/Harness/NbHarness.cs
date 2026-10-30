@@ -460,14 +460,17 @@ public sealed class NbHarness
     /// <summary>
     /// The refusal the model reads. nb's own is **terminal**: what was refused, which rule
     /// refused it, and that retrying is pointless because nothing in the run will change.
+    /// The verdict is scoped to the call: unscoped, a model reads it as the whole tool
+    /// being off and stops using what it is allowed (breitreiter/nb#2).
     /// Nobody is going to say yes mid-run, so a refusal implying otherwise buys wasted
     /// turns. Naming the deciding rule follows qwen-code, which puts its matching deny
     /// rule in the string the model reads.
     /// </summary>
     private static string RefusalText(string tool, string rung, string remedy, string? miss = null) =>
         $"Error: {tool} was denied — {Because(rung)}.{(miss is null ? "" : $" Near miss: {miss}.")} " +
-        "This will not succeed on retry; nothing in this run " +
-        $"will grant it. {(IsDirective(remedy) ? $"It would require this directive in the program: {remedy}." : remedy)} " +
+        "Retrying this call will not succeed; nothing in this run will grant it. " +
+        "Each call is decided on its own, so other calls the policy allows still run. " +
+        $"{(IsDirective(remedy) ? $"It would require this directive in the program: {remedy}." : remedy)} " +
         "Continue with what you are authorized to do, or report that the operation is not permitted.";
 
     /// <summary>The <c>approval bash</c> line that would have allowed this command, keyed to its program.</summary>

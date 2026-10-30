@@ -96,7 +96,25 @@ public class ApprovalDenialTests
         var text = DenialText(result);
         Assert.Contains("approval bash cat *", text);
         // …and says retrying is pointless, so the model routes around instead of looping.
-        Assert.Contains("will not succeed on retry", text);
+        Assert.Contains("Retrying this call will not succeed", text);
+    }
+
+    /// <summary>
+    /// The terminal verdict is about this call, not the tool. "Nothing in this run will
+    /// grant it", unscoped, read to Haiku as bash being off for the run: after one denied
+    /// `cd /app &amp;&amp; find`, it stopped calling bash at all, `dotnet test` included, which
+    /// the program allowed (breitreiter/nb#2).
+    /// </summary>
+    [Fact]
+    public async Task Denial_SaysOtherCallsAreDecidedOnTheirOwn()
+    {
+        var result = await BashOnly()
+            .Run("MOCK:tool=bash cat /etc/passwd")
+            .RunAsync(MockConfig(), Options());
+
+        var text = DenialText(result);
+        Assert.Contains("Each call is decided on its own", text);
+        Assert.DoesNotContain("will not succeed on retry; nothing in this run will grant it", text);
     }
 
     /// <summary>
