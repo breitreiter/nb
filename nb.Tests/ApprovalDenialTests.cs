@@ -118,6 +118,41 @@ public class ApprovalDenialTests
     }
 
     /// <summary>
+    /// Saying other calls may run was not enough: Haiku still wrote "the sandbox denied
+    /// every bash call" after one denied loop. A bash refusal names the patterns that do
+    /// allow commands, so what is still usable is a fact in the string, not an inference
+    /// (breitreiter/nb#2).
+    /// </summary>
+    [Fact]
+    public async Task BashDenial_NamesThePatternsThatAllowCommands()
+    {
+        var result = await BashOnly()
+            .Add(new[]
+            {
+                new ApprovalEvent { Key = "default", Value = "deny" },
+                new ApprovalEvent { Key = "bash", Value = "dotnet *" },
+                new ApprovalEvent { Key = "bash", Value = "git status" },
+            })
+            .Run("MOCK:tool=bash for f in *.cs; do cat $f; done")
+            .RunAsync(MockConfig(), Options());
+
+        var text = DenialText(result);
+        Assert.Contains("Bash commands this run allows: `dotnet *`, `git status`.", text);
+        Assert.Contains("A pattern matches the whole command line, from its first word.", text);
+    }
+
+    /// <summary>With no patterns there is nothing to name, and the sentence is left out rather than listing none.</summary>
+    [Fact]
+    public async Task BashDenial_WithNoPatterns_NamesNone()
+    {
+        var result = await BashOnly()
+            .Run("MOCK:tool=bash cat /etc/passwd")
+            .RunAsync(MockConfig(), Options());
+
+        Assert.DoesNotContain("Bash commands this run allows", DenialText(result));
+    }
+
+    /// <summary>
     /// The remedy is keyed to the command's own program, not a generic placeholder — a
     /// human is meant to paste the line, so it has to be the line they actually need.
     /// </summary>

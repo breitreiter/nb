@@ -83,6 +83,9 @@ public sealed class ApprovalPolicy
     public void SetDefault(ApprovalDefault d) => _default = d;
     public void AddBashPattern(string pattern) => _bashPatterns.Add(pattern);
 
+    /// <summary>The <c>approval bash</c> patterns as written, for a refusal that names what is still allowed.</summary>
+    public IReadOnlyList<string> BashPatterns => _bashPatterns.Patterns;
+
     /// <summary>Set the bash sandbox mode (Phase 5.3). Availability is the caller's
     /// responsibility to probe (<see cref="BwrapSandbox.IsAvailable"/>) before a run.</summary>
     public void SetSandbox(SandboxMode mode, bool allowNet = false)

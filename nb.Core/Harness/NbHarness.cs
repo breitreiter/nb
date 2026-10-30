@@ -432,7 +432,8 @@ public sealed class NbHarness
     /// grammar is <c>bash | mcp | search | fetch | default | sandbox</c>, and there is no
     /// <c>approval path</c>.
     /// </param>
-    public ToolOutcome Deny(string callId, string tool, string rung, string remedy, string? miss = null)
+    /// <param name="allowed">For the model only: what this run does allow, so one refusal is not read as the whole tool being off.</param>
+    public ToolOutcome Deny(string callId, string tool, string rung, string remedy, string? miss = null, string? allowed = null)
     {
         // The ledger keeps the bare rung as the leading token so `approval_reason` stays
         // greppable by prefix — `no-match` still matches `no-match (…)`. The detail is
@@ -446,7 +447,7 @@ public sealed class NbHarness
             Console.Error.WriteLine($"       near miss: {miss}");
         Console.Error.WriteLine(pasteable ? $"       authorize with: {remedy}" : $"       {remedy}");
 
-        return ToolOutcome.Fail(callId, RefusalText(tool, rung, remedy, miss));
+        return ToolOutcome.Fail(callId, RefusalText(tool, rung, remedy, miss, allowed));
     }
 
     /// <summary>Why the call was refused, in nb's own terms. Shared by both audiences.</summary>
@@ -466,12 +467,29 @@ public sealed class NbHarness
     /// turns. Naming the deciding rule follows qwen-code, which puts its matching deny
     /// rule in the string the model reads.
     /// </summary>
-    private static string RefusalText(string tool, string rung, string remedy, string? miss = null) =>
+    private static string RefusalText(string tool, string rung, string remedy, string? miss = null, string? allowed = null) =>
         $"Error: {tool} was denied — {Because(rung)}.{(miss is null ? "" : $" Near miss: {miss}.")} " +
         "Retrying this call will not succeed; nothing in this run will grant it. " +
         "Each call is decided on its own, so other calls the policy allows still run. " +
+        (allowed is null ? "" : $"{allowed} ") +
         $"{(IsDirective(remedy) ? $"It would require this directive in the program: {remedy}." : remedy)} " +
         "Continue with what you are authorized to do, or report that the operation is not permitted.";
+
+    private const int AllowedBashShown = 20;
+
+    /// <summary>
+    /// The bash patterns that do allow commands, named in the refusal: told only that other
+    /// calls may run, Haiku still concluded bash was off for the run (breitreiter/nb#2).
+    /// Null with none configured. The safe-command list and trust are not named; under
+    /// default deny, where this matters most, they do not apply.
+    /// </summary>
+    private static string? AllowedBash(IReadOnlyList<string> patterns)
+    {
+        if (patterns.Count == 0) return null;
+        var shown = string.Join(", ", patterns.Take(AllowedBashShown).Select(p => $"`{p}`"));
+        var more = patterns.Count > AllowedBashShown ? $", and {patterns.Count - AllowedBashShown} more" : "";
+        return $"Bash commands this run allows: {shown}{more}. A pattern matches the whole command line, from its first word.";
+    }
 
     /// <summary>The <c>approval bash</c> line that would have allowed this command, keyed to its program.</summary>
     private static string BashRemedy(string command)
@@ -534,7 +552,7 @@ public sealed class NbHarness
                 AnsiConsole.MarkupLine($"[{UIColors.SpectreWarning}]  Warning: {classified.DangerReason}[/]");
 
             return Deny(callId, $"bash ({classified.Category}): {classified.DisplayText}",
-                DenyRung, BashRemedy(command), miss);
+                DenyRung, BashRemedy(command), miss, AllowedBash(_approvalPolicy.BashPatterns));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

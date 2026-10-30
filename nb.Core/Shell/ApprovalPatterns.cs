@@ -6,6 +6,7 @@ public class ApprovalPatterns
 {
     private readonly List<string> _exactPatterns = new();
     private readonly List<Regex> _globPatterns = new();
+    private readonly List<string> _all = new();
 
     public ApprovalPatterns()
     {
@@ -21,6 +22,7 @@ public class ApprovalPatterns
 
     public void Add(string pattern)
     {
+        _all.Add(pattern);
         if (pattern.Contains('*'))
         {
             // Convert glob to regex. Singleline so `.` crosses a newline: without it
@@ -62,6 +64,9 @@ public class ApprovalPatterns
 
         return false;
     }
+
+    /// <summary>Every pattern as written, in the order added.</summary>
+    public IReadOnlyList<string> Patterns => _all;
 
     public int Count => _exactPatterns.Count + _globPatterns.Count;
 
