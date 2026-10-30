@@ -106,6 +106,55 @@ public class ProctorContractTests
             Assert.True(json["usage"]?.AsObject().ContainsKey(field) == true, $"trailer usage lacks '{field}', which proctor reads");
     }
 
+    /// <summary>
+    /// Proctor's simulated user, <c>Harbor/oracle_user.py</c>, reads <c>nb --judge</c>'s line: <c>verdict</c>
+    /// (<c>next_step</c>: <c>hit</c>, <c>done</c>, <c>miss</c>), <c>keys</c> and <c>answer</c> on a hit, and
+    /// <c>usage</c> (<c>input</c>, <c>output</c>), which <c>Run/Ingest.cs</c> <c>Oracle</c> sums into the manifest.
+    /// </summary>
+    [Fact]
+    public async Task Judge_PrintsTheFieldsProctorsSimulatedUserReads()
+    {
+        var result = await Nb.JudgeAsync(MockConfig(), OracleSheet, "Which target? MOCK:oracle=deploy-target", null, Options());
+
+        var json = JsonNode.Parse(result.ToJson())!.AsObject();
+        Assert.Equal("hit", json["verdict"]!.GetValue<string>());
+        Assert.Equal(["deploy-target"], json["keys"]!.AsArray().Select(k => k!.GetValue<string>()));
+        Assert.Equal("Staging only.", json["answer"]!.GetValue<string>());
+        foreach (var field in new[] { "input", "output" })
+            Assert.True(json["usage"]?.AsObject().ContainsKey(field) == true, $"--judge usage lacks '{field}', which proctor reads");
+        foreach (var (rider, verdict) in new[] { ("DONE", "done"), ("MISS", "miss") })
+            Assert.Equal(verdict, JsonNode.Parse((await Nb.JudgeAsync(MockConfig(), OracleSheet, $"MOCK:oracle={rider}", null, Options())).ToJson())!["verdict"]!.GetValue<string>());
+    }
+
+    /// <summary>
+    /// <c>Harbor/oracle_user.py</c> <c>judged</c> judges a prompt only when its ACP answer is <c>end_turn</c>
+    /// with <c>_meta.nb.exit_reason</c> <c>ok</c> (the <c>_meta</c> shape is <c>AcpServerTests</c>'); and an
+    /// <c>oracle_budget</c> nb ends itself is not one it would judge again.
+    /// </summary>
+    [Fact]
+    public void AcpStopReasons_AreTheOnesProctorsSimulatedUserJudgesBy()
+    {
+        Assert.Equal("end_turn", nb.Acp.AcpServer.StopReason(ExitReasons.Ok));
+        Assert.NotEqual("end_turn", nb.Acp.AcpServer.StopReason(ExitReasons.OracleBudget));
+    }
+
+    /// <summary>
+    /// Proctor's <c>UserTurn.Source</c> and <c>Keys</c> (<c>Grade/Transcript.cs</c>), which the <c>oracle_*</c>
+    /// checks read, come from an oracle turn's ATIF user step: <c>extra {source: "oracle", keys}</c>. Proctor's
+    /// <c>Ingest.Oracle</c> writes the same shape for a bridged run, so the two paths grade alike.
+    /// </summary>
+    [Fact]
+    public async Task AnOracleTurn_IsAUserStepWithSourceAndKeys_InAtif()
+    {
+        var r = await Nb.Program().Oracle(OracleSheet).Run("MOCK:response=Which target? MOCK:oracle=deploy-target").RunAsync(MockConfig(), Options());
+
+        var answer = r.Trajectory()["steps"]!.AsArray().OfType<JsonObject>()
+            .Single(s => s["source"]!.GetValue<string>() == "user" && s["extra"] is not null);
+        Assert.Equal("""{"source":"oracle","keys":["deploy-target"]}""", answer["extra"]!.ToJsonString());
+    }
+
+    private const string OracleSheet = "## deploy-target\nStaging only.\n";
+
     private static IConfiguration MockConfig() =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
